@@ -30,7 +30,20 @@ export type Coupon = {
   validFrom: string; // YYYY-MM-DD
   validTill: string | null; // YYYY-MM-DD, null: no expiry
   isPaused: boolean;
+  cartTypes?: CouponCartType[]; // the carts it can be used in (coupons.cart_types; empty: none)
 };
+
+/*
+  Which carts a coupon can be used in, chosen on Coupons & offers → "Coupons in the cart":
+  only one-time products, only a milk plan, or a milk plan with one-time products.
+*/
+export type CouponCartType = "one-time" | "subscription" | "subscription-and-one-time";
+
+export const COUPON_CART_TYPES: { key: CouponCartType; label: string; note: string }[] = [
+  { key: "one-time", label: "One-time products", note: "Carts with only one-time products" },
+  { key: "subscription", label: "Subscription", note: "Carts with only a milk plan" },
+  { key: "subscription-and-one-time", label: "Subscription + one-time", note: "A milk plan with one-time products" },
+];
 
 export type Redemption = {
   id: string;
@@ -65,6 +78,7 @@ type CouponRow = {
   valid_from: string;
   valid_till: string | null;
   is_paused: boolean;
+  cart_types: CouponCartType[];
 };
 
 type RedemptionRow = {
@@ -91,6 +105,7 @@ function toCoupon(row: CouponRow): Coupon {
     validFrom: row.valid_from,
     validTill: row.valid_till,
     isPaused: row.is_paused,
+    cartTypes: row.cart_types ?? [],
   };
 }
 
@@ -105,6 +120,7 @@ function toRow(coupon: Partial<Coupon>) {
   if (coupon.validFrom !== undefined) row.valid_from = coupon.validFrom;
   if ("validTill" in coupon) row.valid_till = coupon.validTill ?? null;
   if (coupon.isPaused !== undefined) row.is_paused = coupon.isPaused;
+  if (coupon.cartTypes !== undefined) row.cart_types = coupon.cartTypes;
   return row;
 }
 
@@ -210,6 +226,23 @@ export function removeCoupon(code: string) {
   );
 }
 
+// Coupons in the cart: puts coupons in a cart type's list, or takes one out (saved in coupons.cart_types)
+export function addCouponsToCartType(codes: string[], cartType: CouponCartType) {
+  for (const coupon of coupons) {
+    if (!codes.includes(coupon.code) || coupon.cartTypes?.includes(cartType)) continue;
+    updateCoupon(coupon.code, { cartTypes: [...(coupon.cartTypes ?? []), cartType] });
+  }
+}
+
+export function removeCouponFromCartType(code: string, cartType: CouponCartType) {
+  const coupon = coupons.find((existing) => existing.code === code);
+  if (coupon) updateCoupon(code, { cartTypes: (coupon.cartTypes ?? []).filter((existing) => existing !== cartType) });
+}
+
+export function isCouponForCartType(coupon: Coupon, cartType: CouponCartType) {
+  return Boolean(coupon.cartTypes?.includes(cartType));
+}
+
 function subscribe(onChange: () => void) {
   listeners.add(onChange);
   startFollowingCoupons();
@@ -272,3 +305,34 @@ export function useCouponCheck(code: string | null, cart: CouponCart): CouponChe
   }, [cartKey]);
   return checked && checked.key === cartKey ? checked.result : null;
 }
+
+// A coupon in the cart's drop-down, with why it can't be used on this cart (no problem: it works)
+export type CartCouponChoice = { code: string; description: string; problem: string | null };
+
+/*
+  The cart's coupon drop-down: the running coupons the owner put in this cart's list (Coupons & offers →
+  Coupons in the cart), each checked by the database on this cart. Only for logged-in customers; other codes
+  stay private. Read again whenever the cart changes; empty until the database answers.
+*/
+export function useCartCoupons(cart: CouponCart): CartCouponChoice[] {
+  const cartKey = JSON.stringify(cart);
+  const [listed, setListed] = useState<{ key: string; choices: CartCouponChoice[] } | null>(null);
+  useEffect(() => {
+    let isCurrent = true;
+    void createClient()
+      .rpc("cart_coupons", { cart })
+      .then(({ data, error }) => {
+        if (error) console.error("Could not read the cart's coupons", error);
+        const rows = Array.isArray(data) ? (data as { code: string; description: string; error: string | null }[]) : [];
+        if (isCurrent) setListed({ key: cartKey, choices: rows.map((row) => ({ code: row.code, description: row.description, problem: row.error })) });
+      });
+    return () => {
+      isCurrent = false;
+    };
+    // cartKey holds the cart
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartKey]);
+  return listed?.choices ?? EMPTY_CART_COUPONS;
+}
+
+const EMPTY_CART_COUPONS: CartCouponChoice[] = [];

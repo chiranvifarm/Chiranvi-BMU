@@ -214,6 +214,7 @@ export function AdminPageTop({
   rangeTo,
   onRangeChange,
   onExport,
+  beforeExport,
   belowSearch,
   isBellFirst = false,
   headerEnd,
@@ -230,6 +231,8 @@ export function AdminPageTop({
   rangeTo?: Date;
   onRangeChange?: (from: Date, to: Date) => void;
   onExport?: () => void;
+  // Shown just before Export (Products: the owner's "Set delivery charge" button)
+  beforeExport?: ReactNode;
   // Shown on the left of the second row instead of nothing (Products: the category tabs)
   belowSearch?: ReactNode;
   // Roles & permissions only: the bell before the search, and the owner's profile chip at the end
@@ -283,7 +286,7 @@ export function AdminPageTop({
         </div>
       </div>
 
-      {(hasRange || onExport || belowSearch) && (
+      {(hasRange || onExport || beforeExport || belowSearch) && (
         <div className={`${dashboardStyles["admin-dashboard-range-row"]} ${belowSearch ? styles["admin-top-row-with-tabs"] : ""}`}>
           {belowSearch && <div className={styles["admin-top-row-left"]}>{belowSearch}</div>}
           {hasRange && (
@@ -316,6 +319,7 @@ export function AdminPageTop({
               <span className={dashboardStyles["admin-range-label"]}>{formatDateRange(rangeFrom, rangeTo)}</span>
             </>
           )}
+          {beforeExport}
           {onExport && (
             <button type="button" className={dashboardStyles["admin-export-button"]} onClick={onExport}>
               <svg viewBox="0 0 24 24" aria-hidden="true">

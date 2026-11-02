@@ -57,6 +57,8 @@ import {
 import dashboardStyles from "./admin-dashboard.module.css";
 import sharedStyles from "./admin-shared.module.css";
 import styles from "./admin-products-page.module.css";
+import AdminDeliveryChargesPopup from "./admin-delivery-charges-popup";
+import deliveryPopupStyles from "./admin-delivery-charges-popup.module.css";
 
 /*
   Products & pricing (/admin/products), from the design 09-products-pricing: every product as a card
@@ -302,6 +304,10 @@ function ProductsPage() {
   // "Arrange product rows": the Fast selling / You may also like rows under the product pages
   const [isArrangingRows, setIsArrangingRows] = useState(false);
   const { showToast, toast } = useAdminToast();
+  // "Set delivery charge" (owner only): delivery settings are kept per product page (how the cart finds a product)
+  const isPanelOwner = useIsPanelOwner();
+  const [isSettingDelivery, setIsSettingDelivery] = useState(false);
+  const deliveryProducts = products.map((product) => ({ ...product, productId: findPageOfCard(productPages, product.productId)?.slug ?? product.productId }));
 
   const words = searchText.trim().toLowerCase();
   const matching = products.filter(
@@ -414,6 +420,18 @@ function ProductsPage() {
         actionLabel="Add product"
         onAction={() => setIsAddingProduct(true)}
         onExport={exportProducts}
+        beforeExport={
+          isPanelOwner ? (
+            <button type="button" className={deliveryPopupStyles["set-delivery-charge-button"]} onClick={() => setIsSettingDelivery(true)}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 7h11v9H3z" />
+                <path d="M14 10h4l3 3v3h-7" />
+                <path d="M7 19a2 2 0 1 0 0-.01M17 19a2 2 0 1 0 0-.01" />
+              </svg>
+              Set delivery charge
+            </button>
+          ) : null
+        }
         belowSearch={
           <AdminFilterTabs
             label="Show category"
@@ -666,6 +684,17 @@ function ProductsPage() {
       )}
 
       {isArrangingRows && <ProductRowsDialog onClose={() => setIsArrangingRows(false)} showToast={showToast} />}
+
+      {isSettingDelivery && (
+        <AdminDeliveryChargesPopup
+          products={deliveryProducts}
+          onClose={() => setIsSettingDelivery(false)}
+          onSaved={(message) => {
+            setIsSettingDelivery(false);
+            showToast(message);
+          }}
+        />
+      )}
 
       {toast}
     </div>

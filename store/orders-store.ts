@@ -81,6 +81,7 @@ export type CheckoutDetails = {
   paymentMethod?: OrderPaymentMethod;
   subscription?: OrderSubscription;
   planOrderNumber?: string; // the plan placed just before in the same checkout (these items then get free delivery)
+  cartType?: "subscription" | "subscription-and-one-time"; // a plan's order: alone, or with one-time items (which coupon list)
 };
 
 const ORDERS_STORAGE_KEY = "chiranvi-orders";

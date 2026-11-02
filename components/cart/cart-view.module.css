@@ -1042,6 +1042,13 @@
   opacity: 0.5;
 }
 
+/* The cart took today's prices from the database: a calm note in dark green, not an error */
+.checkout-prices-updated-note {
+  margin-top: calc(8 * var(--checkout-design-pixel));
+  font-size: calc(12 * var(--checkout-design-pixel));
+  color: #1f4d2e;
+}
+
 /* Pay now didn't go through (the database didn't take the order): same red as the coupon error */
 .checkout-place-order-error {
   margin-top: calc(8 * var(--checkout-design-pixel));

@@ -1,13 +1,18 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 /*
-  Coupons and offers, made in the Chiranvi Panel (Coupons & offers page), until the database is
-  connected; kept here so the customer site's offers can read the same list later. Saved in this
-  browser. No wallet: rewards are discounts on orders or plans.
+  Coupons and offers, saved in the Supabase "coupons" and "coupon_redemptions" tables
+  (supabase/migrations/0011_server_prices_and_coupons.sql). No wallet: rewards are discounts on orders or plans.
+  - The Chiranvi Panel (Coupons & offers page) reads and changes them, by the staff member's role
+    (Coupons → View / Create / Edit / Delete). Customers can't read the list, so codes stay private.
+  - Checkout asks the database whether a code works on the cart and how much it takes off (check_coupon);
+    the order itself works the discount out again in the database (place_order), which also counts the use
+    and records the redemption. So a discount can't be made up in a browser.
   - Status comes from the dates, the use limit and the pause switch: Active, Scheduled (starts later),
     Paused, Expired (ended or fully used).
-  - Redemptions: who used which coupon on which order. The first time, sample redemptions are made to
-    match each coupon's use count.
+  The list is read when the panel needs it and again when the window comes back into focus. A change shows
+  at once and is then saved; if the database refuses it, the list is read again.
 */
 
 export type CouponKind = "flat" | "percent" | "free-days" | "referral";
@@ -32,7 +37,7 @@ export type Redemption = {
   code: string;
   customerName: string;
   area: string;
-  orderNumber: string;
+  orderNumber: string; // #CF-60004
   redeemedAt: string; // ISO date and time
   discount: number; // ₹
   orderValue: number; // ₹ before the discount
@@ -47,129 +52,130 @@ export const COUPON_KINDS: { key: CouponKind; label: string }[] = [
 
 export const COUPON_APPLIES_TO = ["All products", "Milk", "Milk plans", "Paneer", "Ghee & butter", "Others"];
 
-const COUPONS_KEY = "chiranvi-coupons";
-const REDEMPTIONS_KEY = "chiranvi-coupon-redemptions";
+// The rows as the database keeps them
+type CouponRow = {
+  code: string;
+  description: string;
+  kind: CouponKind;
+  value: number | string;
+  min_order: number | string | null;
+  applies_to: string;
+  usage_limit: number | null;
+  used: number;
+  valid_from: string;
+  valid_till: string | null;
+  is_paused: boolean;
+};
+
+type RedemptionRow = {
+  id: string;
+  code: string;
+  order_number: string;
+  customer_name: string;
+  area: string;
+  discount_paise: number;
+  order_value_paise: number;
+  redeemed_at: string;
+};
+
+function toCoupon(row: CouponRow): Coupon {
+  return {
+    code: row.code,
+    description: row.description,
+    kind: row.kind,
+    value: Number(row.value),
+    minOrder: row.min_order === null ? undefined : Number(row.min_order),
+    appliesTo: row.applies_to,
+    usageLimit: row.usage_limit,
+    used: row.used,
+    validFrom: row.valid_from,
+    validTill: row.valid_till,
+    isPaused: row.is_paused,
+  };
+}
+
+function toRow(coupon: Partial<Coupon>) {
+  const row: Partial<CouponRow> = {};
+  if (coupon.description !== undefined) row.description = coupon.description;
+  if (coupon.kind !== undefined) row.kind = coupon.kind;
+  if (coupon.value !== undefined) row.value = coupon.value;
+  if ("minOrder" in coupon) row.min_order = coupon.minOrder ?? null;
+  if (coupon.appliesTo !== undefined) row.applies_to = coupon.appliesTo;
+  if ("usageLimit" in coupon) row.usage_limit = coupon.usageLimit ?? null;
+  if (coupon.validFrom !== undefined) row.valid_from = coupon.validFrom;
+  if ("validTill" in coupon) row.valid_till = coupon.validTill ?? null;
+  if (coupon.isPaused !== undefined) row.is_paused = coupon.isPaused;
+  return row;
+}
+
+function toRedemption(row: RedemptionRow): Redemption {
+  return {
+    id: row.id,
+    code: row.code,
+    customerName: row.customer_name,
+    area: row.area,
+    orderNumber: `#${row.order_number}`,
+    redeemedAt: row.redeemed_at,
+    discount: row.discount_paise / 100,
+    orderValue: row.order_value_paise / 100,
+  };
+}
 
 function dayKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function daysFromToday(days: number) {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  return dayKey(date);
-}
-
-function startingCoupons(): Coupon[] {
-  const today = new Date();
-  const monthEnd = dayKey(new Date(today.getFullYear(), today.getMonth() + 1, 0));
-  const monthStart = dayKey(new Date(today.getFullYear(), today.getMonth(), 1));
-  const lastMonthEnd = dayKey(new Date(today.getFullYear(), today.getMonth(), 0));
-  const lastMonthStart = dayKey(new Date(today.getFullYear(), today.getMonth() - 1, 1));
-  return [
-    { code: "FIRST50", description: "₹50 off the first order", kind: "flat", value: 50, appliesTo: "All products", usageLimit: 200, used: 86, validFrom: monthStart, validTill: monthEnd, isPaused: false },
-    { code: "SUB50", description: "₹50 off a 3-month milk plan", kind: "flat", value: 50, appliesTo: "Milk plans", usageLimit: 300, used: 31, validFrom: monthStart, validTill: monthEnd, isPaused: false },
-    { code: "A2TRY", description: "First 3 days of A2 milk free", kind: "free-days", value: 3, appliesTo: "Milk", usageLimit: 50, used: 21, validFrom: monthStart, validTill: daysFromToday(24), isPaused: false },
-    { code: "REFER100", description: "₹100 for you and your friend", kind: "referral", value: 100, appliesTo: "All products", usageLimit: null, used: 12, validFrom: "2026-01-01", validTill: null, isPaused: false },
-    { code: "DIWALI10", description: "10% off ghee and paneer", kind: "percent", value: 10, appliesTo: "Ghee & butter", usageLimit: 150, used: 64, validFrom: monthStart, validTill: daysFromToday(12), isPaused: false },
-    { code: "MONSOON20", description: "20% off curd combo", kind: "percent", value: 20, appliesTo: "Others", usageLimit: 120, used: 120, validFrom: lastMonthStart, validTill: lastMonthEnd, isPaused: false },
-  ];
-}
-
-const sampleCustomers: [string, string][] = [
-  ["Naveen Reddy", "Kengeri"],
-  ["Sneha Kulkarni", "Uttarahalli"],
-  ["Mahesh B", "Vijayanagar"],
-  ["Deepa S", "Banashankari"],
-  ["Rahul Jain", "JP Nagar"],
-  ["Anitha R", "Basavanagudi"],
-  ["Suresh Gowda", "Kengeri"],
-  ["Meena Iyer", "Uttarahalli"],
-  ["Karthik N", "Vijayanagar"],
-  ["Divya Rao", "Banashankari"],
-  ["Harish Patil", "JP Nagar"],
-  ["Lakshmi Devi", "RR Nagar"],
-  ["Arjun Shetty", "Jayanagar"],
-  ["Kavya M", "Basavanagudi"],
-];
-
-// What a coupon takes off an order of this value
-export function getDiscount(coupon: Pick<Coupon, "kind" | "value">, orderValue: number) {
-  if (coupon.kind === "percent") return Math.round((orderValue * coupon.value) / 100);
-  if (coupon.kind === "free-days") return coupon.value * 96; // A2 milk 1 L a day
-  return Math.min(coupon.value, orderValue);
-}
-
-// Each coupon's uses spread over its dates (newest first), one order number per redemption
-function makeRedemptions(coupons: Coupon[]): Redemption[] {
-  const redemptions: Redemption[] = [];
-  const now = new Date();
-  let count = 0;
-  coupons.forEach((coupon, couponIndex) => {
-    const start = new Date(`${coupon.validFrom}T09:00:00`);
-    const end = coupon.validTill && new Date(`${coupon.validTill}T20:00:00`) < now ? new Date(`${coupon.validTill}T20:00:00`) : now;
-    // Referral coupons started long ago: spread over the last 60 days only
-    const from = coupon.kind === "referral" ? new Date(now.getTime() - 60 * 86400000) : start;
-    for (let use = 0; use < coupon.used; use++) {
-      const at = new Date(from.getTime() + ((end.getTime() - from.getTime()) * (use + 0.5)) / coupon.used);
-      const [customerName, area] = sampleCustomers[(use * 5 + couponIndex * 3) % sampleCustomers.length];
-      const orderValue = coupon.kind === "free-days" ? 288 : 120 + ((use * 97 + couponIndex * 53) % 980);
-      redemptions.push({
-        id: `RD-${++count}`,
-        code: coupon.code,
-        customerName,
-        area,
-        orderNumber: "",
-        redeemedAt: at.toISOString(),
-        discount: getDiscount(coupon, orderValue),
-        orderValue,
-      });
-    }
-  });
-  redemptions.sort((first, second) => second.redeemedAt.localeCompare(first.redeemedAt));
-  redemptions.forEach((redemption, index) => (redemption.orderNumber = `#CF-${2041 - index * 5}`));
-  return redemptions;
-}
-
-let coupons: Coupon[] | null = null;
-let redemptions: Redemption[] | null = null;
-const listeners = new Set<() => void>();
 const EMPTY_COUPONS: Coupon[] = [];
 const EMPTY_REDEMPTIONS: Redemption[] = [];
+let coupons: Coupon[] = EMPTY_COUPONS;
+let redemptions: Redemption[] = EMPTY_REDEMPTIONS;
+let isLoading = false;
+let isFollowing = false;
+const listeners = new Set<() => void>();
 
-function load() {
-  if (coupons && redemptions) return;
-  if (typeof window === "undefined") return;
-  try {
-    const savedCoupons = JSON.parse(window.localStorage.getItem(COUPONS_KEY) ?? "null");
-    const savedRedemptions = JSON.parse(window.localStorage.getItem(REDEMPTIONS_KEY) ?? "null");
-    coupons = Array.isArray(savedCoupons) ? savedCoupons : startingCoupons();
-    redemptions = Array.isArray(savedRedemptions) ? savedRedemptions : makeRedemptions(coupons as Coupon[]);
-  } catch {
-    coupons = startingCoupons();
-    redemptions = makeRedemptions(coupons);
-  }
-}
-
-function getCoupons() {
-  load();
-  return coupons ?? EMPTY_COUPONS;
-}
-
-function getRedemptions() {
-  load();
-  return redemptions ?? EMPTY_REDEMPTIONS;
-}
-
-function save(newCoupons: Coupon[]) {
-  coupons = newCoupons;
-  try {
-    window.localStorage.setItem(COUPONS_KEY, JSON.stringify(newCoupons));
-    window.localStorage.setItem(REDEMPTIONS_KEY, JSON.stringify(getRedemptions()));
-  } catch {
-    // Storage blocked: changes last until the page is refreshed.
-  }
+function announce() {
   listeners.forEach((onChange) => onChange());
+}
+
+// The database's rules decide what comes back: everything for staff with Coupons → View, nothing for others
+async function loadCoupons() {
+  if (isLoading) return;
+  isLoading = true;
+  const supabase = createClient();
+  const [couponAnswer, redemptionAnswer] = await Promise.all([
+    supabase.from("coupons").select("*").order("created_at", { ascending: false }),
+    supabase.from("coupon_redemptions").select("*").order("redeemed_at", { ascending: false }).limit(1000),
+  ]);
+  isLoading = false;
+  if (couponAnswer.error || redemptionAnswer.error) {
+    console.error("Could not read the coupons", couponAnswer.error ?? redemptionAnswer.error);
+    return;
+  }
+  coupons = ((couponAnswer.data ?? []) as CouponRow[]).map(toCoupon);
+  redemptions = ((redemptionAnswer.data ?? []) as RedemptionRow[]).map(toRedemption);
+  announce();
+}
+
+// Reads the list once, then again when the window comes back into focus or someone logs in / out
+function startFollowingCoupons() {
+  if (isFollowing || typeof window === "undefined") return;
+  isFollowing = true;
+  void loadCoupons();
+  window.addEventListener("focus", () => void loadCoupons());
+  createClient().auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_IN" || event === "SIGNED_OUT") window.setTimeout(() => void loadCoupons(), 0);
+  });
+}
+
+// After a change: show it at once, save it, and read the list again if the database refused it
+async function saveThenCheck(change: () => void, write: () => PromiseLike<{ error: unknown }>) {
+  change();
+  announce();
+  const { error } = await write();
+  if (error) {
+    console.error("The database did not accept the coupon change", error);
+    void loadCoupons();
+  }
 }
 
 export function getCouponStatus(coupon: Coupon, today = new Date()): CouponStatus {
@@ -182,103 +188,87 @@ export function getCouponStatus(coupon: Coupon, today = new Date()): CouponStatu
 
 export function addCoupon(coupon: Omit<Coupon, "used" | "isPaused">) {
   const newCoupon: Coupon = { ...coupon, used: 0, isPaused: false };
-  save([newCoupon, ...getCoupons()]);
+  void saveThenCheck(
+    () => (coupons = [newCoupon, ...coupons]),
+    () => createClient().from("coupons").insert({ code: newCoupon.code, ...toRow(newCoupon) }),
+  );
   return newCoupon;
 }
 
 // Edit: the code itself does not change (customers may already have it)
 export function updateCoupon(code: string, changes: Partial<Omit<Coupon, "code" | "used">>) {
-  save(getCoupons().map((coupon) => (coupon.code === code ? { ...coupon, ...changes } : coupon)));
+  void saveThenCheck(
+    () => (coupons = coupons.map((coupon) => (coupon.code === code ? { ...coupon, ...changes } : coupon))),
+    () => createClient().from("coupons").update(toRow(changes)).eq("code", code),
+  );
 }
 
 export function removeCoupon(code: string) {
-  save(getCoupons().filter((coupon) => coupon.code !== code));
-}
-
-/*
-  Website checkout: what a code takes off this cart, or why it can't be used.
-  cartLines: each item's amount (after its own discount) and its product category.
-  - Must be Active (not paused, not scheduled, not ended or used up) and reach its minimum order.
-  - "All products" counts the whole cart; a category counts only those items; "Milk plans" and free
-    days of milk are for subscriptions, not one-time orders.
-*/
-export function checkCouponForCart(
-  code: string,
-  allCoupons: Coupon[],
-  cartLines: { amount: number; category: string }[],
-): { coupon: Coupon; discount: number } | { error: string } {
-  const coupon = allCoupons.find((existing) => existing.code === code.trim().toUpperCase());
-  if (!coupon) return { error: "This code doesn't exist" };
-  const status = getCouponStatus(coupon);
-  if (status === "Expired") return { error: `${coupon.code} has ended` };
-  if (status === "Paused") return { error: `${coupon.code} can't be used right now` };
-  if (status === "Scheduled") return { error: `${coupon.code} starts on ${coupon.validFrom.split("-").reverse().join("/")}` };
-  if (coupon.appliesTo === "Milk plans" || coupon.kind === "free-days") {
-    return { error: `${coupon.code} is for milk subscriptions, not one-time orders` };
-  }
-  const cartTotal = cartLines.reduce((sum, line) => sum + line.amount, 0);
-  if (coupon.minOrder && cartTotal < coupon.minOrder) {
-    return { error: `Add ₹${coupon.minOrder - cartTotal} more to use ${coupon.code} (minimum ₹${coupon.minOrder})` };
-  }
-  const eligible =
-    coupon.appliesTo === "All products"
-      ? cartTotal
-      : cartLines.filter((line) => line.category === coupon.appliesTo).reduce((sum, line) => sum + line.amount, 0);
-  if (eligible <= 0) return { error: `${coupon.code} is only for ${coupon.appliesTo.toLowerCase()}` };
-  return { coupon, discount: getDiscount(coupon, eligible) };
-}
-
-/*
-  Website checkout of a milk subscription: what a code takes off the plan, or why it can't be used.
-  - Must be Active and reach its minimum order (the plan's total).
-  - "All products", "Milk" and "Milk plans" codes work on plans; other categories (paneer, ghee...) don't.
-  - Free days of milk: those days' bottles at the plan's price per litre.
-*/
-export function checkCouponForSubscription(
-  code: string,
-  allCoupons: Coupon[],
-  plan: { planTotal: number; pricePerLitre: number; bottlesPerDay: number },
-): { coupon: Coupon; discount: number } | { error: string } {
-  const coupon = allCoupons.find((existing) => existing.code === code.trim().toUpperCase());
-  if (!coupon) return { error: "This code doesn't exist" };
-  const status = getCouponStatus(coupon);
-  if (status === "Expired") return { error: `${coupon.code} has ended` };
-  if (status === "Paused") return { error: `${coupon.code} can't be used right now` };
-  if (status === "Scheduled") return { error: `${coupon.code} starts on ${coupon.validFrom.split("-").reverse().join("/")}` };
-  if (!["All products", "Milk", "Milk plans"].includes(coupon.appliesTo)) {
-    return { error: `${coupon.code} is only for ${coupon.appliesTo.toLowerCase()}, not milk plans` };
-  }
-  if (coupon.minOrder && plan.planTotal < coupon.minOrder) {
-    return { error: `${coupon.code} needs an order of at least ₹${coupon.minOrder}` };
-  }
-  const discount =
-    coupon.kind === "free-days"
-      ? coupon.value * plan.bottlesPerDay * plan.pricePerLitre
-      : getDiscount(coupon, plan.planTotal);
-  return { coupon, discount: Math.min(discount, plan.planTotal) };
-}
-
-// A customer used the coupon at checkout: one more use, and a redemption for the panel's table
-export function recordCouponUse(code: string, redemption: Omit<Redemption, "id" | "code" | "redeemedAt">) {
-  const highest = Math.max(0, ...getRedemptions().map((existing) => Number(existing.id.replace(/\D/g, ""))));
-  redemptions = [
-    { ...redemption, id: `RD-${highest + 1}`, code, redeemedAt: new Date().toISOString() },
-    ...getRedemptions(),
-  ];
-  save(getCoupons().map((coupon) => (coupon.code === code ? { ...coupon, used: coupon.used + 1 } : coupon)));
+  void saveThenCheck(
+    () => (coupons = coupons.filter((coupon) => coupon.code !== code)),
+    () => createClient().from("coupons").delete().eq("code", code),
+  );
 }
 
 function subscribe(onChange: () => void) {
   listeners.add(onChange);
+  startFollowingCoupons();
   return () => {
     listeners.delete(onChange);
   };
 }
 
 export function useCoupons() {
-  return useSyncExternalStore(subscribe, getCoupons, () => EMPTY_COUPONS);
+  return useSyncExternalStore(subscribe, () => coupons, () => EMPTY_COUPONS);
 }
 
 export function useRedemptions() {
-  return useSyncExternalStore(subscribe, getRedemptions, () => EMPTY_REDEMPTIONS);
+  return useSyncExternalStore(subscribe, () => redemptions, () => EMPTY_REDEMPTIONS);
+}
+
+// ---------- Checkout: the database checks the code ----------
+
+// The cart as check_coupon needs it: the one-time items, and the milk plan if there is one
+export type CouponCart = {
+  items: { productId: string; quantity: number }[];
+  plan: { productId: string; planId: string; months: number; days: number; bottlesPerDay: number } | null;
+};
+
+export type CouponCheck = { code: string; description: string; discount: number; isForPlan: boolean } | { error: string };
+
+/*
+  Whether a code works on this cart and what it takes off (₹), worked out by the database with today's
+  prices. With a plan in the cart it is tried on the plan first, then on the items.
+*/
+export async function checkCouponOnServer(code: string, cart: CouponCart): Promise<CouponCheck> {
+  const { data, error } = await createClient().rpc("check_coupon", { code: code.trim().toUpperCase(), cart });
+  if (error || !data) {
+    console.error("Could not check the coupon", error);
+    return { error: "Couldn't check the code. Check your internet and try again." };
+  }
+  const answer = data as { code?: string; description?: string; discount?: number; isForPlan?: boolean; error?: string };
+  if (answer.error || !answer.code) return { error: answer.error ?? "This code doesn't exist" };
+  return { code: answer.code, description: answer.description ?? "", discount: Number(answer.discount ?? 0), isForPlan: Boolean(answer.isForPlan) };
+}
+
+/*
+  The applied code, checked again whenever the cart changes (null while the database is answering, or with
+  no code). The answer is kept for this exact cart, so an old answer never shows for a changed cart.
+*/
+export function useCouponCheck(code: string | null, cart: CouponCart): CouponCheck | null {
+  const cartKey = code ? JSON.stringify([code, cart]) : "";
+  const [checked, setChecked] = useState<{ key: string; result: CouponCheck } | null>(null);
+  useEffect(() => {
+    if (!code || !cartKey) return;
+    let isCurrent = true;
+    void checkCouponOnServer(code, cart).then((result) => {
+      if (isCurrent) setChecked({ key: cartKey, result });
+    });
+    return () => {
+      isCurrent = false;
+    };
+    // cartKey holds the code and the cart
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartKey]);
+  return checked && checked.key === cartKey ? checked.result : null;
 }

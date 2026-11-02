@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -20,6 +20,7 @@ import {
   type SavedAddress,
 } from "@/store/address-store";
 import {
+  addProductToCart,
   changeCartItemQuantity,
   emptyTheCart,
   setAppliedCouponCode,
@@ -30,10 +31,17 @@ import {
   useCartSubscription,
   type CartSubscription,
 } from "@/store/cart-store";
-import { checkCouponForCart, checkCouponForSubscription, recordCouponUse, useCoupons } from "@/store/coupons-store";
-import { findRunningPlans, formatPlanDate, placeOrder, useOrders, type Order, type RunningPlan } from "@/store/orders-store";
+import { checkCouponOnServer, useCouponCheck, type CouponCart } from "@/store/coupons-store";
+import {
+  findRunningPlans,
+  formatPlanDate,
+  placeOrder,
+  priceCartOnServer,
+  useOrders,
+  type Order,
+  type RunningPlan,
+} from "@/store/orders-store";
 import type { OrderPaymentMethod } from "@/store/admin-orders-store";
-import { useShopProducts } from "@/store/products-store";
 // Free delivery for the whole order from ₹500 (the product pages use the same amount)
 import { FREE_DELIVERY_FROM } from "@/components/product/product-page-data";
 import styles from "./cart-view.module.css";
@@ -275,8 +283,6 @@ export default function CartView() {
   // The one-time items: while a plan waits, its milk from Add Quantity (the plan's bottles a day) is left out
   const oneTimeItems = cartSubscription ? cartItems.filter((item) => item.productId !== cartSubscription.product.productId) : cartItems;
   const [placedItemsOrder, setPlacedItemsOrder] = useState<Order | null>(null);
-  const products = useShopProducts();
-  const coupons = useCoupons();
   const isLoggedIn = useIsLoggedIn();
   const { addresses, defaultAddressId } = useAddressBook();
   const isCartLoaded = useSyncExternalStore(subscribeToNothing, () => true, () => false);
@@ -295,6 +301,8 @@ export default function CartView() {
   // Pay now is waiting for the database, and what to say if it didn't take the order
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [placeOrderError, setPlaceOrderError] = useState("");
+  // The cart took today's prices from the database (shown under Pay now)
+  const [pricesUpdatedNote, setPricesUpdatedNote] = useState("");
   // The address pop-up, and whether an address was confirmed there (ticks Address; the button becomes Pay now)
   const [isAddressPickerOpen, setIsAddressPickerOpen] = useState(false);
   const [hasPickedAddress, setHasPickedAddress] = useState(false);
@@ -343,23 +351,28 @@ export default function CartView() {
   const itemTotalAtMrp = oneTimeItems.reduce((sum, item) => sum + Math.max(item.originalPrice, item.price) * item.quantity, 0);
   const itemTotal = oneTimeItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const discountOnMrp = itemTotalAtMrp - itemTotal;
-  const cartLines = oneTimeItems.map((item) => ({
-    amount: item.price * item.quantity,
-    category: products.find((product) => product.productId === item.productId)?.category ?? "Others",
-  }));
-  // A code is checked against the plan first, then the items; again whenever the cart changes
-  function checkCoupon(code: string) {
-    if (!cartSubscription) return checkCouponForCart(code, coupons, cartLines);
-    const planCheck = checkCouponForSubscription(code, coupons, cartSubscription);
-    if ("coupon" in planCheck || oneTimeItems.length === 0) return planCheck;
-    const itemsCheck = checkCouponForCart(code, coupons, cartLines);
-    return "coupon" in itemsCheck ? itemsCheck : planCheck;
-  }
-  const couponCheck = appliedCode ? checkCoupon(appliedCode) : null;
-  const appliedCoupon = couponCheck && "coupon" in couponCheck ? couponCheck : null;
-  const isCouponForPlan = Boolean(
-    cartSubscription && appliedCoupon && "coupon" in checkCouponForSubscription(appliedCoupon.coupon.code, coupons, cartSubscription),
+  /*
+    The coupon is checked by the database (with today's prices), against the plan first, then the items;
+    again whenever the cart changes. The order works the discount out again itself.
+  */
+  const couponCart: CouponCart = useMemo(
+    () => ({
+      items: oneTimeItems.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+      plan: cartSubscription
+        ? {
+            productId: cartSubscription.product.productId,
+            planId: cartSubscription.planId,
+            months: cartSubscription.months,
+            days: cartSubscription.days,
+            bottlesPerDay: cartSubscription.bottlesPerDay,
+          }
+        : null,
+    }),
+    [oneTimeItems, cartSubscription],
   );
+  const couponCheck = useCouponCheck(appliedCode, couponCart);
+  const appliedCoupon = couponCheck && "code" in couponCheck ? couponCheck : null;
+  const isCouponForPlan = Boolean(cartSubscription && appliedCoupon?.isForPlan);
   const couponDiscount = appliedCoupon ? Math.min(appliedCoupon.discount, isCouponForPlan && cartSubscription ? cartSubscription.planTotal : itemTotal) : 0;
   const planCouponDiscount = isCouponForPlan ? couponDiscount : 0;
   const itemsCouponDiscount = isCouponForPlan ? 0 : couponDiscount;
@@ -373,17 +386,17 @@ export default function CartView() {
   const planToPay = cartSubscription ? cartSubscription.planTotal - planCouponDiscount : 0;
   const planSaving = cartSubscription ? cartSubscription.oneTimeTotal - cartSubscription.planTotal + planCouponDiscount : 0;
 
-  function applyCoupon() {
+  async function applyCoupon() {
     if (!couponInput.trim()) {
       setCouponError("Enter a coupon code");
       return;
     }
-    const result = checkCoupon(couponInput);
+    const result = await checkCouponOnServer(couponInput, couponCart);
     if ("error" in result) {
       setCouponError(result.error);
       return;
     }
-    setAppliedCode(result.coupon.code);
+    setAppliedCode(result.code);
     setCouponInput("");
     setCouponError("");
   }
@@ -470,7 +483,7 @@ export default function CartView() {
       ],
       {
         total: cartSubscription.planTotal - planCouponDiscount,
-        couponCode: isCouponForPlan ? appliedCoupon?.coupon.code : undefined,
+        couponCode: isCouponForPlan ? appliedCoupon?.code : undefined,
         couponDiscount: planCouponDiscount || undefined,
         deliveryFee: 0,
         deliverTo: planToExtend ? planToExtend.deliverTo : deliverTo,
@@ -478,6 +491,7 @@ export default function CartView() {
         area: chosenAddress?.area,
         paymentMethod,
         subscription: {
+          planId: cartSubscription.planId,
           planName: cartSubscription.planName,
           months: cartSubscription.months,
           days: cartSubscription.days,
@@ -490,43 +504,23 @@ export default function CartView() {
         },
       },
     );
-    if ("error" in subscriptionOrder) return subscriptionOrder;
-    if (appliedCoupon && isCouponForPlan) {
-      const deliverToName = (planToExtend ? planToExtend.deliverTo : deliverTo).split(" · ")[0];
-      recordCouponUse(appliedCoupon.coupon.code, {
-        customerName: deliverToName,
-        area: chosenAddress?.area ?? "",
-        orderNumber: `#${subscriptionOrder.orderId}`,
-        discount: planCouponDiscount,
-        orderValue: cartSubscription.planTotal,
-      });
-    }
+    // The coupon use is counted and recorded by the database with the order
     return subscriptionOrder;
   }
 
-  // The one-time items as their own order (same address as the plan, when there is one)
-  async function placeItemsOrder(deliverTo: string) {
-    const order = await placeOrder(oneTimeItems, {
+  // The one-time items as their own order (same address as the plan, when there is one: then free delivery)
+  async function placeItemsOrder(deliverTo: string, planOrderNumber?: string) {
+    return placeOrder(oneTimeItems, {
       total: toPay,
-      couponCode: appliedCoupon && !isCouponForPlan ? appliedCoupon.coupon.code : undefined,
+      couponCode: appliedCoupon && !isCouponForPlan ? appliedCoupon.code : undefined,
       couponDiscount: itemsCouponDiscount || undefined,
       deliveryFee,
       deliverTo,
       deliveryMobile: deliveryMobileOf(chosenAddress),
       area: chosenAddress.area,
       paymentMethod,
+      planOrderNumber,
     });
-    if ("error" in order) return order;
-    if (appliedCoupon && !isCouponForPlan) {
-      recordCouponUse(appliedCoupon.coupon.code, {
-        customerName: deliverTo.split(" · ")[0],
-        area: chosenAddress?.area ?? "",
-        orderNumber: `#${order.orderId}`,
-        discount: itemsCouponDiscount,
-        orderValue: itemTotal,
-      });
-    }
-    return order;
   }
 
   /*
@@ -547,11 +541,15 @@ export default function CartView() {
     if (planOrder && "error" in planOrder) {
       setIsPlacingOrder(false);
       setPlaceOrderError(planOrder.error);
+      // The plan's price changed since it was chosen: it leaves the cart, to be chosen again at today's price
+      if (planOrder.reason === "prices" || planOrder.reason === "unavailable") void refreshCartPrices(true);
       return;
     }
-    const itemsOrder = oneTimeItems.length > 0 ? await placeItemsOrder(deliverTo) : null;
+    const itemsOrder = oneTimeItems.length > 0 ? await placeItemsOrder(deliverTo, planOrder?.orderId) : null;
     setIsPlacingOrder(false);
     if (itemsOrder && "error" in itemsOrder) {
+      // Prices changed since the items were added: the cart takes today's prices, to check and pay again
+      if (itemsOrder.reason === "prices") void refreshCartPrices();
       if (planOrder) {
         removeSubscriptionFromCart();
         setPlaceOrderError(`Your milk plan is placed (${planOrder.orderId}), but the other items weren't. ${itemsOrder.error}`);
@@ -569,6 +567,49 @@ export default function CartView() {
     setPlacedItemsOrder(planOrder ? itemsOrder : null);
     window.scrollTo({ top: 0 });
   }
+
+  /*
+    Today's prices from the database (the same an order is charged): a line whose price changed since it went
+    into the cart (a price change in the panel, an old "Order again", or a changed browser copy) takes today's
+    price, and a note says so. A plan whose price changed leaves the cart, to be chosen again on its page
+    (also when the order said so: dropPlan).
+  */
+  async function refreshCartPrices(dropPlan = false) {
+    const productIds = [...oneTimeItems.map((item) => item.productId), ...(cartSubscription ? [cartSubscription.product.productId] : [])];
+    const todaysPrices = await priceCartOnServer([...new Set(productIds)]);
+    if (!todaysPrices) return;
+    let hasChanged = false;
+    for (const item of oneTimeItems) {
+      const today = todaysPrices.find((line) => line.productId === item.productId);
+      // Not sold any more: the order explains it when Pay now is tapped
+      if (!today?.isFound || (today.price === item.price && today.originalPrice === item.originalPrice)) continue;
+      const { quantity, ...product } = item;
+      removeCartItem(item.productId);
+      for (let packNumber = 0; packNumber < quantity; packNumber += 1) addProductToCart({ ...product, price: today.price, originalPrice: today.originalPrice });
+      hasChanged = true;
+    }
+    if (cartSubscription) {
+      const today = todaysPrices.find((line) => line.productId === cartSubscription.product.productId);
+      if (dropPlan || (today?.isFound && today.price !== cartSubscription.product.price)) {
+        removeSubscriptionFromCart();
+        setPricesUpdatedNote("Your milk plan's price has changed. Please choose your plan again on the milk's page.");
+        return;
+      }
+    }
+    if (hasChanged) setPricesUpdatedNote("Prices in your cart were updated to today's prices. Please check them before paying.");
+  }
+
+  // Checked when the cart opens and whenever its products or prices change
+  const priceCheckKey = [
+    ...oneTimeItems.map((item) => `${item.productId}:${item.price}:${item.originalPrice}`),
+    cartSubscription ? `plan:${cartSubscription.product.productId}:${cartSubscription.product.price}` : "",
+  ].join("|");
+  useEffect(() => {
+    if (priceCheckKey.replace(/\|/g, "") === "") return;
+    void refreshCartPrices();
+    // priceCheckKey holds what the check depends on
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priceCheckKey]);
 
   // Remove the plan: its milk from Add Quantity goes too (it was the plan's bottles a day, not a purchase)
   function removeSubscriptionFromCart() {
@@ -930,7 +971,7 @@ export default function CartView() {
                   className={styles["checkout-coupon-form"]}
                   onSubmit={(submitEvent) => {
                     submitEvent.preventDefault();
-                    applyCoupon();
+                    void applyCoupon();
                   }}
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -954,7 +995,7 @@ export default function CartView() {
                         %
                       </span>
                       <span className={styles["checkout-coupon-applied-text"]}>
-                        <strong>{appliedCoupon.coupon.code}</strong> applied · {appliedCoupon.coupon.description}
+                        <strong>{appliedCoupon.code}</strong> applied · {appliedCoupon.description}
                       </span>
                       <button type="button" className={styles["checkout-coupon-remove"]} onClick={() => setAppliedCode(null)}>
                         Remove
@@ -1000,7 +1041,7 @@ export default function CartView() {
                   )}
                   {appliedCoupon && (
                     <div>
-                      <dt>Coupon {appliedCoupon.coupon.code}</dt>
+                      <dt>Coupon {appliedCoupon.code}</dt>
                       <dd className={styles["checkout-bill-saving"]}>−{rupees(couponDiscount)}</dd>
                     </div>
                   )}
@@ -1081,6 +1122,11 @@ export default function CartView() {
                 {placeOrderError && (
                   <p className={styles["checkout-place-order-error"]} role="alert">
                     {placeOrderError}
+                  </p>
+                )}
+                {pricesUpdatedNote && (
+                  <p className={styles["checkout-prices-updated-note"]} role="status">
+                    {pricesUpdatedNote}
                   </p>
                 )}
                 <p className={styles["checkout-terms"]}>

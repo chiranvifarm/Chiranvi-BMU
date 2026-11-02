@@ -57,6 +57,7 @@ export type Order = {
 
 // The plan bought with a subscription order (shown on My Subscription)
 export type OrderSubscription = {
+  planId?: string; // the page's plan ("6-months"); the database prices the plan from it
   planName: string; // "6 Months"
   months: number;
   days: number;
@@ -79,6 +80,7 @@ export type CheckoutDetails = {
   area?: string; // the delivery address's area (for the panel's Location)
   paymentMethod?: OrderPaymentMethod;
   subscription?: OrderSubscription;
+  planOrderNumber?: string; // the plan placed just before in the same checkout (these items then get free delivery)
 };
 
 const ORDERS_STORAGE_KEY = "chiranvi-orders";
@@ -332,7 +334,21 @@ export function countActiveOrders(orderList: Order[]) {
   return orderList.filter((order) => order.status !== "delivered" && order.status !== "cancelled").length;
 }
 
-// What place_order() answers
+// Today's price of a cart line, as the database works it out (the same as an order will be charged)
+export type CartLinePrice = { productId: string; isFound: boolean; isAvailable: boolean; price: number; originalPrice: number };
+
+// Today's prices for these products (the cart page keeps itself up to date with it); null if it couldn't ask
+export async function priceCartOnServer(productIds: string[]): Promise<CartLinePrice[] | null> {
+  if (productIds.length === 0) return [];
+  const { data, error } = await createClient().rpc("price_cart", { items: productIds.map((productId) => ({ productId })) });
+  if (error || !Array.isArray(data)) {
+    console.error("Could not check the cart's prices", error);
+    return null;
+  }
+  return (data as CartLinePrice[]).map((line) => ({ ...line, price: Number(line.price), originalPrice: Number(line.originalPrice) }));
+}
+
+// What place_order() answers: the order as the database saved it, with its own prices and amounts (₹)
 type PlacedOrderAnswer = {
   orderNumber: string;
   placedAt: number;
@@ -340,36 +356,53 @@ type PlacedOrderAnswer = {
   customerName: string;
   customerCode: string | null;
   area: string;
+  total: number;
+  deliveryFee: number;
+  couponCode: string | null;
+  couponDiscount: number | null;
+  items: CartItem[];
+  subscription: OrderSubscription | null;
 };
 
+// Why an order wasn't taken: prices changed since the cart was filled, a product can't be ordered, the coupon
+export type PlaceOrderProblem = { error: string; reason?: "prices" | "unavailable" | "coupon" };
+
 /*
-  "Pay now": saves the cart as a new order for the logged-in customer (with the checkout's total, coupon,
-  address and payment method) in the database, which puts it on the Chiranvi Panel's Orders page. Then it
-  counts on the customer's record, the Payments page and (a new milk plan) the Subscriptions page, which
-  are still kept in the browser. Answers the order, or an error to show if the database didn't take it.
+  "Pay now": sends the cart (products and quantities, the coupon code, the address, how to pay) to the
+  database's place_order(), which works out every price, the coupon discount and the delivery fee itself and
+  saves the order with those (the Chiranvi Panel's Orders page shows it). If the total it works out isn't the
+  one the customer saw, nothing is saved ("Prices have changed"). Then the order counts on the customer's
+  record, the Payments page and (a new milk plan) the Subscriptions page, which are still kept in the browser,
+  with the database's amounts. Answers the saved order, or the problem to show.
 */
-export async function placeOrder(cartItems: CartItem[], checkout: CheckoutDetails): Promise<Order | { error: string }> {
+export async function placeOrder(cartItems: CartItem[], checkout: CheckoutDetails): Promise<Order | PlaceOrderProblem> {
   const customerMobile = readLoggedInMobileNumber() ?? "";
   const profile = customerMobile ? getCustomerProfile(customerMobile) : null;
-  const { area, ...orderDetails } = checkout;
   const paymentMethod = checkout.paymentMethod ?? "UPI";
   const { data, error } = await createClient().rpc("place_order", { details: { ...checkout, paymentMethod, items: cartItems } });
   if (error || !data) {
     console.error("Could not place the order", error);
-    return {
-      error:
-        error?.message === "Log in to place an order"
-          ? "Please log in again to place your order."
-          : "Couldn't place your order. Check your internet and try again.",
-    };
+    if (error?.message === "Log in to place an order") return { error: "Please log in again to place your order." };
+    if (error?.hint === "prices") return { error: error.message, reason: "prices" };
+    if (error?.hint === "unavailable") return { error: error.message, reason: "unavailable" };
+    if (error?.hint === "coupon") return { error: error.message, reason: "coupon" };
+    // The database's own words for a problem with the cart (no address, quantities …); otherwise the connection
+    if (error?.code === "P0001" && error.message) return { error: error.message };
+    return { error: "Couldn't place your order. Check your internet and try again." };
   }
   const answer = data as PlacedOrderAnswer;
   const newOrder: Order = {
     orderId: answer.orderNumber,
     placedAt: answer.placedAt,
-    items: cartItems,
+    items: answer.items ?? cartItems,
+    total: answer.total,
     status: "placed",
-    ...orderDetails,
+    couponCode: answer.couponCode ?? undefined,
+    couponDiscount: answer.couponDiscount ?? undefined,
+    deliveryFee: answer.deliveryFee,
+    deliverTo: checkout.deliverTo,
+    deliveryMobile: checkout.deliveryMobile,
+    subscription: answer.subscription ?? undefined,
     paymentMethod,
     customerMobile,
     customerId: answer.customerCode ?? profile?.customerId,
@@ -379,14 +412,15 @@ export async function placeOrder(cartItems: CartItem[], checkout: CheckoutDetail
     customerName: answer.customerName,
     area: answer.area,
   };
+  const area = checkout.area;
   savedOrders = [newOrder, ...savedOrders.filter((order) => order.orderId !== newOrder.orderId)];
   announceOrders();
 
   const customerName = answer.customerName;
   if (customerMobile) {
     recordCustomerOrder(customerMobile, {
-      amount: checkout.total,
-      plan: checkout.subscription ? `${cartItems[0]?.name ?? "Milk"} · ${checkout.subscription.planName}` : null,
+      amount: newOrder.total,
+      plan: newOrder.subscription ? `${cartItems[0]?.name ?? "Milk"} · ${newOrder.subscription.planName}` : null,
     });
   }
 
@@ -395,14 +429,14 @@ export async function placeOrder(cartItems: CartItem[], checkout: CheckoutDetail
   recordWebsitePayment({
     customerName,
     area: panelArea,
-    type: checkout.subscription ? "Subscription" : "Order",
+    type: newOrder.subscription ? "Subscription" : "Order",
     method: paymentMethod,
-    amount: checkout.total,
+    amount: newOrder.total,
     websiteOrderId: newOrder.orderId,
   });
 
   // A new milk plan (not an extension of one) on the panel's Subscriptions page
-  const plan = checkout.subscription;
+  const plan = newOrder.subscription;
   if (plan && !plan.extendsOrderId) {
     const isHalfLitre = (plan.bottleLabel ?? "1 L") === "500 ml";
     const litresPerDelivery = plan.bottlesPerDay * (isHalfLitre ? 0.5 : 1);

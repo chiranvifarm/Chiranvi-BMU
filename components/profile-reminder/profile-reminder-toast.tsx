@@ -1,31 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { rememberPageAfterLogin, useIsLoginStatusKnown, useLoggedInMobileNumber } from "@/components/login/login-status";
-import { BULK_ORDER_POPUP_CLOSED_EVENT } from "@/components/bulk-order/bulk-order-popup";
+import {
+  BULK_ORDER_POPUP_CLOSED_EVENT,
+  POPUP_PAGE,
+  POPUP_TURN_GAP_MS,
+  PROFILE_REMINDER_DONE_EVENT,
+} from "@/components/bulk-order/bulk-order-popup";
 import { useCustomerProfile, useIsCustomerProfileKnown } from "@/store/customer-profiles-store";
 import styles from "./profile-reminder-toast.module.css";
 
 /*
-  A notification on the right side of the customer pages (mounted once in app/layout.tsx), after the bulk
-  order pop-up:
+  A notification on the right side of the landing page (mounted once in app/layout.tsx), taking turns with the
+  bulk order pop-up:
   - not logged in: "Log in for a better experience" (Log in opens the login, which comes back to this page);
   - logged in without a saved Profile: "Complete your profile" (opens the Profile page, /account);
-  - logged in with a saved Profile: nothing.
-  Timing: the first one 10 seconds after the bulk order pop-up is first closed (each page load starts with
-  the bulk order pop-up, 5 seconds in). It slides out by itself after 8 seconds (× closes
-  it sooner), then comes back 20 seconds later, again and again, until the visitor logs in / saves the
-  profile. While the bulk order pop-up is open (its second showing) it waits, and starts its count again
-  when that closes, so the two never show together.
-  Never on /admin, /login, /cart or /checkout, and "Complete your profile" not on the Profile page itself.
+  - logged in with a saved Profile: nothing (its turns are skipped).
+  Timing: its turn comes 2 minutes after the bulk order pop-up's turn ends (closed, or skipped after a quote).
+  It slides out by itself after 8 seconds (× or its button closes it sooner), and its end gives the bulk order
+  pop-up its turn 2 minutes later, so the two never show together. Only on the landing page: on any other
+  page its turn waits until the visitor is back there.
 */
 
-const FIRST_AFTER_MS = 10_000;
-const AGAIN_AFTER_MS = 20_000;
 const SHOWN_FOR_MS = 8_000;
-const HIDDEN_PAGE_STARTS = ["/admin", "/login", "/cart", "/checkout"];
 const PROFILE_PAGE = "/account";
 
 type Reminder = "log-in" | "complete-profile";
@@ -54,46 +54,54 @@ export default function ProfileReminderToast() {
   let reminder: Reminder | null = null;
   if (isLoginStatusKnown && !mobileNumber) reminder = "log-in";
   else if (mobileNumber && isProfileKnown && !profile) reminder = "complete-profile";
-  const isAllowedPage =
-    !HIDDEN_PAGE_STARTS.some((start) => pathname.startsWith(start)) && !(reminder === "complete-profile" && pathname === PROFILE_PAGE);
+  // Read, and nothing to remind: its turns are skipped
+  const isNothingToRemind = isLoginStatusKnown && Boolean(mobileNumber) && isProfileKnown && Boolean(profile);
+  const isOnPopupPage = pathname === POPUP_PAGE;
 
-  /*
-    Waits for the bulk order pop-up: its first close starts the count. bulkClosings counts its closes, so
-    each close starts the count again.
-  */
-  const [isBulkPopupDone, setIsBulkPopupDone] = useState(false);
-  const [bulkClosings, setBulkClosings] = useState(0);
+  // Becomes true when it is this notification's turn: 2 minutes after the bulk order pop-up's turn ends
+  const [isDue, setIsDue] = useState(false);
+  const [isShown, setIsShown] = useState(false);
   useEffect(() => {
+    let timer = 0;
     const onBulkPopupClosed = () => {
-      setIsBulkPopupDone(true);
-      setBulkClosings((count) => count + 1);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setIsDue(true), POPUP_TURN_GAP_MS);
     };
     window.addEventListener(BULK_ORDER_POPUP_CLOSED_EVENT, onBulkPopupClosed);
-    return () => window.removeEventListener(BULK_ORDER_POPUP_CLOSED_EVENT, onBulkPopupClosed);
+    return () => {
+      window.removeEventListener(BULK_ORDER_POPUP_CLOSED_EVENT, onBulkPopupClosed);
+      window.clearTimeout(timer);
+    };
   }, []);
 
-  const [isShown, setIsShown] = useState(false);
-  const [timesShown, setTimesShown] = useState(0);
-  const isActive = isBulkPopupDone && reminder !== null && isAllowedPage;
+  // Its turn ends (hidden by itself, ×, or its button): the bulk order pop-up's 2 minutes start
+  const endTurn = useCallback(() => {
+    setIsShown(false);
+    window.dispatchEvent(new Event(PROFILE_REMINDER_DONE_EVENT));
+  }, []);
 
-  // Hidden: shows after 10 s (the first time) or 20 s (after that). Shown: hides itself after 8 s.
+  // Its turn: nothing to remind → skipped; otherwise shown on the landing page (it waits on other pages)
   useEffect(() => {
-    if (!isActive) return;
-    const timer = isShown
-      ? window.setTimeout(() => setIsShown(false), SHOWN_FOR_MS)
-      : window.setTimeout(
-          () => {
-            // The bulk order pop-up is open (its second showing): wait; its close starts the count again
-            if (document.querySelector('[aria-labelledby="bulk-order-title"]')) return;
-            setIsShown(true);
-            setTimesShown((count) => count + 1);
-          },
-          timesShown === 0 ? FIRST_AFTER_MS : AGAIN_AFTER_MS,
-        );
-    return () => window.clearTimeout(timer);
-  }, [isActive, isShown, timesShown, bulkClosings]);
+    if (!isDue) return;
+    if (isNothingToRemind) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- passing the turn on
+      setIsDue(false);
+      window.dispatchEvent(new Event(PROFILE_REMINDER_DONE_EVENT));
+      return;
+    }
+    if (!reminder || !isOnPopupPage) return;
+    setIsDue(false);
+    setIsShown(true);
+  }, [isDue, isNothingToRemind, reminder, isOnPopupPage]);
 
-  if (!isActive || !isShown || !reminder) return null;
+  // Shown: slides out by itself after 8 s
+  useEffect(() => {
+    if (!isShown) return;
+    const timer = window.setTimeout(endTurn, SHOWN_FOR_MS);
+    return () => window.clearTimeout(timer);
+  }, [isShown, endTurn]);
+
+  if (!isShown || !reminder || !isOnPopupPage) return null;
   const words = REMINDER_WORDS[reminder];
 
   return (
@@ -115,13 +123,13 @@ export default function ProfileReminderToast() {
           onClick={() => {
             // After logging in, the login comes back to the page the visitor was on
             if (reminder === "log-in") rememberPageAfterLogin(window.location.pathname + window.location.search);
-            setIsShown(false);
+            endTurn();
           }}
         >
           {words.button}
         </Link>
       </div>
-      <button type="button" className={styles["profile-reminder-close-button"]} aria-label="Close" onClick={() => setIsShown(false)}>
+      <button type="button" className={styles["profile-reminder-close-button"]} aria-label="Close" onClick={endTurn}>
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M6 6l12 12M18 6L6 18" />
         </svg>

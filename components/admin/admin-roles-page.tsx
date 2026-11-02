@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatIndianMobileNumber } from "@/components/account/account-profile";
 import {
   OWNER_ROLE,
   PANEL_MODULES,
   PERMISSION_ACTIONS,
   addRole,
-  deleteRole,
+  declineAccountDeletion,
+  deleteRoleWithSecret,
   removeStaffMember,
   renameRole,
   changeOwnerNumber,
@@ -18,6 +19,7 @@ import {
   saveStaffMember,
   sendOwnerResetCode,
   transferOwnership,
+  useCurrentStaffAccess,
   useOwnerDetails,
   usePanelRoles,
   useStaffMembers,
@@ -28,13 +30,13 @@ import {
   type StaffMember,
 } from "@/store/staff-access-store";
 import { useStaffList } from "@/store/admin-staff-store";
+import { decideLeave, getLeaveDays, useLeaveRequests, type LeaveRequest } from "@/store/admin-leave-store";
 import { saveCustomerProfile, useCustomerProfile } from "@/store/customer-profiles-store";
 import { AdminFeatureGate } from "./admin-panel-layout";
 import {
   AdminDialog,
   AdminDialogField,
   AdminPageTop,
-  AdminRowMenu,
   adminInputClassName,
   useAdminToast,
   useIsPanelOwner,
@@ -48,12 +50,20 @@ import styles from "./admin-roles-page.module.css";
   change what.
     left       the roles (Owner, Manager, Delivery agent, and any added) with how many people
                have each; "Add new role"; the people with the chosen role ("Invite person" gives a
-               mobile number that role, "..." changes their role or removes their access; the owner can
-               change their own name and number); what each role can do
+               mobile number that role; the owner can change their own name and number; a red "!" marks
+               someone who asked to delete their account); what each role can do
     right      the chosen role's permissions: for every panel page, View / Create / Edit / Delete /
                Export. View opens the page; Create shows its New / Add button, Export its Export button,
                Edit and Delete the changes in its row menus and delete buttons. Reset / Save.
                The owner can always do everything; delivery agents only use the delivery app.
+               Staff (chosen on the left): the whole team instead (everyone but the owner, from the
+               database): name, number, leave (Approve / Reject), delete request (the tag opens Accept /
+               Reject), and Actions: ⋮ opens the Edit pop-up (promote / demote with its Role box, and
+               "Remove from team"). Its card on the left counts the leave and delete requests waiting.
+               The owner or a manager removes people (a manager not the owner or other managers);
+               only the owner promotes / demotes.
+    roles      "Add new role" and "Delete role" (the owner, after their PIN / password; only a role nobody
+               has; Owner and Delivery agent never).
     note       sensitive actions (prices, salaries, deleting customers, refunds above ₹500) always need
                the owner.
   Only the owner changes anything here; anyone else with View on this page can only look.
@@ -117,6 +127,16 @@ function RolesPage() {
   // The owner's profile pop-up (details, password, transfer ownership), from the chip at the top right
   const [isOwnerPanelOpen, setIsOwnerPanelOpen] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState<StaffMember | null>(null);
+  // "Delete role": the role chosen and the owner's PIN / password
+  const [isDeleteRoleOpen, setIsDeleteRoleOpen] = useState(false);
+  const [roleToDeleteId, setRoleToDeleteId] = useState("");
+  const [deleteRoleSecret, setDeleteRoleSecret] = useState("");
+  const [deleteRoleProblem, setDeleteRoleProblem] = useState("");
+  const [isDeletingRole, setIsDeletingRole] = useState(false);
+  // Staff: the person whose leave requests are open
+  const [leaveOf, setLeaveOf] = useState<StaffMember | null>(null);
+  const leaveRequests = useLeaveRequests();
+  const myAccess = useCurrentStaffAccess();
   const { showToast, toast } = useAdminToast();
 
   const allRoles = [OWNER_ROLE, ...roles];
@@ -241,9 +261,55 @@ function RolesPage() {
     );
   }
 
-  // The roles a person can be moved between from their Actions menu
-  const managerRole = roles.find((role) => role.id === "manager");
-  const staffRole = roles.find((role) => role.id === "staff");
+  // Staff: what waits for the admin (shown as a count on the Staff card)
+  const isOnTeam = (mobileNumber: string) => team.some((member) => member.mobileNumber === mobileNumber);
+  const pendingLeaveOf = (mobileNumber: string) => leaveRequests.filter((request) => request.staffMobile === mobileNumber && request.status === "Pending");
+  const staffAlertCount =
+    leaveRequests.filter((request) => request.status === "Pending" && isOnTeam(request.staffMobile)).length +
+    team.filter((member) => member.deleteRequestedAt).length;
+  // The owner removes anyone; a manager removes anyone who isn't a manager (the database checks it too)
+  const canRemove = (member: StaffMember) => isOwner || (myAccess?.roleId === "manager" && member.roleId !== "manager");
+  const canDecideLeave = Boolean(myAccess?.can("staff", "edit"));
+
+  // Roles that can be deleted: not Owner or Delivery agent (the delivery app needs it)
+  const deletableRoles = roles.filter((role) => role.id !== "delivery-agent");
+
+  async function deleteChosenRole() {
+    const role = deletableRoles.find((item) => item.id === roleToDeleteId);
+    if (!role) {
+      setDeleteRoleProblem("Choose the role to delete");
+      return;
+    }
+    if (peopleIn(role) > 0) {
+      setDeleteRoleProblem(`Move the ${peopleIn(role)} ${peopleIn(role) === 1 ? "person" : "people"} with ${role.name} to another role first`);
+      return;
+    }
+    if (!deleteRoleSecret) {
+      setDeleteRoleProblem("Enter your PIN or password");
+      return;
+    }
+    setIsDeletingRole(true);
+    const problem = await deleteRoleWithSecret(role.id, deleteRoleSecret);
+    setIsDeletingRole(false);
+    if (problem) {
+      setDeleteRoleProblem(problem);
+      return;
+    }
+    setIsDeleteRoleOpen(false);
+    if (selectedRoleId === role.id) setSelectedRoleId("manager");
+    showToast(`${role.name} role deleted`);
+  }
+
+  // Reject a request to delete an account: it is cleared (the person can ask again)
+  async function rejectDeleteRequest(member: StaffMember) {
+    const problem = await declineAccountDeletion(member.mobileNumber);
+    showToast(problem ?? `${member.name}'s request to delete their account was rejected`);
+  }
+
+  function decideLeaveRequest(request: LeaveRequest, status: "Approved" | "Rejected") {
+    decideLeave(request.id, status, myAccess?.name ?? "Admin");
+    showToast(`${request.type} leave ${status.toLowerCase()} for ${request.staffName}`);
+  }
 
   return (
     <div className={dashboardStyles["admin-dashboard"]}>
@@ -309,6 +375,12 @@ function RolesPage() {
                         {drafts[role.id] && !samePermissions(drafts[role.id], role.permissions) ? " · not saved" : ""}
                       </span>
                     </span>
+                    {/* Staff: leave and delete requests waiting for the admin */}
+                    {role.id === "staff" && staffAlertCount > 0 && (
+                      <span className={styles["admin-role-alert-count"]} aria-label={`${staffAlertCount} requests waiting`}>
+                        {staffAlertCount}
+                      </span>
+                    )}
                     <svg viewBox="0 0 24 24" className={styles["admin-role-arrow"]} aria-hidden="true">
                       <path d="M9 6l6 6-6 6" />
                     </svg>
@@ -319,19 +391,36 @@ function RolesPage() {
           </ul>
 
           {isOwner && (
-            <button
-              type="button"
-              className={styles["admin-role-add"]}
-              onClick={() => {
-                setRoleName("");
-                setIsAddRoleOpen(true);
-              }}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              Add new role
-            </button>
+            <div className={styles["admin-role-add-row"]}>
+              <button
+                type="button"
+                className={styles["admin-role-add"]}
+                onClick={() => {
+                  setRoleName("");
+                  setIsAddRoleOpen(true);
+                }}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                Add new role
+              </button>
+              <button
+                type="button"
+                className={`${styles["admin-role-add"]} ${styles["admin-role-delete"]}`}
+                onClick={() => {
+                  setRoleToDeleteId("");
+                  setDeleteRoleSecret("");
+                  setDeleteRoleProblem("");
+                  setIsDeleteRoleOpen(true);
+                }}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 12h14" />
+                </svg>
+                Delete role
+              </button>
+            </div>
           )}
 
           <h3 className={styles["admin-roles-section-title"]}>{words ? "People matching the search" : "People with this role"}</h3>
@@ -345,6 +434,12 @@ function RolesPage() {
                   <span className={styles["admin-person-name"]}>
                     {person.name}
                     {person.isOwnerRow && isOwner ? " (You)" : ""}
+                    {/* They asked (Profile → Delete account → Request): Staff on the right accepts or rejects it */}
+                    {person.member?.deleteRequestedAt && (
+                      <span className={styles["admin-person-delete-mark"]} title="Requested account deletion" aria-label="Requested account deletion">
+                        !
+                      </span>
+                    )}
                   </span>
                   <span className={styles["admin-person-detail"]}>
                     {words ? `${person.roleName} · ` : ""}
@@ -355,49 +450,6 @@ function RolesPage() {
                   <button type="button" className={styles["admin-roles-text-button"]} onClick={() => setIsOwnerPanelOpen(true)}>
                     Edit
                   </button>
-                )}
-                {isOwner && person.member && (
-                  <AdminRowMenu
-                    label={`Actions for ${person.name}`}
-                    title={person.name}
-                    options={[
-                      // A Manager can be moved back to normal Staff; anyone else can be promoted to Manager
-                      ...(person.member.roleId === "manager"
-                        ? staffRole
-                          ? [
-                              {
-                                label: "Move back to Staff",
-                                onSelect: () => {
-                                  saveStaffMember({ ...person.member!, roleId: staffRole.id });
-                                  showToast(`${person.name} is now Staff`);
-                                },
-                              },
-                            ]
-                          : []
-                        : managerRole
-                          ? [
-                              {
-                                label: "Promote to Manager",
-                                onSelect: () => {
-                                  saveStaffMember({ ...person.member!, roleId: managerRole.id });
-                                  showToast(`${person.name} is now a Manager`);
-                                },
-                              },
-                            ]
-                          : []),
-                      {
-                        label: "Edit details",
-                        onSelect: () =>
-                          setPersonForm({
-                            name: person.member!.name,
-                            mobileNumber: person.member!.mobileNumber,
-                            roleId: person.member!.roleId,
-                            title: person.member!.title ?? "",
-                          }),
-                      },
-                      { label: "Remove from team", isDanger: true, permission: "delete", onSelect: () => setMemberToRemove(person.member!) },
-                    ]}
-                  />
                 )}
               </li>
             ))}
@@ -428,7 +480,100 @@ function RolesPage() {
           </ul>
         </section>
 
-        {/* ---------- Right: the chosen role's permissions ---------- */}
+        {/* ---------- Right: Staff → the whole team; any other role → its permissions ---------- */}
+        {selectedRole.id === "staff" && !words ? (
+          <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-team-heading">
+            <h2 id="admin-team-heading" className={dashboardStyles["admin-card-title"]}>
+              Staff
+            </h2>
+            <p className={dashboardStyles["admin-card-subtitle"]}>Everyone on the team: leave, delete requests and roles</p>
+            <div className={dashboardStyles["admin-table-scroll"]}>
+              <table className={`${dashboardStyles["admin-orders-table"]} ${styles["admin-team-table"]}`}>
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Number</th>
+                    <th scope="col">Leave</th>
+                    <th scope="col">Delete request</th>
+                    <th scope="col" className={styles["admin-team-actions-column"]}>
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {team.map((member) => {
+                    const roleName = allRoles.find((role) => role.id === member.roleId)?.name ?? member.roleId;
+                    const pendingLeave = pendingLeaveOf(member.mobileNumber).length;
+                    const allLeave = leaveRequests.filter((request) => request.staffMobile === member.mobileNumber).length;
+                    return (
+                      <tr key={member.mobileNumber}>
+                        <td className={dashboardStyles["admin-orders-customer"]}>
+                          <span className={styles["admin-team-name"]}>{member.name}</span>
+                          <span className={styles["admin-team-role"]}>{roleName}</span>
+                        </td>
+                        <td>{formatIndianMobileNumber(member.mobileNumber)}</td>
+                        <td>
+                          {allLeave === 0 ? (
+                            <span className={styles["admin-team-none"]}>None</span>
+                          ) : (
+                            <button
+                              type="button"
+                              className={`${styles["admin-team-leave-button"]} ${pendingLeave > 0 ? styles["admin-team-leave-button-waiting"] : ""}`}
+                              onClick={() => setLeaveOf(member)}
+                            >
+                              {pendingLeave > 0 ? `${pendingLeave} waiting` : `View (${allLeave})`}
+                            </button>
+                          )}
+                        </td>
+                        <td>
+                          {member.deleteRequestedAt ? (
+                            <DeleteRequestMenu
+                              member={member}
+                              canAct={canRemove(member)}
+                              onAccept={() => setMemberToRemove(member)}
+                              onReject={() => void rejectDeleteRequest(member)}
+                            />
+                          ) : (
+                            <span className={styles["admin-team-none"]}>None</span>
+                          )}
+                        </td>
+                        <td className={styles["admin-team-actions-column"]}>
+                          {isOwner && (
+                            <span className={styles["admin-team-actions"]}>
+                              {/* ⋮ : the "Edit" pop-up (name, number, title, and Role: promote / demote there) */}
+                              <button
+                                type="button"
+                                className={styles["admin-team-more-button"]}
+                                aria-label={`Edit ${member.name}`}
+                                title={`Edit ${member.name}`}
+                                onClick={() =>
+                                  setPersonForm({ name: member.name, mobileNumber: member.mobileNumber, roleId: member.roleId, title: member.title ?? "" })
+                                }
+                              >
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                  <circle cx="12" cy="5" r="1.6" />
+                                  <circle cx="12" cy="12" r="1.6" />
+                                  <circle cx="12" cy="19" r="1.6" />
+                                </svg>
+                              </button>
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {team.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className={styles["admin-team-none"]}>
+                        No one on the team yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : (
         <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-permissions-heading">
           <div className={dashboardStyles["admin-card-heading-row"]}>
             <div>
@@ -459,21 +604,6 @@ function RolesPage() {
                       }}
                     >
                       Rename
-                    </button>
-                    <button
-                      type="button"
-                      className={styles["admin-roles-delete-role"]}
-                      onClick={() => {
-                        if (peopleIn(selectedRole) > 0) {
-                          showToast(`Move the ${peopleIn(selectedRole)} people with this role to another role first`);
-                          return;
-                        }
-                        deleteRole(selectedRole.id);
-                        setSelectedRoleId("manager");
-                        showToast(`${selectedRole.name} role deleted`);
-                      }}
-                    >
-                      Delete role
                     </button>
                   </>
                 )}
@@ -556,6 +686,7 @@ function RolesPage() {
             </div>
           </div>
         </section>
+        )}
       </div>
 
       {isAddRoleOpen && (
@@ -626,10 +757,113 @@ function RolesPage() {
           <p className={styles["admin-roles-dialog-note"]}>
             They log in on the website with this number as usual and find &ldquo;Chiranvi Panel&rdquo; in their account.
           </p>
+          {/* Someone already on the team: remove them (asks "Remove … from the team?" first) */}
+          {(() => {
+            const member = team.find((existing) => existing.mobileNumber === personForm.mobileNumber);
+            return member && canRemove(member) ? (
+              <button
+                type="button"
+                className={styles["admin-roles-remove-from-team"]}
+                onClick={() => {
+                  setPersonForm(null);
+                  setMemberToRemove(member);
+                }}
+              >
+                Remove from team
+              </button>
+            ) : null;
+          })()}
         </AdminDialog>
       )}
 
       {isOwnerPanelOpen && <OwnerProfileDialog onClose={() => setIsOwnerPanelOpen(false)} showToast={showToast} />}
+
+      {isDeleteRoleOpen && (
+        <AdminDialog
+          title="Delete role"
+          submitLabel={isDeletingRole ? "Deleting…" : "Delete role"}
+          isDanger
+          onClose={() => setIsDeleteRoleOpen(false)}
+          onSubmit={() => void deleteChosenRole()}
+        >
+          <AdminDialogField label="Role" isWide>
+            <select
+              className={adminInputClassName}
+              value={roleToDeleteId}
+              onChange={(changeEvent) => {
+                setRoleToDeleteId(changeEvent.target.value);
+                setDeleteRoleProblem("");
+              }}
+            >
+              <option value="">Choose a role</option>
+              {deletableRoles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name} ({peopleIn(role)} {peopleIn(role) === 1 ? "person" : "people"})
+                </option>
+              ))}
+            </select>
+          </AdminDialogField>
+          <AdminDialogField label={owner.passwordKind === "password" ? "Your password" : "Your PIN"} isWide>
+            <input
+              type="password"
+              className={adminInputClassName}
+              inputMode={owner.passwordKind === "password" ? undefined : "numeric"}
+              autoComplete="current-password"
+              value={deleteRoleSecret}
+              onChange={(changeEvent) => {
+                setDeleteRoleSecret(changeEvent.target.value);
+                setDeleteRoleProblem("");
+              }}
+            />
+          </AdminDialogField>
+          {deleteRoleProblem && (
+            <p className={styles["admin-roles-dialog-problem"]} role="alert">
+              {deleteRoleProblem}
+            </p>
+          )}
+          <p className={styles["admin-roles-dialog-note"]}>
+            The same PIN / password as Transfer ownership. A role with people in it can&rsquo;t be deleted: move them first. Owner and
+            Delivery agent can&rsquo;t be deleted.
+          </p>
+        </AdminDialog>
+      )}
+
+      {leaveOf && (
+        <AdminDialog title={`${leaveOf.name}'s leave`} submitLabel="Close" onClose={() => setLeaveOf(null)} onSubmit={() => setLeaveOf(null)}>
+          <ul className={styles["admin-team-leave-list"]}>
+            {leaveRequests
+              .filter((request) => request.staffMobile === leaveOf.mobileNumber)
+              .sort((first, second) => Number(second.status === "Pending") - Number(first.status === "Pending"))
+              .map((request) => (
+                <li key={request.id} className={styles["admin-team-leave-row"]}>
+                  <span className={styles["admin-team-leave-words"]}>
+                    <strong>
+                      {request.type} · {getLeaveDays(request)} {getLeaveDays(request) === 1 ? "day" : "days"}
+                    </strong>
+                    <span>
+                      {request.from === request.to ? request.from.split("-").reverse().join("/") : `${request.from.split("-").reverse().join("/")} – ${request.to.split("-").reverse().join("/")}`}
+                      {request.reason ? ` · ${request.reason}` : ""}
+                    </span>
+                  </span>
+                  {request.status === "Pending" && canDecideLeave ? (
+                    <span className={styles["admin-team-leave-actions"]}>
+                      <button type="button" className={styles["admin-team-leave-reject"]} onClick={() => decideLeaveRequest(request, "Rejected")}>
+                        Reject
+                      </button>
+                      <button type="button" className={styles["admin-team-leave-approve"]} onClick={() => decideLeaveRequest(request, "Approved")}>
+                        Approve
+                      </button>
+                    </span>
+                  ) : (
+                    <span className={`${styles["admin-team-leave-status"]} ${styles[`admin-team-leave-status-${request.status.toLowerCase()}`]}`}>
+                      {request.status === "Pending" ? "Waiting" : request.status}
+                    </span>
+                  )}
+                </li>
+              ))}
+          </ul>
+        </AdminDialog>
+      )}
 
       {memberToRemove && (
         <AdminDialog
@@ -971,5 +1205,104 @@ function OwnerProfileDialog({ onClose, showToast }: { onClose: () => void; showT
         </p>
       )}
     </AdminDialog>
+  );
+}
+
+/*
+  Staff → Delete request: the "Requested account deletion" tag opens a small menu. Accept removes the
+  person from the team (after "Remove … from the team?"); Reject clears the request (they can ask again).
+  Only the owner, or a manager for anyone who isn't a manager, can act; others see the tag only.
+  The menu is placed on the screen under the tag (the table scrolls sideways, which would cut it off);
+  Escape, a click outside, scrolling or resizing closes it.
+*/
+function DeleteRequestMenu({
+  member,
+  canAct,
+  onAccept,
+  onReject,
+}: {
+  member: StaffMember;
+  canAct: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  // Where the open menu sits on the screen (null: closed)
+  const [menuPlace, setMenuPlace] = useState<{ top: number; left: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const isOpen = menuPlace !== null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const close = () => setMenuPlace(null);
+    function closeOnOutside(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) close();
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") close();
+    }
+    document.addEventListener("pointerdown", closeOnOutside);
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside);
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [isOpen]);
+
+  function toggleMenu(button: HTMLButtonElement) {
+    if (isOpen) {
+      setMenuPlace(null);
+      return;
+    }
+    const place = button.getBoundingClientRect();
+    // Under the tag, kept inside the screen (the menu is about 220 px wide)
+    setMenuPlace({ top: place.bottom + 6, left: Math.max(8, Math.min(place.left, window.innerWidth - 228)) });
+  }
+
+  if (!canAct) return <span className={styles["admin-person-delete-request"]}>Requested account deletion</span>;
+  return (
+    <div ref={menuRef} className={dashboardStyles["admin-popup-anchor"]}>
+      <button
+        type="button"
+        className={`${styles["admin-person-delete-request"]} ${styles["admin-team-delete-request-button"]}`}
+        aria-label={`${member.name} requested account deletion: accept or reject`}
+        aria-expanded={isOpen}
+        onClick={(clickEvent) => toggleMenu(clickEvent.currentTarget)}
+      >
+        Requested account deletion
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      {menuPlace && (
+        <div
+          className={`${dashboardStyles["admin-popup"]} ${dashboardStyles["admin-order-menu"]} ${styles["admin-team-request-menu"]}`}
+          style={{ top: menuPlace.top, left: menuPlace.left }}
+        >
+          <p className={dashboardStyles["admin-popup-title"]}>{member.name}</p>
+          <button
+            type="button"
+            className={styles["admin-team-request-accept"]}
+            onClick={() => {
+              setMenuPlace(null);
+              onAccept();
+            }}
+          >
+            Accept (remove from team)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMenuPlace(null);
+              onReject();
+            }}
+          >
+            Reject
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

@@ -8,12 +8,13 @@ import { addLead } from "@/store/admin-leads-store";
 import styles from "./bulk-order-popup.module.css";
 
 /*
-  "We take bulk orders!" pop-up, on every customer page (mounted once in app/layout.tsx):
-  - every time the site is opened, refreshed or reopened: shows 5 seconds after the page loads; closing it
-    (×, Maybe later, Escape or a click outside it) brings it back once more, 30 seconds later; after that
-    second close (or once a quote is sent) it does not come back until the next load. Kept only in memory,
-    so moving between pages keeps the count, and every refresh starts fresh again;
-  - never on /admin, /login, /cart or /checkout (it waits until a page where it may show);
+  "We take bulk orders!" pop-up (mounted once in app/layout.tsx), only on the landing page:
+  - shows 5 seconds after the site is opened; after that it takes turns with the "Log in / Complete your
+    profile" notification (components/profile-reminder), 2 minutes apart: closing it (×, Maybe later,
+    Escape or a click outside it) gives the notification its turn 2 minutes later, and the notification's
+    end gives this pop-up its turn 2 minutes after that. Once a quote is sent it skips its turns. Kept only in
+    memory, so every refresh starts fresh again;
+  - on any other page it waits, and shows when the visitor is back on the landing page;
   - while it is open, the page behind is blurred and dimmed and cannot be clicked or scrolled;
   - opens like the footer's "Good Milk. Good Health." banner: it fades and slides up (700 ms), while
     the lines on its green picture band draw themselves.
@@ -23,12 +24,16 @@ import styles from "./bulk-order-popup.module.css";
 */
 
 const FIRST_SHOW_AFTER_MS = 5_000;
-const SECOND_SHOW_AFTER_MS = 30_000;
-// Sent on window when the pop-up is closed: the log in / complete profile notification starts after it
+// The gap between this pop-up and the log in / complete profile notification, each turn
+export const POPUP_TURN_GAP_MS = 120_000;
+// Sent on window when this pop-up's turn ends (closed, or skipped): the notification's turn is next
 export const BULK_ORDER_POPUP_CLOSED_EVENT = "chiranvi-bulk-order-popup-closed";
+// Sent by the notification when its turn ends: this pop-up's turn is next
+export const PROFILE_REMINDER_DONE_EVENT = "chiranvi-profile-reminder-done";
 const PHONE_NUMBER = "9902881718";
 
-const HIDDEN_PAGE_STARTS = ["/admin", "/login", "/cart", "/checkout"];
+// The only page the pop-ups show on
+export const POPUP_PAGE = "/";
 
 // Pictures in the green band (pictures the site already has)
 const BAND_PICTURES = [
@@ -41,32 +46,48 @@ const BAND_PICTURES = [
 
 type View = "hidden" | "offer" | "form" | "thanks";
 
-// This page load: "fresh" (not closed yet), "closed-once" (shows once more, 30 s later), "done"
-type VisitStage = "fresh" | "closed-once" | "done";
-
 export default function BulkOrderPopup() {
   const pathname = usePathname();
-  const isHiddenPage = HIDDEN_PAGE_STARTS.some((start) => pathname.startsWith(start));
+  const isHiddenPage = pathname !== POPUP_PAGE;
   const [view, setView] = useState<View>("hidden");
-  // Becomes true once the timer has run out; the pop-up then waits for a page where it may show
+  // Becomes true when it is this pop-up's turn; it then waits for the landing page
   const [isDue, setIsDue] = useState(false);
-  // This page load's stage (only in memory, so a refresh starts fresh)
-  const [visitStage, setVisitStage] = useState<VisitStage>("fresh");
+  // A quote was sent on this visit: the pop-up skips its turns (only in memory, so a refresh starts fresh)
+  const [hasSentQuote, setHasSentQuote] = useState(false);
 
-  // The timer: 5 s after the page loads, or 30 s after the first close; none once done
+  // The first turn: 5 s after the site is opened
   useEffect(() => {
-    if (visitStage === "done") return;
-    const timer = window.setTimeout(() => setIsDue(true), visitStage === "fresh" ? FIRST_SHOW_AFTER_MS : SECOND_SHOW_AFTER_MS);
+    const timer = window.setTimeout(() => setIsDue(true), FIRST_SHOW_AFTER_MS);
     return () => window.clearTimeout(timer);
-  }, [visitStage]);
+  }, []);
 
-  // Due, and on a page where it may show: open it
+  // The notification's turn ended: this pop-up's turn comes 2 minutes later
   useEffect(() => {
-    if (!isDue || isHiddenPage || view !== "hidden") return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- opening when the timer and the page allow it
+    let timer = 0;
+    const onReminderDone = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setIsDue(true), POPUP_TURN_GAP_MS);
+    };
+    window.addEventListener(PROFILE_REMINDER_DONE_EVENT, onReminderDone);
+    return () => {
+      window.removeEventListener(PROFILE_REMINDER_DONE_EVENT, onReminderDone);
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  // Its turn: after a quote it skips (the notification's turn is next); otherwise it opens on the landing page
+  useEffect(() => {
+    if (!isDue || view !== "hidden") return;
+    if (hasSentQuote) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- passing the turn on
+      setIsDue(false);
+      window.dispatchEvent(new Event(BULK_ORDER_POPUP_CLOSED_EVENT));
+      return;
+    }
+    if (isHiddenPage) return;
     setView("offer");
     setIsDue(false);
-  }, [isDue, isHiddenPage, view]);
+  }, [isDue, isHiddenPage, view, hasSentQuote]);
 
   // While it is open the page behind does not scroll (it is blurred behind the pop-up)
   const isOpen = view !== "hidden" && !isHiddenPage;
@@ -79,10 +100,9 @@ export default function BulkOrderPopup() {
     };
   }, [isOpen]);
 
-  // Closing: the first time it comes back 30 s later; the second time (or after a quote) it is done for
-  // this page load. The notification's 10 s start now.
+  // Closing ends its turn: the notification's 2 minutes start now (after a quote, it skips its next turns)
   function close() {
-    setVisitStage(view === "thanks" || visitStage === "closed-once" ? "done" : "closed-once");
+    if (view === "thanks") setHasSentQuote(true);
     setView("hidden");
     window.dispatchEvent(new Event(BULK_ORDER_POPUP_CLOSED_EVENT));
   }

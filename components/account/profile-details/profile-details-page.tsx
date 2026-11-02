@@ -1,15 +1,24 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AccountPageHeading } from "../account-dashboard-layout";
 import { useAccountProfile } from "../account-profile";
-import { useLoggedInMobileNumber } from "@/components/login/login-status";
-import { saveCustomerProfile, useIsCustomerProfileKnown, type CustomerProfile, type CustomerProfileDetails } from "@/store/customer-profiles-store";
+import { logOut, useLoggedInMobileNumber } from "@/components/login/login-status";
+import {
+  cancelAccountDeletionRequest,
+  checkAccountDelete,
+  deleteMyAccount,
+  requestAccountDeletion,
+  saveCustomerProfile,
+  useIsCustomerProfileKnown,
+  type CustomerProfile,
+  type CustomerProfileDetails,
+} from "@/store/customer-profiles-store";
 import { useOrders, type Order } from "@/store/orders-store";
-import { addProductToCart } from "@/store/cart-store";
+import { addProductToCart, useCartItems, useCartSubscription } from "@/store/cart-store";
 import BengaluruAreaPicker, { OTHER_AREA, PincodeCheckNote, areaChoiceFor, otherAreaTextFor, pincodeForArea } from "@/components/area-picker/bengaluru-area-picker";
 import styles from "./profile-details-page.module.css";
 
@@ -23,6 +32,8 @@ import styles from "./profile-details-page.module.css";
   Saving keeps the details in this browser (store/customer-profiles-store.ts) and gives the customer
   a Customer ID; they then show on the Chiranvi Panel's Customers page.
   The banner numbers and the switches are placeholders from the design.
+  "Delete account" (beside Edit details) deletes the account for good, after a confirmation; see
+  DeleteAccountButton below for when it is refused.
 */
 
 type ProfileForm = Omit<CustomerProfileDetails, "primaryMobile">;
@@ -508,10 +519,13 @@ function PersonalDetailsForm({
           </p>
         )}
         {!isEditing ? (
-          // Saved details: unlock them to change anything
-          <button type="button" className={styles["profile-save-button"]} onClick={startEditing}>
-            Edit details
-          </button>
+          <>
+            <DeleteAccountButton mobileNumber={primaryMobileDigits} />
+            {/* Saved details: unlock them to change anything */}
+            <button type="button" className={styles["profile-save-button"]} onClick={startEditing}>
+              Edit details
+            </button>
+          </>
         ) : (
           <>
             {savedProfile && (
@@ -526,5 +540,230 @@ function PersonalDetailsForm({
         )}
       </div>
     </form>
+  );
+}
+
+/*
+  "Delete account": opens a pop-up, which first asks the database what stops it (my_account_delete_check):
+  - the owner: can't delete (ownership is transferred first);
+  - another team member (admin, manager, staff, delivery agent), even with an empty cart: can't delete;
+    "Request" asks the admin, who sees it on Roles & permissions (already asked: says so, with
+    "Cancel request" to take it back);
+  - a customer with something in the cart, an order not delivered or a milk plan running: what to do first;
+  - otherwise "Are you sure?" with No (focused) / Yes; Yes deletes the account for good (profile,
+    addresses, login; past orders stay for the sales records), logs out and goes to the home page.
+  Escape or the dimmed page close it.
+*/
+type DeleteStep =
+  | { step: "checking" }
+  | { step: "could-not-check" }
+  | { step: "owner" }
+  | { step: "team"; roleName: string }
+  | { step: "requested"; isNew: boolean }
+  | { step: "request-cancelled" }
+  | { step: "wait"; reasons: string[] }
+  | { step: "confirm" };
+
+function DeleteAccountButton({ mobileNumber }: { mobileNumber: string }) {
+  const router = useRouter();
+  const cartItems = useCartItems();
+  const cartSubscription = useCartSubscription();
+  const [deleteStep, setDeleteStep] = useState<DeleteStep | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+
+  async function openDeletePopup() {
+    setProblem("");
+    setDeleteStep({ step: "checking" });
+    const check = await checkAccountDelete();
+    if (!check) setDeleteStep({ step: "could-not-check" });
+    else if (check.isOwner) setDeleteStep({ step: "owner" });
+    else if (check.teamRole) {
+      setDeleteStep(check.deleteRequestedAt ? { step: "requested", isNew: false } : { step: "team", roleName: check.teamRole.toLowerCase() });
+    } else {
+      const reasons = [
+        ...(cartItems.length > 0 || cartSubscription ? ["Empty your cart"] : []),
+        ...(check.hasUndeliveredOrder ? ["Wait for your products to be delivered"] : []),
+        ...(check.hasRunningPlan ? ["Wait for your subscription to complete"] : []),
+      ];
+      setDeleteStep(reasons.length > 0 ? { step: "wait", reasons } : { step: "confirm" });
+    }
+  }
+
+  async function sendRequest() {
+    setIsBusy(true);
+    const requestProblem = await requestAccountDeletion();
+    setIsBusy(false);
+    if (requestProblem) setProblem(requestProblem);
+    else setDeleteStep({ step: "requested", isNew: true });
+  }
+
+  async function cancelRequest() {
+    setIsBusy(true);
+    const cancelProblem = await cancelAccountDeletionRequest();
+    setIsBusy(false);
+    if (cancelProblem) setProblem(cancelProblem);
+    else {
+      setProblem("");
+      setDeleteStep({ step: "request-cancelled" });
+    }
+  }
+
+  async function deleteTheAccount() {
+    setIsBusy(true);
+    const deleteProblem = await deleteMyAccount(mobileNumber);
+    setIsBusy(false);
+    if (deleteProblem) {
+      setProblem(deleteProblem);
+      return;
+    }
+    logOut();
+    router.push("/");
+  }
+
+  return (
+    <>
+      <button type="button" className={styles["profile-delete-account-button"]} onClick={() => void openDeletePopup()}>
+        Delete account
+      </button>
+      {deleteStep && (
+        <DeleteAccountDialog
+          deleteStep={deleteStep}
+          isBusy={isBusy}
+          problem={problem}
+          onClose={() => setDeleteStep(null)}
+          onRequest={() => void sendRequest()}
+          onCancelRequest={() => void cancelRequest()}
+          onDelete={() => void deleteTheAccount()}
+        />
+      )}
+    </>
+  );
+}
+
+// "a manager", "an admin"
+function withArticle(roleName: string) {
+  return `${/^[aeiou]/.test(roleName) ? "an" : "a"} ${roleName}`;
+}
+
+// The pop-up's heading and line for each step
+function deleteStepWords(deleteStep: DeleteStep) {
+  switch (deleteStep.step) {
+    case "checking":
+      return { heading: "Delete account", text: "Checking your account…" };
+    case "could-not-check":
+      return { heading: "Delete account", text: "Couldn't check your account. Check your internet and try again." };
+    case "owner":
+      return { heading: "You can't delete your account", text: "You're the owner. Transfer the ownership first." };
+    case "team":
+      return { heading: "You can't delete your account", text: `You're ${withArticle(deleteStep.roleName)}. Request the admin to delete it.` };
+    case "requested":
+      return { heading: deleteStep.isNew ? "Request sent" : "Request already sent", text: "The admin will delete your account." };
+    case "request-cancelled":
+      return { heading: "Request cancelled", text: "Your account stays as it is." };
+    case "wait":
+      return { heading: "You can't delete your account yet", text: "First:" };
+    case "confirm":
+      return { heading: "Are you sure?", text: "You are deleting your account permanently. This can't be undone." };
+  }
+}
+
+function DeleteAccountDialog({
+  deleteStep,
+  isBusy,
+  problem,
+  onClose,
+  onRequest,
+  onCancelRequest,
+  onDelete,
+}: {
+  deleteStep: DeleteStep;
+  isBusy: boolean;
+  problem: string;
+  onClose: () => void;
+  onRequest: () => void;
+  onCancelRequest: () => void;
+  onDelete: () => void;
+}) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  // Latest onClose, so the Escape listener below is set up only once
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Escape closes the box; the safe button (No / Close / OK) is focused first
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onCloseRef.current();
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, []);
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, [deleteStep.step]);
+
+  const { heading, text } = deleteStepWords(deleteStep);
+  const hasTwoButtons = deleteStep.step === "confirm" || deleteStep.step === "team" || deleteStep.step === "requested";
+  const closeLabel = deleteStep.step === "confirm" ? "No" : deleteStep.step === "team" ? "Close" : "OK";
+
+  return (
+    <div className={styles["profile-delete-dialog-overlay"]} data-lenis-prevent>
+      <button type="button" aria-label="Close" className={styles["profile-delete-dialog-dimmed-page"]} onClick={onClose} />
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="profile-delete-dialog-heading"
+        aria-describedby="profile-delete-dialog-description"
+        className={styles["profile-delete-dialog"]}
+      >
+        <span className={styles["profile-delete-dialog-icon-circle"]} aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3" />
+          </svg>
+        </span>
+        <h2 id="profile-delete-dialog-heading" className={styles["profile-delete-dialog-heading"]}>
+          {heading}
+        </h2>
+        <p id="profile-delete-dialog-description" className={styles["profile-delete-dialog-description"]}>
+          {text}
+        </p>
+        {deleteStep.step === "wait" && (
+          <ul className={styles["profile-delete-dialog-reasons"]}>
+            {deleteStep.reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        )}
+        {problem && (
+          <p className={styles["profile-delete-dialog-problem"]} role="alert">
+            {problem}
+          </p>
+        )}
+        {deleteStep.step !== "checking" && (
+          <div className={`${styles["profile-delete-dialog-buttons"]} ${hasTwoButtons ? "" : styles["profile-delete-dialog-buttons-single"]}`}>
+            <button ref={closeButtonRef} type="button" className={styles["profile-delete-dialog-cancel-button"]} onClick={onClose}>
+              {closeLabel}
+            </button>
+            {deleteStep.step === "team" && (
+              <button type="button" className={styles["profile-delete-dialog-request-button"]} onClick={onRequest} disabled={isBusy}>
+                {isBusy ? "Sending…" : "Request"}
+              </button>
+            )}
+            {deleteStep.step === "requested" && (
+              <button type="button" className={styles["profile-delete-dialog-cancel-request-button"]} onClick={onCancelRequest} disabled={isBusy}>
+                {isBusy ? "Cancelling…" : "Cancel request"}
+              </button>
+            )}
+            {deleteStep.step === "confirm" && (
+              <button type="button" className={styles["profile-delete-dialog-confirm-button"]} onClick={onDelete} disabled={isBusy}>
+                {isBusy ? "Deleting…" : "Yes"}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

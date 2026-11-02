@@ -66,6 +66,7 @@ export type StaffMember = {
   name: string;
   roleId: string;
   title?: string; // "Hub manager"
+  deleteRequestedAt?: string; // they asked the admin to delete their account (Profile → Delete account → Request)
 };
 
 export type StaffAccess = {
@@ -116,7 +117,15 @@ function completePermissions(permissions: Partial<RolePermissions> | undefined):
 
 // The rows as the database keeps them
 type RoleRow = { id: string; name: string; is_built_in: boolean; has_panel_access: boolean; permissions: Partial<RolePermissions> };
-type StaffRow = { mobile_number: string; name: string; role_id: string; title: string | null; is_active: boolean; password_kind: "pin" | "password" | null };
+type StaffRow = {
+  mobile_number: string;
+  name: string;
+  role_id: string;
+  title: string | null;
+  is_active: boolean;
+  password_kind: "pin" | "password" | null;
+  delete_requested_at: string | null;
+};
 
 const NO_ROLES: PanelRole[] = [];
 const NO_TEAM: StaffMember[] = [];
@@ -147,7 +156,7 @@ async function loadTeam(mobileNumber: string | null) {
     const supabase = createClient();
     const [roleAnswer, staffAnswer] = await Promise.all([
       supabase.from("panel_roles").select("id, name, is_built_in, has_panel_access, permissions").order("created_at"),
-      supabase.from("staff_members").select("mobile_number, name, role_id, title, is_active, password_kind").order("created_at"),
+      supabase.from("staff_members").select("mobile_number, name, role_id, title, is_active, password_kind, delete_requested_at").order("created_at"),
     ]);
     // A newer login started meanwhile: its own read wins
     if (loadingForMobile !== mobileNumber) return;
@@ -165,7 +174,13 @@ async function loadTeam(mobileNumber: string | null) {
     ownerDetails = ownerRow ? { name: ownerRow.name, mobileNumber: ownerRow.mobile_number, passwordKind: ownerRow.password_kind } : NO_OWNER;
     staffMembers = staffRows
       .filter((row) => row.role_id !== "owner")
-      .map((row) => ({ mobileNumber: row.mobile_number, name: row.name, roleId: row.role_id, title: row.title ?? undefined }));
+      .map((row) => ({
+        mobileNumber: row.mobile_number,
+        name: row.name,
+        roleId: row.role_id,
+        title: row.title ?? undefined,
+        deleteRequestedAt: row.delete_requested_at ?? undefined,
+      }));
   }
   loadedForMobile = mobileNumber;
   announceTeamChange();
@@ -293,6 +308,34 @@ async function confirmOwnerSecret(secret: string): Promise<string | null> {
   if (!ownerMobile) return "Only the owner can do this";
   const { error } = await createClient().auth.signInWithPassword({ phone: `+91${ownerMobile}`, password: secret });
   return error ? "That PIN or password isn't right" : null;
+}
+
+/*
+  Reject a team member's request to delete their account (Roles & permissions → Staff): the database's
+  decline_account_deletion() clears it (the owner, or a manager for anyone who isn't a manager). Shown at
+  once; answers an error message, or null.
+*/
+export async function declineAccountDeletion(mobileNumber: string): Promise<string | null> {
+  const { error } = await createClient().rpc("decline_account_deletion", { staff_mobile: mobileNumber });
+  if (error) return error.message || "Couldn't reject the request. Please try again.";
+  staffMembers = staffMembers.map((member) => (member.mobileNumber === mobileNumber ? { ...member, deleteRequestedAt: undefined } : member));
+  announceTeamChange();
+  return null;
+}
+
+/*
+  Delete a role (Roles & permissions → Delete role): after the owner's PIN / password check, the database
+  function delete_panel_role() deletes it, only when nobody has it (Owner and Delivery agent never;
+  supabase/migrations/0015_…sql). Answers an error message, or null.
+*/
+export async function deleteRoleWithSecret(roleId: string, secret: string): Promise<string | null> {
+  const problem = await confirmOwnerSecret(secret);
+  if (problem) return problem;
+  const { error } = await createClient().rpc("delete_panel_role", { role_to_delete: roleId });
+  if (error) return error.message || "Couldn't delete the role. Please try again.";
+  roles = roles.filter((role) => role.id !== roleId);
+  ensureTeamFor(loadedForMobile ?? null, true);
+  return null;
 }
 
 /*

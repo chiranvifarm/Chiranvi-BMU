@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import AddressFormDialog from "@/components/account/address/address-form-dialog";
+import AddressFormDialog, { type ProfileDetailsFromAddress } from "@/components/account/address/address-form-dialog";
 import { CART_ICON_CLICKED_ON_CART_PAGE_EVENT } from "@/components/navigation/site-navigation-bar";
 import SiteNavigationPlacement from "@/components/navigation/site-navigation-placement";
 import BestSellersSection from "@/components/landing/best-sellers/best-sellers-section";
-import { rememberPageAfterLogin, useIsLoggedIn } from "@/components/login/login-status";
+import { rememberPageAfterLogin, useIsLoggedIn, useLoggedInMobileNumber } from "@/components/login/login-status";
 import {
   addAddress,
+  fillEmptyProfileFromAddress,
   formatAddressLine,
   removeAddress,
   setDefaultAddress,
@@ -19,6 +20,7 @@ import {
   type AddressDetails,
   type SavedAddress,
 } from "@/store/address-store";
+import { useCustomerProfile, useIsCustomerProfileKnown } from "@/store/customer-profiles-store";
 import {
   addProductToCart,
   changeCartItemQuantity,
@@ -288,6 +290,11 @@ export default function CartView() {
   const deliverySettings = useDeliverySettings();
   const productPages = useProductPages();
   const isLoggedIn = useIsLoggedIn();
+  // Logged in without a Profile: the address form also asks the Profile's details (name, email), which fill it
+  const loggedInMobile = useLoggedInMobileNumber();
+  const customerProfile = useCustomerProfile(loggedInMobile);
+  const isProfileKnown = useIsCustomerProfileKnown(loggedInMobile);
+  const isProfileMissing = Boolean(loggedInMobile) && isProfileKnown && !customerProfile;
   const { addresses, defaultAddressId } = useAddressBook();
   const isCartLoaded = useSyncExternalStore(subscribeToNothing, () => true, () => false);
   const router = useRouter();
@@ -328,8 +335,9 @@ export default function CartView() {
   // The address pop-up, and whether an address was confirmed there (ticks Address; the button becomes Pay now)
   const [isAddressPickerOpen, setIsAddressPickerOpen] = useState(false);
   const [hasPickedAddress, setHasPickedAddress] = useState(false);
-  // How the customer pays (kept on the order; Razorpay takes the payment once connected). No cash on delivery.
-  const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>("UPI");
+  // No "Pay with" choice in the cart: the payment page (Razorpay, once connected) offers UPI, card and net
+  // banking itself. Orders are saved as UPI until then. No cash on delivery.
+  const paymentMethod: OrderPaymentMethod = "UPI";
   /*
     Buying a plan while one is still running:
       a plan from "Extend Plan" (My Subscription) extends the plan it names, at that plan's address;
@@ -394,7 +402,8 @@ export default function CartView() {
   );
   /*
     Only the coupons the owner put in this kind of cart's list (Coupons & offers → Coupons in the cart): one-time
-    products, a milk plan, or both, each checked by the database on this cart. No coupons in the list: no coupon box.
+    products, a milk plan, or both, each checked by the database on this cart. No coupons in the list: the drop-down says so (a code can
+    still be typed).
   */
   const cartCoupons = useCartCoupons(couponCart);
   const hasCartCoupons = cartCoupons.length > 0;
@@ -457,7 +466,7 @@ export default function CartView() {
     same milk and bottle size (e.g. A2 Milk 1 L) is not picked: the "same address" pop-up offers to extend
     that plan or to choose another address. A different milk (Jersey, Skimmed) or size can go to the same address.
   */
-  function pickAddress(addressId: string, addressDetails: AddressDetails) {
+  function pickAddress(addressId: string, addressDetails: AddressDetails, profileDetails?: ProfileDetailsFromAddress) {
     const planAtThisAddress = cartSubscription
       ? runningPlans.find(
           (plan) =>
@@ -470,13 +479,20 @@ export default function CartView() {
       setPlanAtPickedAddress(planAtThisAddress);
       return;
     }
+    // No Profile yet: an address picked from the list first opens the form for the Profile's details
+    if (isProfileMissing && !profileDetails) {
+      openAddressForm({ ...addressDetails, id: addressId });
+      return;
+    }
     setChosenAddressId(addressId);
     setHasPickedAddress(true);
     setIsAddressPickerOpen(false);
+    // The form's Profile details, with this address, fill the empty Profile
+    if (profileDetails) void fillEmptyProfileFromAddress(addressId, addressDetails, profileDetails);
   }
 
   // Add new address or Edit (same pop-up as My Addresses); the saved address becomes the picked one
-  function saveAddress(addressDetails: AddressDetails, shouldBeDefault: boolean) {
+  function saveAddress(addressDetails: AddressDetails, shouldBeDefault: boolean, profileDetails?: ProfileDetailsFromAddress) {
     let savedAddressId: string;
     if (addressBeingEdited) {
       updateAddress(addressBeingEdited.id, addressDetails, shouldBeDefault);
@@ -486,7 +502,7 @@ export default function CartView() {
     }
     setIsAddressFormOpen(false);
     setAddressBeingEdited(null);
-    pickAddress(savedAddressId, addressDetails);
+    pickAddress(savedAddressId, addressDetails, profileDetails);
   }
 
   /*
@@ -1020,74 +1036,76 @@ export default function CartView() {
                   Order summary
                 </h2>
 
-                {/* Coupon code: only when the panel put coupons in this kind of cart's list */}
-                {hasCartCoupons && (
-                  <div ref={couponPickerRef} className={styles["checkout-coupon-picker"]}>
-                    <form
-                      className={styles["checkout-coupon-form"]}
-                      onSubmit={(submitEvent) => {
-                        submitEvent.preventDefault();
-                        void applyCoupon();
+                {/* Coupon code: typed, or chosen from the coupons the panel put in this kind of cart's list */}
+                <div ref={couponPickerRef} className={styles["checkout-coupon-picker"]}>
+                  <form
+                    className={styles["checkout-coupon-form"]}
+                    onSubmit={(submitEvent) => {
+                      submitEvent.preventDefault();
+                      void applyCoupon();
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M3 12V4h8l10 10-8 8L3 12Z" />
+                      <path d="M7.5 7.5h.01" />
+                    </svg>
+                    <input
+                      value={couponInput}
+                      placeholder="Choose or enter coupon code"
+                      aria-label="Coupon code"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded={isCouponListOpen}
+                      aria-controls="checkout-coupon-choices"
+                      onFocus={() => setIsCouponListOpen(true)}
+                      onClick={() => setIsCouponListOpen(true)}
+                      onChange={(changeEvent) => {
+                        setCouponInput(changeEvent.target.value.toUpperCase());
+                        setCouponError("");
+                        setIsCouponListOpen(true);
                       }}
+                    />
+                    <button
+                      type="button"
+                      className={styles["checkout-coupon-list-toggle"]}
+                      aria-label={isCouponListOpen ? "Hide coupons" : "Show coupons"}
+                      aria-expanded={isCouponListOpen}
+                      onClick={() => setIsCouponListOpen(!isCouponListOpen)}
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M3 12V4h8l10 10-8 8L3 12Z" />
-                        <path d="M7.5 7.5h.01" />
+                        <path d="M6 9l6 6 6-6" />
                       </svg>
-                      <input
-                        value={couponInput}
-                        placeholder="Choose or enter coupon code"
-                        aria-label="Coupon code"
-                        role="combobox"
-                        aria-autocomplete="list"
-                        aria-expanded={isCouponListOpen}
-                        aria-controls="checkout-coupon-choices"
-                        onFocus={() => setIsCouponListOpen(true)}
-                        onClick={() => setIsCouponListOpen(true)}
-                        onChange={(changeEvent) => {
-                          setCouponInput(changeEvent.target.value.toUpperCase());
-                          setCouponError("");
-                          setIsCouponListOpen(true);
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className={styles["checkout-coupon-list-toggle"]}
-                        aria-label={isCouponListOpen ? "Hide coupons" : "Show coupons"}
-                        aria-expanded={isCouponListOpen}
-                        onClick={() => setIsCouponListOpen(!isCouponListOpen)}
-                      >
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M6 9l6 6 6-6" />
-                        </svg>
-                      </button>
-                      <button type="submit">Apply</button>
-                    </form>
-                    {isCouponListOpen && (
-                      <ul id="checkout-coupon-choices" className={styles["checkout-coupon-dropdown"]} aria-label="Coupons you can use">
-                        {couponChoices.map(({ code, description, problem }) => (
-                          <li key={code}>
-                            <button
-                              type="button"
-                              className={styles["checkout-coupon-choice"]}
-                              disabled={Boolean(problem)}
-                              onClick={() => void applyCoupon(code)}
-                            >
-                              <span className={styles["checkout-coupon-choice-code"]}>{code}</span>
-                              <span className={styles["checkout-coupon-choice-description"]}>{problem ?? description}</span>
-                              {!problem && <span className={styles["checkout-coupon-choice-apply"]}>Apply</span>}
-                            </button>
-                          </li>
-                        ))}
-                        {couponChoices.length === 0 && (
-                          <li className={styles["checkout-coupon-dropdown-empty"]}>
-                            {typedCouponWords ? "No coupon matches this code" : "No other coupons for this order"}
-                          </li>
-                        )}
-                      </ul>
-                    )}
-                  </div>
-                )}
+                    </button>
+                    <button type="submit">Apply</button>
+                  </form>
+                  {isCouponListOpen && (
+                    <ul id="checkout-coupon-choices" className={styles["checkout-coupon-dropdown"]} aria-label="Coupons you can use">
+                      {couponChoices.map(({ code, description, problem }) => (
+                        <li key={code}>
+                          <button
+                            type="button"
+                            className={styles["checkout-coupon-choice"]}
+                            disabled={Boolean(problem)}
+                            onClick={() => void applyCoupon(code)}
+                          >
+                            <span className={styles["checkout-coupon-choice-code"]}>{code}</span>
+                            <span className={styles["checkout-coupon-choice-description"]}>{problem ?? description}</span>
+                            {!problem && <span className={styles["checkout-coupon-choice-apply"]}>Apply</span>}
+                          </button>
+                        </li>
+                      ))}
+                      {couponChoices.length === 0 && (
+                        <li className={styles["checkout-coupon-dropdown-empty"]}>
+                          {!hasCartCoupons
+                          ? "No coupons available"
+                          : typedCouponWords
+                            ? "No coupon matches this code"
+                            : "No other coupons for this order"}
+                        </li>
+                      )}
+                    </ul>
+                  )}
+                </div>
                 {appliedCoupon && (
                     <p className={styles["checkout-coupon-applied"]}>
                       <span className={styles["checkout-coupon-badge"]} aria-hidden="true">
@@ -1101,28 +1119,21 @@ export default function CartView() {
                       </button>
                     </p>
                 )}
-                {hasCartCoupons && couponError && <p className={styles["checkout-coupon-error"]}>{couponError}</p>}
+                {couponError && <p className={styles["checkout-coupon-error"]}>{couponError}</p>}
                 {appliedCode && !appliedCoupon && couponCheck && "error" in couponCheck && (
                   <p className={styles["checkout-coupon-error"]}>{couponCheck.error}</p>
                 )}
 
-                {/* The plan at the one-time price and its saving, then the items at MRP and their discount */}
+                {/*
+                  The plan's price (its saving shows under To pay), the items at MRP and their discount, then delivery,
+                  the coupon and the platform fee
+                */}
                 <dl className={styles["checkout-bill"]}>
                   {cartSubscription && (
-                    <>
-                      <div>
-                        <dt>
-                          {cartSubscription.bottleCount.toLocaleString("en-IN")} bottles at {rupees(cartSubscription.product.price)}
-                        </dt>
-                        <dd>{rupees(cartSubscription.oneTimeTotal)}</dd>
-                      </div>
-                      {cartSubscription.oneTimeTotal > cartSubscription.planTotal && (
-                        <div>
-                          <dt>Subscription saving</dt>
-                          <dd className={styles["checkout-bill-saving"]}>−{rupees(cartSubscription.oneTimeTotal - cartSubscription.planTotal)}</dd>
-                        </div>
-                      )}
-                    </>
+                    <div>
+                      <dt>Subscription fee</dt>
+                      <dd>{rupees(cartSubscription.planTotal)}</dd>
+                    </div>
                   )}
                   {oneTimeItems.length > 0 && (
                     <>
@@ -1137,12 +1148,6 @@ export default function CartView() {
                         </div>
                       )}
                     </>
-                  )}
-                  {appliedCoupon && (
-                    <div>
-                      <dt>Coupon {appliedCoupon.code}</dt>
-                      <dd className={styles["checkout-bill-saving"]}>−{rupees(couponDiscount)}</dd>
-                    </div>
                   )}
                   <div>
                     <dt>Delivery fee</dt>
@@ -1162,6 +1167,12 @@ export default function CartView() {
                       )}
                     </dd>
                   </div>
+                  {appliedCoupon && (
+                    <div>
+                      <dt>Coupon {appliedCoupon.code}</dt>
+                      <dd className={styles["checkout-bill-saving"]}>−{rupees(couponDiscount)}</dd>
+                    </div>
+                  )}
                   <div>
                     <dt>Platform fee</dt>
                     <dd>{rupees(platformFee)}</dd>
@@ -1185,20 +1196,6 @@ export default function CartView() {
                     You save {rupees(amountSaved)} on this {cartSubscription && oneTimeItems.length === 0 ? "plan" : "order"}
                   </p>
                 )}
-
-                {/* How to pay (no cash on delivery) */}
-                <fieldset className={styles["checkout-payment-methods"]}>
-                  <legend className={styles["checkout-payment-methods-title"]}>Pay with</legend>
-                  {(["UPI", "Net banking", "Card"] as OrderPaymentMethod[]).map((method) => (
-                    <label
-                      key={method}
-                      className={`${styles["checkout-payment-method"]} ${paymentMethod === method ? styles["checkout-payment-method-chosen"] : ""}`}
-                    >
-                      <input type="radio" name="payment-method" value={method} checked={paymentMethod === method} onChange={() => setPaymentMethod(method)} />
-                      {method}
-                    </label>
-                  ))}
-                </fieldset>
 
                 <div className={styles["checkout-place-row"]}>
                   <span className={styles["checkout-place-row-total"]}>
@@ -1386,6 +1383,7 @@ export default function CartView() {
         <AddressFormDialog
           addressToEdit={addressBeingEdited}
           isDefaultAtStart={addressBeingEdited ? addressBeingEdited.id === defaultAddressId : addresses.length === 0}
+          asksProfileDetails={isProfileMissing}
           onSave={saveAddress}
           onClose={closeAddressForm}
         />

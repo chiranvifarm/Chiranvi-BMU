@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { customerIdForMobile, isCustomerListed, saveRegisteredCustomer } from "./admin-customers-store";
+import { customerIdForMobile, isCustomerListed, removeCustomer, saveRegisteredCustomer } from "./admin-customers-store";
 import { updateAddressesFromProfile } from "./address-store";
 
 /*
@@ -253,6 +253,74 @@ export function saveCustomerProfile(details: CustomerProfileDetails): CustomerPr
     }
   });
   return profile;
+}
+
+// What stops the logged-in person deleting their account (the database's my_account_delete_check())
+export type AccountDeleteCheck = {
+  teamRole: string | null; // "Manager", "Delivery agent" … (null: a customer)
+  isOwner: boolean;
+  deleteRequestedAt: string | null; // a team member already asked the admin
+  hasRunningPlan: boolean;
+  hasUndeliveredOrder: boolean;
+};
+
+// The "Delete account" pop-up asks first; null when it couldn't ask
+export async function checkAccountDelete(): Promise<AccountDeleteCheck | null> {
+  const { data, error } = await createClient().rpc("my_account_delete_check");
+  if (error || !data) {
+    console.error("Could not check the account", error);
+    return null;
+  }
+  return data as AccountDeleteCheck;
+}
+
+/*
+  A team member (not the owner) asks the admin to delete their account: Roles & permissions shows it beside
+  their name. Answers an error message, or null when sent.
+*/
+export async function requestAccountDeletion(): Promise<string | null> {
+  const { error } = await createClient().rpc("request_my_account_deletion");
+  if (error) {
+    console.error("The request was not sent", error);
+    return error.code === "P0001" && error.message ? error.message : "Couldn't send the request. Check your internet and try again.";
+  }
+  return null;
+}
+
+// The team member takes their request back. Answers an error message, or null when done.
+export async function cancelAccountDeletionRequest(): Promise<string | null> {
+  const { error } = await createClient().rpc("cancel_my_account_deletion_request");
+  if (error) {
+    console.error("The request was not cancelled", error);
+    return "Couldn't cancel the request. Check your internet and try again.";
+  }
+  return null;
+}
+
+/*
+  Profile page → "Delete account": the database's delete_my_account() deletes the customer for good (their
+  profile, addresses, "Notify me" requests and login; past orders stay for the sales records, unlinked). It
+  refuses team members, a running milk plan and orders not delivered yet, with a message for the customer.
+  Then this browser forgets them too (the Customers page entry, the wishlist), and the page logs them out.
+  Answers an error message, or null when the account is gone.
+*/
+export async function deleteMyAccount(mobileNumber: string): Promise<string | null> {
+  const { error } = await createClient().rpc("delete_my_account");
+  if (error) {
+    console.error("The account was not deleted", error);
+    return error.code === "P0001" && error.message ? error.message : "Couldn't delete your account. Check your internet and try again.";
+  }
+  delete profiles[mobileNumber];
+  customerRowIds.delete(mobileNumber);
+  loadedMobiles.delete(mobileNumber);
+  announce();
+  removeCustomer(customerIdForMobile(mobileNumber));
+  try {
+    window.localStorage.removeItem("chiranvi-wishlist");
+  } catch {
+    // Storage blocked: nothing kept to remove.
+  }
+  return null;
 }
 
 /*

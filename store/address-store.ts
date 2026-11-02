@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import { createClient } from "@/lib/supabase/client";
-import { ensureCustomerRowId, useCustomerProfile, type CustomerProfile } from "./customer-profiles-store";
+import { ensureCustomerRowId, loadCustomerProfile, saveCustomerProfile, useCustomerProfile, type CustomerProfile } from "./customer-profiles-store";
 
 /*
   The logged-in customer's saved delivery addresses and which one is the default, shared by My Addresses
@@ -181,7 +181,6 @@ export async function updateAddressesFromProfile(profile: CustomerProfile) {
   const supabase = createClient();
   const shared = {
     name: `${profile.firstName} ${profile.lastName}`.trim(),
-    mobile_number: profile.primaryMobile,
     area: profile.location,
     city: "Bengaluru",
     pincode: profile.pincode,
@@ -198,8 +197,10 @@ export async function updateAddressesFromProfile(profile: CustomerProfile) {
       continue;
     }
     const row = { ...shared, label, house_and_street: street.trim(), profile_slot: slot };
+    // An existing Home / Other keeps its own delivery phone (the cart's address that filled the Profile may have
+    // another number); a new one gets the login number
     if (existing) await supabase.from("addresses").update(row).eq("id", existing.id);
-    else await supabase.from("addresses").insert({ ...row, customer_id: customerId });
+    else await supabase.from("addresses").insert({ ...row, mobile_number: profile.primaryMobile, customer_id: customerId });
   }
   // No default yet (a new book): Home is the default
   const { data: defaults } = await supabase.from("addresses").select("id").eq("customer_id", customerId).eq("is_default", true);
@@ -208,6 +209,45 @@ export async function updateAddressesFromProfile(profile: CustomerProfile) {
     if (home) await supabase.from("addresses").update({ is_default: true }).eq("id", home.id);
   }
   await loadAddressBook(profile.primaryMobile, true);
+}
+
+/*
+  The cart: a logged-in customer without a Profile saved a delivery address with the Profile's details
+  (first and last name, email, and the address's number as their second number when they said it is
+  theirs; components/account/address/address-form-dialog.tsx, asksProfileDetails). With the address
+  (primary address, area, pincode) they fill every required Profile detail. The address itself becomes the
+  Profile's Home address (keeping its own phone), so the book doesn't get it twice. Nothing happens when
+  they already have a Profile.
+*/
+export async function fillEmptyProfileFromAddress(
+  addressId: string,
+  details: AddressDetails,
+  profileDetails: { firstName: string; lastName: string; email: string; secondaryMobile: string },
+) {
+  const mobileNumber = readLoggedInMobileNumber();
+  if (!mobileNumber || (await loadCustomerProfile(mobileNumber))) return;
+  // A just-added address may still be on its way to the database: wait for its row (up to 5 s)
+  const supabase = createClient();
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const { data } = await supabase.from("addresses").select("id").eq("id", addressId).maybeSingle();
+    if (data) break;
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+  }
+  await supabase.from("addresses").update({ profile_slot: "primary" }).eq("id", addressId);
+  saveCustomerProfile({
+    firstName: profileDetails.firstName,
+    lastName: profileDetails.lastName,
+    primaryMobile: mobileNumber,
+    secondaryMobile: profileDetails.secondaryMobile !== mobileNumber ? profileDetails.secondaryMobile : "",
+    email: profileDetails.email,
+    primaryAddress: details.houseAndStreet.trim(),
+    secondaryAddress: "",
+    location: details.area,
+    pincode: details.pincode,
+    dateOfBirth: "",
+    familySize: "",
+    preferredPlanType: "",
+  });
 }
 
 function subscribeToAddressBook(onChange: () => void) {

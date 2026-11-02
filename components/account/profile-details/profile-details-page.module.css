@@ -247,6 +247,7 @@
 
 .profile-form-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: calc(16 * var(--account-design-pixel));
@@ -539,4 +540,198 @@
     background-position: right 8px center;
     background-size: 16px;
   }
+}
+
+/* Delete account (beside Edit details): white with a red outline, as it deletes for good */
+.profile-delete-account-button {
+  height: calc(42 * var(--account-design-pixel));
+  padding: 0 calc(20 * var(--account-design-pixel));
+  border: 1px solid #d64545;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14 * var(--account-design-pixel));
+  font-weight: 700;
+  color: #d64545;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.profile-delete-account-button:hover,
+.profile-delete-account-button:focus-visible {
+  background: #fde4e4;
+}
+
+/* The "Delete account" pop-up: the same look as the "Log out?" box */
+.profile-delete-dialog-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.profile-delete-dialog-dimmed-page {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(60, 72, 60, 0.32);
+  cursor: default;
+}
+
+.profile-delete-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: calc(396 * var(--account-design-pixel));
+  padding: calc(26 * var(--account-design-pixel)) calc(28 * var(--account-design-pixel));
+  border-radius: calc(20 * var(--account-design-pixel));
+  background: #ffffff;
+  box-shadow: 0 20px 50px rgba(22, 26, 23, 0.18);
+  text-align: center;
+}
+
+.profile-delete-dialog-icon-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(66 * var(--account-design-pixel));
+  height: calc(66 * var(--account-design-pixel));
+  border-radius: 50%;
+  background: #fde4e4;
+  color: #d64545;
+}
+
+.profile-delete-dialog-icon-circle svg {
+  width: 45%;
+  height: 45%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.profile-delete-dialog-heading {
+  margin-top: calc(14 * var(--account-design-pixel));
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(19 * var(--account-design-pixel));
+  font-weight: 700;
+}
+
+.profile-delete-dialog-description {
+  margin-top: calc(4 * var(--account-design-pixel));
+  font-size: calc(13 * var(--account-design-pixel));
+  color: #6e7a72;
+}
+
+/* What to do first (empty the cart, wait for the delivery / the subscription) */
+.profile-delete-dialog-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--account-design-pixel));
+  margin-top: calc(10 * var(--account-design-pixel));
+  padding: calc(12 * var(--account-design-pixel)) calc(16 * var(--account-design-pixel));
+  border-radius: calc(12 * var(--account-design-pixel));
+  background: #fbf3e1;
+  list-style: none;
+  font-size: calc(13 * var(--account-design-pixel));
+  font-weight: 500;
+  color: #1e2a22;
+  text-align: left;
+}
+
+.profile-delete-dialog-reasons li::before {
+  content: "• ";
+  color: #c99a1e;
+}
+
+/* The request or the delete didn't go through */
+.profile-delete-dialog-problem {
+  margin-top: calc(10 * var(--account-design-pixel));
+  font-size: calc(13 * var(--account-design-pixel));
+  font-weight: 500;
+  color: #d64545;
+}
+
+.profile-delete-dialog-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(14 * var(--account-design-pixel));
+  width: 100%;
+  margin-top: calc(22 * var(--account-design-pixel));
+}
+
+/* Only OK: one button across */
+.profile-delete-dialog-buttons-single {
+  grid-template-columns: 1fr;
+}
+
+.profile-delete-dialog-cancel-button,
+.profile-delete-dialog-confirm-button,
+.profile-delete-dialog-request-button,
+.profile-delete-dialog-cancel-request-button {
+  height: calc(48 * var(--account-design-pixel));
+  border-radius: 9999px;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14 * var(--account-design-pixel));
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.profile-delete-dialog-cancel-button {
+  border: 1px solid #d9e2d8;
+  background: #ffffff;
+  color: #1e2a22;
+}
+
+.profile-delete-dialog-cancel-button:hover,
+.profile-delete-dialog-cancel-button:focus-visible {
+  background: #f2f2f2;
+}
+
+.profile-delete-dialog-confirm-button {
+  border: none;
+  background: #d64545;
+  color: #ffffff;
+}
+
+.profile-delete-dialog-confirm-button:hover,
+.profile-delete-dialog-confirm-button:focus-visible {
+  background: #bf3434;
+}
+
+/* Request (team members): green, as it only asks the admin */
+.profile-delete-dialog-request-button {
+  border: none;
+  background: #2f6b3f;
+  color: #ffffff;
+}
+
+.profile-delete-dialog-request-button:hover,
+.profile-delete-dialog-request-button:focus-visible {
+  background: #245433;
+}
+
+/* Cancel request: white with a green outline (keeps the account) */
+.profile-delete-dialog-cancel-request-button {
+  border: 1px solid #2f6b3f;
+  background: #ffffff;
+  color: #2f6b3f;
+}
+
+.profile-delete-dialog-cancel-request-button:hover,
+.profile-delete-dialog-cancel-request-button:focus-visible {
+  background: #e6f0e1;
+}
+
+.profile-delete-dialog-confirm-button:disabled,
+.profile-delete-dialog-request-button:disabled,
+.profile-delete-dialog-cancel-request-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }

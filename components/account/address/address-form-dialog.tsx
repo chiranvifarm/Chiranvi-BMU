@@ -20,6 +20,9 @@ import styles from "./address-form-dialog.module.css";
   "It's mine" also saves it as the customer's secondary number on their Profile. The login number never
   changes here (a new login number needs an OTP check, which comes with the backend).
   Cancel, the close button, Escape or a click on the dimmed page closes it without saving.
+  asksProfileDetails (the cart, for a logged-in customer without a Profile): "Full name" becomes First name and
+  Last name, and Email is asked too, so the address gives every detail the Profile needs; they go to onSave
+  as profileDetails (with the address's number as the second number when it is "mine").
 */
 
 export type { SavedAddress };
@@ -27,7 +30,12 @@ export type { SavedAddress };
 const addressLabels = ["Home", "Work", "Other"];
 
 type FormValues = Omit<SavedAddress, "id">;
-type FieldErrors = Partial<Record<keyof FormValues, string>>;
+// The Profile's details asked with the address (asksProfileDetails)
+type ProfileValues = { firstName: string; lastName: string; email: string };
+type FieldErrors = Partial<Record<keyof FormValues | keyof ProfileValues, string>>;
+
+// What the address adds to an empty Profile
+export type ProfileDetailsFromAddress = ProfileValues & { secondaryMobile: string };
 
 const emptyForm: FormValues = {
   label: "Home",
@@ -49,9 +57,13 @@ function formatMobile(tenDigits: string) {
   return `${tenDigits.slice(0, 5)} ${tenDigits.slice(5)}`;
 }
 
-function findFieldErrors(formValues: FormValues, areaChoice: string): FieldErrors {
+function findFieldErrors(formValues: FormValues, areaChoice: string, profileValues: ProfileValues | null): FieldErrors {
   const fieldErrors: FieldErrors = {};
-  if (!formValues.name.trim()) fieldErrors.name = "Enter the full name";
+  if (profileValues) {
+    if (!profileValues.firstName.trim()) fieldErrors.firstName = "Enter the first name";
+    if (!profileValues.lastName.trim()) fieldErrors.lastName = "Enter the last name";
+    if (!/^\S+@\S+\.\S+$/.test(profileValues.email.trim())) fieldErrors.email = "Enter a valid email";
+  } else if (!formValues.name.trim()) fieldErrors.name = "Enter the full name";
   if (formValues.mobileNumber.replace(/\D/g, "").replace(/^91(?=\d{10}$)/, "").length !== 10) {
     fieldErrors.mobileNumber = "Enter a 10-digit mobile number";
   }
@@ -65,17 +77,24 @@ function findFieldErrors(formValues: FormValues, areaChoice: string): FieldError
 export default function AddressFormDialog({
   addressToEdit,
   isDefaultAtStart,
+  asksProfileDetails = false,
   onSave,
   onClose,
 }: {
   addressToEdit: SavedAddress | null;
   isDefaultAtStart: boolean;
-  onSave: (address: FormValues, shouldBeDefault: boolean) => void;
+  asksProfileDetails?: boolean;
+  onSave: (address: FormValues, shouldBeDefault: boolean, profileDetails?: ProfileDetailsFromAddress) => void;
   onClose: () => void;
 }) {
   const [formValues, setFormValues] = useState<FormValues>(() => (addressToEdit ? { ...addressToEdit } : emptyForm));
   const [shouldBeDefault, setShouldBeDefault] = useState(isDefaultAtStart);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  // First name / last name start from the address's full name (first word, then the rest)
+  const [profileValues, setProfileValues] = useState<ProfileValues>(() => {
+    const [firstName = "", ...otherNames] = (addressToEdit?.name ?? "").trim().split(/\s+/);
+    return { firstName, lastName: otherNames.join(" "), email: "" };
+  });
   // The area box: a listed area, "Others" (then formValues.area is the typed text) or nothing yet
   const [areaChoice, setAreaChoice] = useState(() => areaChoiceFor(addressToEdit?.area ?? ""));
   // "Whose number is this?" shown over the form (the address is saved once it is answered)
@@ -111,8 +130,9 @@ export default function AddressFormDialog({
     };
   }, []);
 
-  function updateField(field: keyof FormValues, value: string) {
-    setFormValues((previousValues) => ({ ...previousValues, [field]: value }));
+  function updateField(field: keyof FormValues | keyof ProfileValues, value: string) {
+    if (field === "firstName" || field === "lastName" || field === "email") setProfileValues((previousValues) => ({ ...previousValues, [field]: value }));
+    else setFormValues((previousValues) => ({ ...previousValues, [field]: value }));
     setFieldErrors((previousErrors) => ({ ...previousErrors, [field]: undefined }));
   }
 
@@ -130,7 +150,7 @@ export default function AddressFormDialog({
 
   function saveAddress(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const newFieldErrors = findFieldErrors(formValues, areaChoice);
+    const newFieldErrors = findFieldErrors(formValues, areaChoice, asksProfileDetails ? profileValues : null);
     setFieldErrors(newFieldErrors);
     if (Object.keys(newFieldErrors).length > 0) return;
     const typedMobile = tenDigitsOf(formValues.mobileNumber);
@@ -139,40 +159,51 @@ export default function AddressFormDialog({
       setIsNumberQuestionOpen(true);
       return;
     }
-    saveTheAddress();
+    saveTheAddress(false);
   }
 
   // "It's mine": the number also becomes the secondary number on the customer's Profile
   function saveAsMyNumber() {
     if (savedProfile) saveCustomerProfile({ ...savedProfile, secondaryMobile: tenDigitsOf(formValues.mobileNumber) });
-    saveTheAddress();
+    saveTheAddress(true);
   }
 
-  function saveTheAddress() {
+  // isMyNumber: "It's mine" was chosen for a number other than the login number
+  function saveTheAddress(isMyNumber: boolean) {
+    const fullName = asksProfileDetails ? `${profileValues.firstName.trim()} ${profileValues.lastName.trim()}` : formValues.name.trim();
     onSave(
       {
         ...formValues,
-        name: formValues.name.trim(),
+        name: fullName,
         houseAndStreet: formValues.houseAndStreet.trim(),
         area: formValues.area.trim(),
         pincode: formValues.pincode.trim(),
       },
       shouldBeDefault,
+      asksProfileDetails
+        ? {
+            firstName: profileValues.firstName.trim(),
+            lastName: profileValues.lastName.trim(),
+            email: profileValues.email.trim(),
+            secondaryMobile: isMyNumber ? tenDigitsOf(formValues.mobileNumber) : "",
+          }
+        : undefined,
     );
   }
 
   function renderTextField(
-    field: keyof FormValues,
+    field: keyof FormValues | keyof ProfileValues,
     label: string,
-    options: { placeholder: string; inputMode?: "numeric" | "tel"; maxLength?: number; isWide?: boolean; note?: ReactNode },
+    options: { placeholder: string; inputMode?: "numeric" | "tel" | "email"; maxLength?: number; isWide?: boolean; note?: ReactNode },
   ) {
     const errorId = `address-form-${field}-error`;
+    const value = field === "firstName" || field === "lastName" || field === "email" ? profileValues[field] : formValues[field];
     return (
       <label className={`${styles["address-form-field"]} ${options.isWide ? styles["address-form-field-wide"] : ""}`}>
         <span className={styles["address-form-label"]}>{label}</span>
         <input
-          ref={field === "name" ? firstFieldRef : undefined}
-          value={formValues[field]}
+          ref={field === (asksProfileDetails ? "firstName" : "name") ? firstFieldRef : undefined}
+          value={value}
           placeholder={options.placeholder}
           inputMode={options.inputMode}
           maxLength={options.maxLength}
@@ -240,12 +271,20 @@ export default function AddressFormDialog({
           </div>
 
           <div className={styles["address-form-grid"]}>
-            {renderTextField("name", "Full name", { placeholder: "Priya Sharma" })}
+            {asksProfileDetails ? (
+              <>
+                {renderTextField("firstName", "First name", { placeholder: "Priya" })}
+                {renderTextField("lastName", "Last name", { placeholder: "Sharma" })}
+              </>
+            ) : (
+              renderTextField("name", "Full name", { placeholder: "Priya Sharma" })
+            )}
             {renderTextField("mobileNumber", "Mobile number", {
               placeholder: "+91 98450 12345",
               inputMode: "tel",
               maxLength: 16,
             })}
+            {asksProfileDetails && renderTextField("email", "Email", { placeholder: "priya@example.com", inputMode: "email" })}
             {renderTextField("houseAndStreet", "House / flat and street", {
               placeholder: "#1312, Prestige Lakeside Habitat",
               isWide: true,
@@ -320,7 +359,7 @@ export default function AddressFormDialog({
               <strong>{formatMobile(tenDigitsOf(formValues.mobileNumber))}</strong> is different from the number you logged in with.
             </p>
             <div className={styles["address-number-question-choices"]}>
-              <button type="button" className={styles["address-number-question-choice"]} onClick={saveTheAddress} autoFocus>
+              <button type="button" className={styles["address-number-question-choice"]} onClick={() => saveTheAddress(false)} autoFocus>
                 <strong>Someone else&apos;s</strong>
                 <span>Use it only for this delivery address</span>
               </button>

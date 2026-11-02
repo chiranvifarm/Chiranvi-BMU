@@ -172,6 +172,19 @@
   color: #13251b;
 }
 
+/* Beside the name: they asked the admin to delete their account (red, as it removes them) */
+.admin-person-delete-request {
+  display: inline-block;
+  margin-left: calc(8 * var(--admin-pixel));
+  padding: calc(2 * var(--admin-pixel)) calc(8 * var(--admin-pixel));
+  border-radius: 9999px;
+  background: #fbe3e3;
+  font-size: calc(11 * var(--admin-pixel));
+  font-weight: 600;
+  color: #c0392b;
+  vertical-align: middle;
+}
+
 .admin-person-detail {
   display: block;
   overflow: hidden;
@@ -319,17 +332,6 @@
 .admin-permissions-save:disabled {
   cursor: default;
   opacity: 0.45;
-}
-
-.admin-roles-delete-role {
-  padding: calc(4 * var(--admin-pixel)) 0;
-  border: 0;
-  background: none;
-  color: #c0392b;
-  font: inherit;
-  font-size: calc(12.5 * var(--admin-pixel));
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .admin-permissions-table td {
@@ -566,6 +568,249 @@
   outline: none;
 }
 
+/* Staff card: leave and delete requests waiting (yellow, like the sidebar counts) */
+.admin-role-alert-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(20 * var(--admin-pixel));
+  height: calc(20 * var(--admin-pixel));
+  padding: 0 calc(6 * var(--admin-pixel));
+  border-radius: 9999px;
+  background: #f5bf2c;
+  font-size: calc(11 * var(--admin-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+/* "Add new role" and "Delete role" side by side */
+.admin-role-add-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(10 * var(--admin-pixel));
+}
+
+.admin-role-add.admin-role-delete {
+  color: #c0392b;
+}
+
+.admin-role-add.admin-role-delete:hover,
+.admin-role-add.admin-role-delete:focus-visible {
+  border-color: #e9a8a0;
+  background: #fdf1f0;
+}
+
+/* The PIN / password wasn't right, or the role still has people */
+.admin-roles-dialog-problem {
+  grid-column: 1 / -1;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 500;
+  color: #c0392b;
+}
+
+/* Staff: the whole team, one row each */
+/* One line per cell (phones scroll the table sideways instead of wrapping numbers) */
+.admin-team-table td {
+  padding-top: calc(11 * var(--admin-pixel));
+  padding-bottom: calc(11 * var(--admin-pixel));
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+
+.admin-team-name {
+  display: block;
+  font-weight: 700;
+}
+
+.admin-team-role {
+  display: block;
+  font-size: calc(11.5 * var(--admin-pixel));
+  font-weight: 400;
+  color: #6e7a72;
+}
+
+.admin-team-none {
+  font-size: calc(12.5 * var(--admin-pixel));
+  color: #8a948d;
+}
+
+.admin-team-leave-button {
+  padding: calc(5 * var(--admin-pixel)) calc(12 * var(--admin-pixel));
+  border: 1px solid #d9dcd4;
+  border-radius: 9999px;
+  background: #ffffff;
+  font: inherit;
+  font-size: calc(12 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1f4d2e;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.admin-team-leave-button:hover,
+.admin-team-leave-button:focus-visible {
+  background: #f3f8f0;
+}
+
+/* Leave waiting for a decision: light yellow */
+.admin-team-leave-button.admin-team-leave-button-waiting {
+  border-color: #f0d68a;
+  background: #fbf3e1;
+  color: #a37a12;
+}
+
+/* The request tag as a button: opens Accept / Reject */
+.admin-person-delete-request.admin-team-delete-request-button {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4 * var(--admin-pixel));
+  margin-left: 0;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: calc(11.5 * var(--admin-pixel));
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-person-delete-request.admin-team-delete-request-button:hover,
+.admin-person-delete-request.admin-team-delete-request-button:focus-visible,
+.admin-person-delete-request.admin-team-delete-request-button[aria-expanded="true"] {
+  border-color: #e9a8a0;
+}
+
+.admin-team-delete-request-button svg {
+  width: calc(13 * var(--admin-pixel));
+  height: calc(13 * var(--admin-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Accept removes the person: green, as it does what they asked */
+button.admin-team-request-accept {
+  color: #2f6b3a;
+}
+
+/* Actions: ⋮ for the Edit pop-up */
+.admin-team-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8 * var(--admin-pixel));
+}
+
+.admin-team-more-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(30 * var(--admin-pixel));
+  height: calc(30 * var(--admin-pixel));
+  border: 1px solid #d9dcd4;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.admin-team-more-button:hover,
+.admin-team-more-button:focus-visible {
+  background: #f3f8f0;
+}
+
+.admin-team-more-button svg {
+  width: calc(16 * var(--admin-pixel));
+  height: calc(16 * var(--admin-pixel));
+  fill: currentColor;
+}
+
+/* A person's leave pop-up */
+.admin-team-leave-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(10 * var(--admin-pixel));
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-team-leave-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(12 * var(--admin-pixel));
+  padding: calc(12 * var(--admin-pixel));
+  border: 1px solid #e8ebe4;
+  border-radius: calc(12 * var(--admin-pixel));
+}
+
+.admin-team-leave-words {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--admin-pixel));
+  min-width: 0;
+  font-size: calc(12.5 * var(--admin-pixel));
+  color: #4b5a50;
+}
+
+.admin-team-leave-words strong {
+  font-size: calc(13 * var(--admin-pixel));
+  color: #13251b;
+}
+
+.admin-team-leave-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: calc(8 * var(--admin-pixel));
+}
+
+.admin-team-leave-approve,
+.admin-team-leave-reject {
+  padding: calc(6 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border-radius: 9999px;
+  font: inherit;
+  font-size: calc(12 * var(--admin-pixel));
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-team-leave-approve {
+  border: 1px solid #2f6b3a;
+  background: #2f6b3a;
+  color: #ffffff;
+}
+
+.admin-team-leave-reject {
+  border: 1px solid #e9a8a0;
+  background: #ffffff;
+  color: #c0392b;
+}
+
+.admin-team-leave-status {
+  flex-shrink: 0;
+  padding: calc(3 * var(--admin-pixel)) calc(10 * var(--admin-pixel));
+  border-radius: 9999px;
+  font-size: calc(11.5 * var(--admin-pixel));
+  font-weight: 600;
+}
+
+.admin-team-leave-status-approved {
+  background: #e6f0e1;
+  color: #2f6b3a;
+}
+
+.admin-team-leave-status-rejected {
+  background: #fbe3e3;
+  color: #c0392b;
+}
+
+.admin-team-leave-status-pending {
+  background: #fbf3e1;
+  color: #a37a12;
+}
+
 @media (max-width: 1100px) {
   .admin-roles-columns {
     grid-template-columns: 1fr;
@@ -594,4 +839,57 @@
   .admin-permissions-buttons {
     justify-content: flex-start;
   }
+}
+
+/* The Accept / Reject menu: on the screen under the tag, so the sideways-scrolling table can't cut it off */
+.admin-team-request-menu {
+  position: fixed;
+  right: auto;
+  z-index: 60;
+  width: max-content;
+  min-width: calc(200 * var(--admin-pixel));
+}
+
+/* People with this role: a red "!" beside the name of someone who asked to delete their account */
+.admin-person-delete-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(16 * var(--admin-pixel));
+  height: calc(16 * var(--admin-pixel));
+  margin-left: calc(6 * var(--admin-pixel));
+  border-radius: 50%;
+  background: #c0392b;
+  font-size: calc(11 * var(--admin-pixel));
+  font-weight: 800;
+  line-height: 1;
+  color: #ffffff;
+  vertical-align: middle;
+  cursor: help;
+}
+
+/* Staff → Actions: only ⋮, centred, so every row's button lines up */
+.admin-team-table .admin-team-actions-column {
+  width: calc(80 * var(--admin-pixel));
+  text-align: center;
+}
+
+/* Edit pop-up: remove the person from the team (red, as it takes their access away) */
+.admin-roles-remove-from-team {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: calc(6 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border: 1px solid #e9a8a0;
+  border-radius: 9999px;
+  background: #ffffff;
+  font: inherit;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  color: #c0392b;
+  cursor: pointer;
+}
+
+.admin-roles-remove-from-team:hover,
+.admin-roles-remove-from-team:focus-visible {
+  background: #fdf1f0;
 }

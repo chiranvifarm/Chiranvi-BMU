@@ -31,7 +31,7 @@ import {
   useCartSubscription,
   type CartSubscription,
 } from "@/store/cart-store";
-import { checkCouponOnServer, useCouponCheck, type CouponCart } from "@/store/coupons-store";
+import { checkCouponOnServer, useCartCoupons, useCouponCheck, type CouponCart } from "@/store/coupons-store";
 import {
   findRunningPlans,
   formatPlanDate,
@@ -42,8 +42,9 @@ import {
   type RunningPlan,
 } from "@/store/orders-store";
 import type { OrderPaymentMethod } from "@/store/admin-orders-store";
-// Free delivery for the whole order from ₹500 (the product pages use the same amount)
-import { FREE_DELIVERY_FROM } from "@/components/product/product-page-data";
+// Delivery charges and the platform fee set by the owner (Products & pricing → Set delivery charge)
+import { productIdOfCartItem, quoteDelivery, useDeliverySettings } from "@/store/delivery-settings-store";
+import { useProductPages } from "@/store/product-pages-store";
 import styles from "./cart-view.module.css";
 
 /*
@@ -55,9 +56,11 @@ import styles from "./cart-view.module.css";
     each ticked when done):
       left   Your items ("- quantity +", the "packed fresh" note), then Delivery address (the default
              address until one is confirmed);
-      right  Order summary: coupon code (from the Chiranvi Panel's Coupons & offers), item total at MRP,
-             discount on MRP, coupon, delivery fee (₹30, free from ₹500 for the whole order after discounts), To pay, the
-             saving, and "Select address".
+      right  Order summary: item total at MRP, discount on MRP, delivery fee (the owner's charges from
+             Products & pricing → Set delivery charge: ₹30 and free from ₹500 at first, which the
+             summary says), platform fee, To pay, the saving, and "Select address". The coupon code
+             box shows only when the panel put coupons in this kind of cart's list (one-time products,
+             a milk plan, or both: Coupons & offers → Coupons in the cart).
     "Select address" (or the address card) opens the address pop-up (same cards as My Addresses: pick,
     Set as Default, Edit, Remove, Add new address). Picking one ticks Address and the button becomes
     "Pay now · ₹…". Razorpay is not connected yet, so Pay now places the order straight away (nothing is
@@ -72,7 +75,6 @@ import styles from "./cart-view.module.css";
   Phones: one column, with the total and the step's button kept at the bottom of the screen.
 */
 
-const DELIVERY_FEE = 30;
 // The only product sold as a subscription (its page has the plans)
 const MILK_PRODUCT_ID = "a2-desi-milk";
 
@@ -283,6 +285,8 @@ export default function CartView() {
   // The one-time items: while a plan waits, its milk from Add Quantity (the plan's bottles a day) is left out
   const oneTimeItems = cartSubscription ? cartItems.filter((item) => item.productId !== cartSubscription.product.productId) : cartItems;
   const [placedItemsOrder, setPlacedItemsOrder] = useState<Order | null>(null);
+  const deliverySettings = useDeliverySettings();
+  const productPages = useProductPages();
   const isLoggedIn = useIsLoggedIn();
   const { addresses, defaultAddressId } = useAddressBook();
   const isCartLoaded = useSyncExternalStore(subscribeToNothing, () => true, () => false);
@@ -297,6 +301,24 @@ export default function CartView() {
   const appliedCode = useAppliedCouponCode();
   const setAppliedCode = setAppliedCouponCode;
   const [couponError, setCouponError] = useState("");
+  // The coupon box's drop-down of the coupons this cart may use (opens on tap; closes on a tap outside or Esc)
+  const [isCouponListOpen, setIsCouponListOpen] = useState(false);
+  const couponPickerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isCouponListOpen) return;
+    function closeOnOutsideTap(event: PointerEvent) {
+      if (!couponPickerRef.current?.contains(event.target as Node)) setIsCouponListOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsCouponListOpen(false);
+    }
+    document.addEventListener("pointerdown", closeOnOutsideTap);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideTap);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isCouponListOpen]);
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
   // Pay now is waiting for the database, and what to say if it didn't take the order
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
@@ -370,6 +392,12 @@ export default function CartView() {
     }),
     [oneTimeItems, cartSubscription],
   );
+  /*
+    Only the coupons the owner put in this kind of cart's list (Coupons & offers → Coupons in the cart): one-time
+    products, a milk plan, or both, each checked by the database on this cart. No coupons in the list: no coupon box.
+  */
+  const cartCoupons = useCartCoupons(couponCart);
+  const hasCartCoupons = cartCoupons.length > 0;
   const couponCheck = useCouponCheck(appliedCode, couponCart);
   const appliedCoupon = couponCheck && "code" in couponCheck ? couponCheck : null;
   const isCouponForPlan = Boolean(cartSubscription && appliedCoupon?.isForPlan);
@@ -378,20 +406,34 @@ export default function CartView() {
   const itemsCouponDiscount = isCouponForPlan ? 0 : couponDiscount;
   const afterDiscounts = itemTotal - itemsCouponDiscount;
   // With a plan the items come with its deliveries, so their delivery is free too
-  const isDeliveryFree = Boolean(cartSubscription) || afterDiscounts >= FREE_DELIVERY_FROM;
-  const deliveryFee = isDeliveryFree ? 0 : DELIVERY_FEE;
+  // Delivery: the owner's charges per product; free with a plan (the items come with its deliveries) or from
+  // the free-delivery amount
+  const deliveryQuote = quoteDelivery(
+    oneTimeItems.map((item) => ({ productId: productIdOfCartItem(item.productId, productPages), total: item.price * item.quantity })),
+    afterDiscounts,
+    Boolean(cartSubscription),
+    deliverySettings,
+  );
+  const deliveryFee = deliveryQuote.fee;
+  // Platform fee (set in the database): once per checkout (one-time items, a milk plan or both), added after
+  // delivery; it doesn't count towards free delivery or a coupon's minimum order. Paid with the plan's order
+  // when there is one.
+  const platformFee = deliverySettings.platformFee;
+  const isDeliveryFree = deliveryFee === 0;
   const toPay = afterDiscounts + deliveryFee;
-  const youSave = discountOnMrp + itemsCouponDiscount + (isDeliveryFree ? DELIVERY_FEE : 0);
+  const youSave = discountOnMrp + itemsCouponDiscount + (deliveryQuote.crossedOutFee ?? deliveryFee) - deliveryFee;
   // The plan's part
   const planToPay = cartSubscription ? cartSubscription.planTotal - planCouponDiscount : 0;
   const planSaving = cartSubscription ? cartSubscription.oneTimeTotal - cartSubscription.planTotal + planCouponDiscount : 0;
 
-  async function applyCoupon() {
-    if (!couponInput.trim()) {
+  // Apply: the typed code, or the one tapped in the drop-down (the database checks it on this cart)
+  async function applyCoupon(code = couponInput) {
+    if (!code.trim()) {
       setCouponError("Enter a coupon code");
       return;
     }
-    const result = await checkCouponOnServer(couponInput, couponCart);
+    setIsCouponListOpen(false);
+    const result = await checkCouponOnServer(code, couponCart);
     if ("error" in result) {
       setCouponError(result.error);
       return;
@@ -400,6 +442,15 @@ export default function CartView() {
     setCouponInput("");
     setCouponError("");
   }
+
+  /*
+    The drop-down: the cart's running coupons (not the one already applied), narrowed by what is typed.
+    One this cart can't use yet (e.g. below its minimum order) is shown greyed with the reason.
+  */
+  const typedCouponWords = couponInput.trim().toUpperCase();
+  const couponChoices = cartCoupons
+    .filter((choice) => choice.code !== appliedCoupon?.code)
+    .filter((choice) => !typedCouponWords || choice.code.includes(typedCouponWords));
 
   /*
     Picking a delivery address. For a new subscription, an address that already gets a running plan of the
@@ -482,8 +533,10 @@ export default function CartView() {
         },
       ],
       {
-        total: cartSubscription.planTotal - planCouponDiscount,
+        total: cartSubscription.planTotal - planCouponDiscount + platformFee,
         couponCode: isCouponForPlan ? appliedCoupon?.code : undefined,
+        // Which coupon list the database checks the code against
+        cartType: oneTimeItems.length > 0 ? "subscription-and-one-time" : "subscription",
         couponDiscount: planCouponDiscount || undefined,
         deliveryFee: 0,
         deliverTo: planToExtend ? planToExtend.deliverTo : deliverTo,
@@ -511,7 +564,8 @@ export default function CartView() {
   // The one-time items as their own order (same address as the plan, when there is one: then free delivery)
   async function placeItemsOrder(deliverTo: string, planOrderNumber?: string) {
     return placeOrder(oneTimeItems, {
-      total: toPay,
+      // With a plan in the cart, the plan's order carries the platform fee
+      total: toPay + (cartSubscription ? 0 : platformFee),
       couponCode: appliedCoupon && !isCouponForPlan ? appliedCoupon.code : undefined,
       couponDiscount: itemsCouponDiscount || undefined,
       deliveryFee,
@@ -680,7 +734,7 @@ export default function CartView() {
     : null;
 
   // What Pay now charges: the plan and the one-time items together
-  const amountToPay = planToPay + (oneTimeItems.length > 0 ? toPay : 0);
+  const amountToPay = planToPay + (oneTimeItems.length > 0 ? toPay : 0) + platformFee;
   const amountSaved = planSaving + (oneTimeItems.length > 0 ? youSave : 0);
 
   if (!placedOrder && (!isCartLoaded || (cartItems.length === 0 && !cartSubscription))) {
@@ -966,29 +1020,74 @@ export default function CartView() {
                   Order summary
                 </h2>
 
-                {/* Coupon code (from the Chiranvi Panel's Coupons & offers): for both one-time orders and plans */}
-                <form
-                  className={styles["checkout-coupon-form"]}
-                  onSubmit={(submitEvent) => {
-                    submitEvent.preventDefault();
-                    void applyCoupon();
-                  }}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M3 12V4h8l10 10-8 8L3 12Z" />
-                    <path d="M7.5 7.5h.01" />
-                  </svg>
-                  <input
-                    value={couponInput}
-                    placeholder="Enter coupon code"
-                    aria-label="Coupon code"
-                    onChange={(changeEvent) => {
-                      setCouponInput(changeEvent.target.value.toUpperCase());
-                      setCouponError("");
-                    }}
-                  />
-                  <button type="submit">Apply</button>
-                </form>
+                {/* Coupon code: only when the panel put coupons in this kind of cart's list */}
+                {hasCartCoupons && (
+                  <div ref={couponPickerRef} className={styles["checkout-coupon-picker"]}>
+                    <form
+                      className={styles["checkout-coupon-form"]}
+                      onSubmit={(submitEvent) => {
+                        submitEvent.preventDefault();
+                        void applyCoupon();
+                      }}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M3 12V4h8l10 10-8 8L3 12Z" />
+                        <path d="M7.5 7.5h.01" />
+                      </svg>
+                      <input
+                        value={couponInput}
+                        placeholder="Choose or enter coupon code"
+                        aria-label="Coupon code"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded={isCouponListOpen}
+                        aria-controls="checkout-coupon-choices"
+                        onFocus={() => setIsCouponListOpen(true)}
+                        onClick={() => setIsCouponListOpen(true)}
+                        onChange={(changeEvent) => {
+                          setCouponInput(changeEvent.target.value.toUpperCase());
+                          setCouponError("");
+                          setIsCouponListOpen(true);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className={styles["checkout-coupon-list-toggle"]}
+                        aria-label={isCouponListOpen ? "Hide coupons" : "Show coupons"}
+                        aria-expanded={isCouponListOpen}
+                        onClick={() => setIsCouponListOpen(!isCouponListOpen)}
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M6 9l6 6 6-6" />
+                        </svg>
+                      </button>
+                      <button type="submit">Apply</button>
+                    </form>
+                    {isCouponListOpen && (
+                      <ul id="checkout-coupon-choices" className={styles["checkout-coupon-dropdown"]} aria-label="Coupons you can use">
+                        {couponChoices.map(({ code, description, problem }) => (
+                          <li key={code}>
+                            <button
+                              type="button"
+                              className={styles["checkout-coupon-choice"]}
+                              disabled={Boolean(problem)}
+                              onClick={() => void applyCoupon(code)}
+                            >
+                              <span className={styles["checkout-coupon-choice-code"]}>{code}</span>
+                              <span className={styles["checkout-coupon-choice-description"]}>{problem ?? description}</span>
+                              {!problem && <span className={styles["checkout-coupon-choice-apply"]}>Apply</span>}
+                            </button>
+                          </li>
+                        ))}
+                        {couponChoices.length === 0 && (
+                          <li className={styles["checkout-coupon-dropdown-empty"]}>
+                            {typedCouponWords ? "No coupon matches this code" : "No other coupons for this order"}
+                          </li>
+                        )}
+                      </ul>
+                    )}
+                  </div>
+                )}
                 {appliedCoupon && (
                     <p className={styles["checkout-coupon-applied"]}>
                       <span className={styles["checkout-coupon-badge"]} aria-hidden="true">
@@ -1002,7 +1101,7 @@ export default function CartView() {
                       </button>
                     </p>
                 )}
-                {couponError && <p className={styles["checkout-coupon-error"]}>{couponError}</p>}
+                {hasCartCoupons && couponError && <p className={styles["checkout-coupon-error"]}>{couponError}</p>}
                 {appliedCode && !appliedCoupon && couponCheck && "error" in couponCheck && (
                   <p className={styles["checkout-coupon-error"]}>{couponCheck.error}</p>
                 )}
@@ -1048,20 +1147,32 @@ export default function CartView() {
                   <div>
                     <dt>Delivery fee</dt>
                     <dd>
-                      {isDeliveryFree ? (
+                      {/* The charge before free delivery or an offer, struck through */}
+                      {deliveryQuote.crossedOutFee !== null && (
                         <>
-                          <s className={styles["checkout-bill-struck"]}>{rupees(DELIVERY_FEE)}</s>{" "}
-                          <span className={styles["checkout-bill-saving"]}>FREE</span>
+                          <s className={styles["checkout-bill-struck"]}>{rupees(deliveryQuote.crossedOutFee)}</s>{" "}
                         </>
+                      )}
+                      {isDeliveryFree ? (
+                        <span className={styles["checkout-bill-saving"]}>FREE</span>
+                      ) : deliveryQuote.crossedOutFee !== null ? (
+                        <span className={styles["checkout-bill-saving"]}>{rupees(deliveryFee)}</span>
                       ) : (
-                        rupees(DELIVERY_FEE)
+                        rupees(deliveryFee)
                       )}
                     </dd>
                   </div>
+                  <div>
+                    <dt>Platform fee</dt>
+                    <dd>{rupees(platformFee)}</dd>
+                  </div>
                 </dl>
-                {!isDeliveryFree && (
+                {/* One-time orders: free delivery from the owner's amount (₹500 → "above ₹499") */}
+                {!cartSubscription && (
                   <p className={styles["checkout-free-delivery-hint"]}>
-                    Add {rupees(FREE_DELIVERY_FROM - afterDiscounts)} more for free delivery
+                    {deliveryQuote.amountToFreeDelivery > 0
+                      ? `Free delivery on orders above ${rupees(deliverySettings.freeFrom - 1)}. Add ${rupees(deliveryQuote.amountToFreeDelivery)} more.`
+                      : `Free delivery on orders above ${rupees(deliverySettings.freeFrom - 1)}`}
                   </p>
                 )}
 

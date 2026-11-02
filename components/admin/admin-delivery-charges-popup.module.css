@@ -1,0 +1,469 @@
+/*
+  Products & pricing → "Set delivery charge" pop-up (no design yet: built to match the Chiranvi Panel's
+  pop-up forms). Same rules as the panel: --admin-pixel sizes, Ubuntu headings + Poppins text, Chiranvi
+  green, red only for the warning. Phones (600 px and below): nearly full width from the bottom.
+*/
+
+.delivery-popup-backdrop {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(19, 37, 27, 0.35);
+}
+
+.delivery-popup {
+  display: flex;
+  flex-direction: column;
+  width: min(calc(640 * var(--admin-pixel)), 100%);
+  max-height: calc(100svh - 32px);
+  border-radius: calc(16 * var(--admin-pixel));
+  background: #ffffff;
+  box-shadow: 0 20px 50px rgba(19, 37, 27, 0.25);
+  overflow: hidden;
+}
+
+.delivery-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(20 * var(--admin-pixel)) calc(24 * var(--admin-pixel)) calc(12 * var(--admin-pixel));
+  border-bottom: 1px solid #eef0ea;
+}
+
+.delivery-popup-title {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(20 * var(--admin-pixel));
+  font-weight: 700;
+  color: #1b2a20;
+}
+
+.delivery-popup-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(32 * var(--admin-pixel));
+  height: calc(32 * var(--admin-pixel));
+  border-radius: 50%;
+  color: #6b736c;
+  cursor: pointer;
+}
+
+.delivery-popup-close:hover,
+.delivery-popup-close:focus-visible {
+  background: #f3f5ef;
+  color: #1b2a20;
+}
+
+.delivery-popup-close svg {
+  width: 55%;
+  height: 55%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.delivery-popup-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: calc(14 * var(--admin-pixel)) calc(24 * var(--admin-pixel));
+}
+
+/* Overall settings */
+.delivery-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(12 * var(--admin-pixel));
+  padding: calc(6 * var(--admin-pixel)) 0;
+}
+
+.delivery-setting-label {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14 * var(--admin-pixel));
+  font-weight: 700;
+  color: #1b2a20;
+}
+
+.delivery-setting-note {
+  margin-bottom: calc(4 * var(--admin-pixel));
+  font-size: calc(12 * var(--admin-pixel));
+  color: #6b736c;
+}
+
+/* − ₹30 + */
+.rupee-stepper {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: calc(34 * var(--admin-pixel));
+  border: 1px solid #e0e2da;
+  border-radius: 9999px;
+  background: #ffffff;
+}
+
+.rupee-stepper button {
+  width: calc(32 * var(--admin-pixel));
+  height: 100%;
+  border-radius: 9999px;
+  font-size: calc(16 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.rupee-stepper button:hover,
+.rupee-stepper button:focus-visible {
+  background: #eef4ea;
+}
+
+.rupee-stepper-value {
+  display: inline-flex;
+  align-items: center;
+  font-size: calc(14 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1b2a20;
+}
+
+.rupee-stepper-value input {
+  width: calc(52 * var(--admin-pixel));
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: center;
+  color: inherit;
+  appearance: textfield;
+}
+
+.rupee-stepper-value input::-webkit-outer-spin-button,
+.rupee-stepper-value input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+/* Radio groups */
+.delivery-choice-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8 * var(--admin-pixel)) calc(18 * var(--admin-pixel));
+  margin-top: calc(12 * var(--admin-pixel));
+  padding-top: calc(12 * var(--admin-pixel));
+  border-top: 1px solid #eef0ea;
+}
+
+.delivery-choice-group legend {
+  float: left;
+  width: 100%;
+  margin-bottom: calc(6 * var(--admin-pixel));
+}
+
+.delivery-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8 * var(--admin-pixel));
+  min-height: calc(34 * var(--admin-pixel));
+  font-size: calc(13 * var(--admin-pixel));
+  color: #1b2a20;
+  cursor: pointer;
+}
+
+.delivery-radio input,
+.delivery-select-all input,
+.delivery-product-row input[type="checkbox"] {
+  width: calc(16 * var(--admin-pixel));
+  height: calc(16 * var(--admin-pixel));
+  accent-color: #1f4d2e;
+  cursor: pointer;
+}
+
+/* Warning before replacing products' own settings */
+.delivery-warning {
+  margin-top: calc(10 * var(--admin-pixel));
+  padding: calc(12 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border: 1px solid #f3c2c2;
+  border-radius: calc(12 * var(--admin-pixel));
+  background: #fdeeee;
+  font-size: calc(13 * var(--admin-pixel));
+  line-height: 1.5;
+  color: #8f2424;
+}
+
+.delivery-warning-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(10 * var(--admin-pixel));
+  margin-top: calc(10 * var(--admin-pixel));
+}
+
+/* Products */
+.delivery-products {
+  margin-top: calc(12 * var(--admin-pixel));
+  padding-top: calc(12 * var(--admin-pixel));
+  border-top: 1px solid #eef0ea;
+}
+
+.delivery-select-all {
+  display: flex;
+  align-items: center;
+  gap: calc(10 * var(--admin-pixel));
+  padding: calc(6 * var(--admin-pixel)) calc(10 * var(--admin-pixel));
+  border-radius: calc(10 * var(--admin-pixel));
+  background: #f3f5ef;
+  font-size: calc(13 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1b2a20;
+  cursor: pointer;
+}
+
+.delivery-select-count {
+  margin-left: auto;
+  font-weight: 500;
+  color: #6b736c;
+}
+
+.delivery-product-list {
+  margin-top: calc(6 * var(--admin-pixel));
+}
+
+.delivery-product {
+  border-bottom: 1px solid #f0f2ec;
+}
+
+.delivery-product-row {
+  display: flex;
+  align-items: center;
+  gap: calc(10 * var(--admin-pixel));
+  padding: calc(8 * var(--admin-pixel)) calc(10 * var(--admin-pixel));
+}
+
+.delivery-product-picture {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: calc(38 * var(--admin-pixel));
+  height: calc(38 * var(--admin-pixel));
+  border-radius: calc(8 * var(--admin-pixel));
+  background: #f6f3ea;
+  overflow: hidden;
+}
+
+.delivery-product-picture img {
+  width: 85%;
+  height: 85%;
+  object-fit: contain;
+}
+
+.delivery-product-name {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font-size: calc(13 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1b2a20;
+}
+
+.delivery-product-pack {
+  font-size: calc(12 * var(--admin-pixel));
+  font-weight: 400;
+  color: #6b736c;
+}
+
+.delivery-product-charge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: calc(4 * var(--admin-pixel));
+  font-size: calc(13 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1b2a20;
+}
+
+.delivery-product-charge-own {
+  padding: calc(4 * var(--admin-pixel)) calc(6 * var(--admin-pixel)) calc(4 * var(--admin-pixel))
+    calc(10 * var(--admin-pixel));
+  border-radius: 9999px;
+  background: #eef4ea;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.delivery-product-charge-own svg {
+  width: calc(16 * var(--admin-pixel));
+  height: calc(16 * var(--admin-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 150ms ease;
+}
+
+.delivery-arrow-open {
+  transform: rotate(90deg);
+}
+
+.delivery-product-choices {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--admin-pixel));
+  margin: 0 calc(10 * var(--admin-pixel)) calc(10 * var(--admin-pixel)) calc(36 * var(--admin-pixel));
+  padding: calc(8 * var(--admin-pixel)) calc(12 * var(--admin-pixel));
+  border: 1px solid #e0e2da;
+  border-radius: calc(12 * var(--admin-pixel));
+  background: #fbfcf8;
+}
+
+.delivery-struck {
+  color: #9aa29b;
+}
+
+.delivery-choice-hint {
+  font-size: calc(12 * var(--admin-pixel));
+  color: #6b736c;
+}
+
+/* Footer: message and buttons */
+.delivery-popup-footer {
+  padding: calc(12 * var(--admin-pixel)) calc(24 * var(--admin-pixel)) calc(18 * var(--admin-pixel));
+  border-top: 1px solid #eef0ea;
+}
+
+.delivery-problem {
+  margin-bottom: calc(10 * var(--admin-pixel));
+  font-size: calc(13 * var(--admin-pixel));
+  color: #c62828;
+}
+
+.delivery-popup-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: calc(10 * var(--admin-pixel));
+}
+
+.delivery-plain-button,
+.delivery-save-button,
+.delivery-danger-button {
+  height: calc(38 * var(--admin-pixel));
+  padding: 0 calc(20 * var(--admin-pixel));
+  border-radius: 9999px;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14 * var(--admin-pixel));
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.delivery-plain-button {
+  border: 1.5px solid #e0e2da;
+  background: #ffffff;
+  color: #1b2a20;
+}
+
+.delivery-save-button {
+  background: #1f4d2e;
+  color: #ffffff;
+}
+
+.delivery-save-button:hover,
+.delivery-save-button:focus-visible {
+  background: #173a23;
+}
+
+.delivery-save-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.delivery-danger-button {
+  background: #c62828;
+  color: #ffffff;
+}
+
+/* The "Set delivery charge" button next to Export (same shape as Export) */
+.set-delivery-charge-button {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8 * var(--admin-pixel));
+  height: calc(38 * var(--admin-pixel));
+  padding: 0 calc(16 * var(--admin-pixel));
+  border: 1.5px solid #1f4d2e;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-family: inherit;
+  font-size: calc(13 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1f4d2e;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.set-delivery-charge-button:hover,
+.set-delivery-charge-button:focus-visible {
+  background: #1f4d2e;
+  color: #ffffff;
+}
+
+.set-delivery-charge-button svg {
+  flex-shrink: 0;
+  width: calc(18 * var(--admin-pixel));
+  height: calc(18 * var(--admin-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Phones: from the bottom, nearly full width, fixed sizes */
+@media (max-width: 600px) {
+  .delivery-popup-backdrop {
+    align-items: end;
+    padding: 10px;
+  }
+
+  .delivery-popup {
+    max-height: calc(100svh - 20px);
+    border-radius: 16px;
+  }
+
+  .delivery-popup-header,
+  .delivery-popup-body,
+  .delivery-popup-footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .delivery-setting-label {
+    font-size: 14px;
+  }
+
+  .delivery-radio,
+  .delivery-select-all,
+  .delivery-product-name,
+  .delivery-product-charge,
+  .delivery-warning {
+    font-size: 13px;
+  }
+
+  .delivery-setting-note,
+  .delivery-product-pack,
+  .delivery-choice-hint {
+    font-size: 12px;
+  }
+
+  .delivery-product-choices {
+    margin-left: 0;
+  }
+
+  .rupee-stepper-value input {
+    width: 52px;
+    font-size: 16px;
+  }
+}

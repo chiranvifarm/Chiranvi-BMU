@@ -3,14 +3,19 @@
 import { useMemo, useState } from "react";
 import {
   COUPON_APPLIES_TO,
+  COUPON_CART_TYPES,
   COUPON_KINDS,
   addCoupon,
+  addCouponsToCartType,
   getCouponStatus,
+  isCouponForCartType,
   removeCoupon,
+  removeCouponFromCartType,
   updateCoupon,
   useCoupons,
   useRedemptions,
   type Coupon,
+  type CouponCartType,
   type CouponKind,
   type CouponStatus,
 } from "@/store/coupons-store";
@@ -41,6 +46,9 @@ import styles from "./admin-coupons-page.module.css";
                first), Export
     numbers    active coupons (expired this month), times redeemed (against the same number of days
                before), discount given (% of money collected), revenue from offers (× the discount)
+    in cart    "Coupons in the cart": three lists (one-time products, subscription, subscription +
+               one-time). Only the coupons in a cart's list can be used in that cart. × takes one out;
+               + Add picks existing coupons, or Create new coupon makes one straight into that list.
     cards      one ticket per coupon: code, offer, status, uses against the limit, valid till; Delete
                (asks once more) and Edit (changes the offer, limit, dates, pauses or deletes it)
     table      recent redemptions in these dates; View all shows every one, 14 a page
@@ -128,6 +136,11 @@ function CouponsPage() {
   const [isRemoveAsked, setIsRemoveAsked] = useState(false);
   // Delete straight from a ticket (asks once more)
   const [couponToDelete, setCouponToDelete] = useState<Coupon | null>(null);
+  // Coupons in the cart: the list + Add was pressed on, the coupons ticked in its pop-up, and the list a
+  // coupon made with "Create new coupon" goes into
+  const [addingToCartType, setAddingToCartType] = useState<CouponCartType | null>(null);
+  const [tickedCodes, setTickedCodes] = useState<string[]>([]);
+  const [newCouponCartType, setNewCouponCartType] = useState<CouponCartType | null>(null);
   const { showToast, toast } = useAdminToast();
   // What the role may do (Roles & permissions)
   const canEdit = useAdminCan("edit");
@@ -233,8 +246,10 @@ function CouponsPage() {
       validTill: form.hasNoExpiry ? null : toDayKey(form.validTill),
     };
     if (editing === "new") {
-      addCoupon({ code, ...details });
-      showToast(`${code} created`);
+      addCoupon({ code, ...details, cartTypes: newCouponCartType ? [newCouponCartType] : undefined });
+      const cartTypeLabel = COUPON_CART_TYPES.find((cartType) => cartType.key === newCouponCartType)?.label;
+      showToast(cartTypeLabel ? `${code} created and added to ${cartTypeLabel}` : `${code} created`);
+      setNewCouponCartType(null);
     } else if (editing) {
       updateCoupon(editing, { ...details, isPaused: form.isPaused });
       showToast(`${editing} saved`);
@@ -393,6 +408,69 @@ function CouponsPage() {
         {shownCoupons.length === 0 && <li className={styles["admin-coupon-empty"]}>No coupons match this search.</li>}
       </ul>
 
+      {/* Coupons in the cart: which coupons each kind of cart accepts */}
+      <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-cart-coupons-heading">
+        <div className={dashboardStyles["admin-card-heading-row"]}>
+          <div>
+            <h2 id="admin-cart-coupons-heading" className={dashboardStyles["admin-card-title"]}>
+              Coupons in the cart
+            </h2>
+            <p className={dashboardStyles["admin-card-subtitle"]}>
+              Customers can use only the coupons in their cart&rsquo;s list. An empty list hides the coupon box in that cart.
+            </p>
+          </div>
+        </div>
+        <div className={styles["admin-cart-coupon-columns"]}>
+          {COUPON_CART_TYPES.map((cartType) => {
+            const listCoupons = coupons.filter((coupon) => isCouponForCartType(coupon, cartType.key));
+            return (
+              <div key={cartType.key} className={styles["admin-cart-coupon-column"]}>
+                <p className={styles["admin-cart-coupon-column-title"]}>{cartType.label}</p>
+                <p className={styles["admin-cart-coupon-column-note"]}>{cartType.note}</p>
+                <ul className={styles["admin-cart-coupon-list"]}>
+                  {listCoupons.map((coupon) => (
+                    <li key={coupon.code} className={styles["admin-cart-coupon-item"]}>
+                      <span className={styles["admin-cart-coupon-item-words"]}>
+                        <span className={styles["admin-cart-coupon-item-code"]}>{coupon.code}</span>
+                        <span className={styles["admin-cart-coupon-item-description"]}>{coupon.description}</span>
+                      </span>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          className={styles["admin-cart-coupon-remove"]}
+                          aria-label={`Remove ${coupon.code} from ${cartType.label}`}
+                          onClick={() => {
+                            removeCouponFromCartType(coupon.code, cartType.key);
+                            showToast(`${coupon.code} removed from ${cartType.label}`);
+                          }}
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M6 6l12 12M18 6L6 18" />
+                          </svg>
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                  {listCoupons.length === 0 && <li className={styles["admin-cart-coupon-empty"]}>No coupons: the cart shows no coupon box</li>}
+                </ul>
+                {canEdit && (
+                  <button
+                    type="button"
+                    className={styles["admin-cart-coupon-add"]}
+                    onClick={() => {
+                      setAddingToCartType(cartType.key);
+                      setTickedCodes([]);
+                    }}
+                  >
+                    + Add
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-redemptions-heading">
         <div className={dashboardStyles["admin-card-heading-row"]}>
           <div>
@@ -468,7 +546,10 @@ function CouponsPage() {
         <AdminDialog
           title={editing === "new" ? "New coupon" : `Edit ${editing}`}
           submitLabel={editing === "new" ? "Create coupon" : "Save"}
-          onClose={() => setEditing(null)}
+          onClose={() => {
+            setEditing(null);
+            setNewCouponCartType(null);
+          }}
           onSubmit={saveForm}
         >
           {editing === "new" && (
@@ -607,6 +688,67 @@ function CouponsPage() {
           )}
         </AdminDialog>
       )}
+
+      {/* + Add on Coupons in the cart: tick existing coupons, or create a new one straight into the list */}
+      {addingToCartType &&
+        (() => {
+          const cartTypeLabel = COUPON_CART_TYPES.find((cartType) => cartType.key === addingToCartType)?.label ?? "";
+          const choices = coupons.filter((coupon) => !isCouponForCartType(coupon, addingToCartType));
+          return (
+            <AdminDialog
+              title={`Add coupons to ${cartTypeLabel}`}
+              submitLabel={tickedCodes.length ? `Add ${tickedCodes.length} selected` : "Add selected"}
+              onClose={() => setAddingToCartType(null)}
+              onSubmit={() => {
+                if (tickedCodes.length === 0) {
+                  showToast("Tick a coupon to add, or create a new one");
+                  return;
+                }
+                addCouponsToCartType(tickedCodes, addingToCartType);
+                showToast(`${tickedCodes.join(", ")} added to ${cartTypeLabel}`);
+                setAddingToCartType(null);
+              }}
+            >
+              <div className={styles["admin-cart-coupon-picker"]}>
+                {choices.map((coupon) => {
+                  const status = getCouponStatus(coupon, today);
+                  return (
+                    <label key={coupon.code} className={styles["admin-cart-coupon-choice"]}>
+                      <input
+                        type="checkbox"
+                        checked={tickedCodes.includes(coupon.code)}
+                        onChange={(changeEvent) =>
+                          setTickedCodes(
+                            changeEvent.target.checked
+                              ? [...tickedCodes, coupon.code]
+                              : tickedCodes.filter((code) => code !== coupon.code),
+                          )
+                        }
+                      />
+                      <span className={styles["admin-cart-coupon-item-words"]}>
+                        <span className={styles["admin-cart-coupon-item-code"]}>{coupon.code}</span>
+                        <span className={styles["admin-cart-coupon-item-description"]}>{coupon.description}</span>
+                      </span>
+                      <span className={`${dashboardStyles["admin-status"]} ${STATUS_CLASS_NAMES[status]}`}>{status}</span>
+                    </label>
+                  );
+                })}
+                {choices.length === 0 && <p className={styles["admin-cart-coupon-empty"]}>Every coupon is already in this list.</p>}
+                <button
+                  type="button"
+                  className={styles["admin-cart-coupon-create"]}
+                  onClick={() => {
+                    setNewCouponCartType(addingToCartType);
+                    setAddingToCartType(null);
+                    openForm("new");
+                  }}
+                >
+                  + Create new coupon
+                </button>
+              </div>
+            </AdminDialog>
+          );
+        })()}
 
       {couponToDelete && (
         <AdminDialog

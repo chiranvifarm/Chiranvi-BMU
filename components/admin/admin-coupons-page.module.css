@@ -358,9 +358,186 @@
   color: #ffffff;
 }
 
+/* ---------- Coupons in the cart: three lists side by side ---------- */
+
+.admin-cart-coupon-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: calc(14 * var(--admin-pixel));
+  margin-top: calc(14 * var(--admin-pixel));
+}
+
+.admin-cart-coupon-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: calc(14 * var(--admin-pixel));
+  border: 1px solid #e7e8e2;
+  border-radius: calc(12 * var(--admin-pixel));
+  background: #fbfbf8;
+}
+
+.admin-cart-coupon-column-title {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14 * var(--admin-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+.admin-cart-coupon-column-note {
+  margin-top: calc(2 * var(--admin-pixel));
+  font-size: calc(11.5 * var(--admin-pixel));
+  color: #6b736c;
+}
+
+.admin-cart-coupon-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: calc(8 * var(--admin-pixel));
+  margin: calc(12 * var(--admin-pixel)) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-cart-coupon-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8 * var(--admin-pixel));
+  padding: calc(8 * var(--admin-pixel)) calc(10 * var(--admin-pixel));
+  border: 1px solid #e6f0e1;
+  border-left: calc(4 * var(--admin-pixel)) solid #2f6b3a;
+  border-radius: calc(8 * var(--admin-pixel));
+  background: #ffffff;
+}
+
+.admin-cart-coupon-item-words {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.admin-cart-coupon-item-code {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(13.5 * var(--admin-pixel));
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #13251b;
+}
+
+.admin-cart-coupon-item-description {
+  overflow: hidden;
+  font-size: calc(11.5 * var(--admin-pixel));
+  color: #6b736c;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* × takes the coupon out of this list only (the coupon itself stays) */
+.admin-cart-coupon-remove {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: calc(26 * var(--admin-pixel));
+  height: calc(26 * var(--admin-pixel));
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.admin-cart-coupon-remove:hover,
+.admin-cart-coupon-remove:focus-visible {
+  background: #fbeceb;
+}
+
+.admin-cart-coupon-remove svg {
+  width: calc(14 * var(--admin-pixel));
+  height: calc(14 * var(--admin-pixel));
+  fill: none;
+  stroke: #c0392b;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.admin-cart-coupon-empty {
+  padding: calc(10 * var(--admin-pixel));
+  border: 1px dashed #d9dcd2;
+  border-radius: calc(8 * var(--admin-pixel));
+  font-size: calc(12 * var(--admin-pixel));
+  color: #6b736c;
+  text-align: center;
+}
+
+.admin-cart-coupon-add,
+.admin-cart-coupon-create {
+  align-self: flex-start;
+  padding: calc(7 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border: 1px solid #1f4d2e;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-family: inherit;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.admin-cart-coupon-add:hover,
+.admin-cart-coupon-add:focus-visible,
+.admin-cart-coupon-create:hover,
+.admin-cart-coupon-create:focus-visible {
+  background: #e6f0e1;
+}
+
+/* The + Add pop-up: one row per coupon to tick, then Create new coupon */
+.admin-cart-coupon-picker {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--admin-pixel));
+  max-height: min(60vh, calc(420 * var(--admin-pixel)));
+  overflow-y: auto;
+}
+
+.admin-cart-coupon-choice {
+  display: flex;
+  align-items: center;
+  gap: calc(10 * var(--admin-pixel));
+  padding: calc(9 * var(--admin-pixel)) calc(12 * var(--admin-pixel));
+  border: 1px solid #e7e8e2;
+  border-radius: calc(10 * var(--admin-pixel));
+  cursor: pointer;
+}
+
+.admin-cart-coupon-choice:has(input:checked) {
+  border-color: #2f6b3a;
+  background: #e6f0e1;
+}
+
+.admin-cart-coupon-choice input {
+  flex-shrink: 0;
+  width: calc(16 * var(--admin-pixel));
+  height: calc(16 * var(--admin-pixel));
+  accent-color: #1f4d2e;
+}
+
+.admin-cart-coupon-create {
+  margin-top: calc(4 * var(--admin-pixel));
+}
+
 @media (max-width: 1100px) {
   .admin-coupon-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .admin-cart-coupon-columns {
+    grid-template-columns: 1fr;
   }
 }
 

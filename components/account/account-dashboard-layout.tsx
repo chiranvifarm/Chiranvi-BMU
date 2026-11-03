@@ -8,7 +8,6 @@ import SiteNavigationPlacement from "@/components/navigation/site-navigation-pla
 import { logOut, rememberPageAfterLogin, useIsLoggedIn, useIsLoginStatusKnown } from "@/components/login/login-status";
 import { useCurrentStaffAccess } from "@/store/staff-access-store";
 import { useIsDeliveryAgent } from "@/store/delivery-agent-store";
-import { emptyTheCart } from "@/store/cart-store";
 import { countActiveOrders, forgetAllOrders, useOrders } from "@/store/orders-store";
 import { getNameInitials, useAccountProfile } from "./account-profile";
 import LogoutConfirmationDialog from "./logout-confirmation-dialog";
@@ -97,8 +96,8 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
   function logOutAndGoHome() {
     isLoggingOutRef.current = true;
     setIsLogoutDialogOpen(false);
+    // The cart stays saved with the account (store/account-state.ts); this browser forgets it at logout
     logOut();
-    emptyTheCart();
     forgetAllOrders();
     router.push("/");
   }

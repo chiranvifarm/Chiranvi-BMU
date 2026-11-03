@@ -2,12 +2,12 @@ import { useMemo, useSyncExternalStore } from "react";
 import {
   followSavedOrders,
   getSavedOrders,
-  setCustomerOrderStatus,
   setSavedOrderStatus,
   type Order,
   type OrderStatus,
 } from "./orders-store";
 import { customerIdForMobile } from "./admin-customers-store";
+import { markPanelPageSeen, usePanelSeenAt } from "./account-state";
 
 /*
   Orders seen in the Chiranvi Panel (Orders page, and "Recent orders" on the dashboard).
@@ -118,7 +118,7 @@ function toAdminOrder(order: Order): AdminOrder {
 
 const STORAGE_KEY = "chiranvi-admin-orders";
 // When the Orders page was last opened (website orders placed after it are "new": sidebar badge and bell)
-const SEEN_STORAGE_KEY = "chiranvi-admin-orders-seen-at";
+const OLD_SEEN_STORAGE_KEY = "chiranvi-admin-orders-seen-at";
 
 const sampleCustomers: [string, string][] = [
   ["Priya Sharma", "RR Nagar"],
@@ -243,16 +243,13 @@ export function changeAdminOrderStatus(orderNumber: string, status: AdminOrderSt
     void setSavedOrderStatus(savedOrder.orderId, TO_CUSTOMER_STATUS[status]);
     return;
   }
+  // The panel's own (sample or panel-made) orders: no customer on the website to tell
   const now = new Date().toISOString();
-  let websiteOrderId: string | undefined;
   saveOrders(
-    getBrowserOrders().map((order) => {
-      if (order.orderNumber !== orderNumber) return order;
-      websiteOrderId = order.websiteOrderId;
-      return { ...order, status, statusChangedAt: { ...order.statusChangedAt, [status]: now } };
-    }),
+    getBrowserOrders().map((order) =>
+      order.orderNumber === orderNumber ? { ...order, status, statusChangedAt: { ...order.statusChangedAt, [status]: now } } : order,
+    ),
   );
-  if (websiteOrderId) setCustomerOrderStatus(websiteOrderId, TO_CUSTOMER_STATUS[status]);
 }
 
 // A new order goes to the top, numbered after the newest one (website orders keep their own IDs)
@@ -272,28 +269,15 @@ export function addAdminOrder(order: Omit<AdminOrder, "orderNumber" | "placedAt"
   return newOrder;
 }
 
-let seenAt: string | null = null;
-
-function getSeenAt() {
-  if (seenAt !== null) return seenAt;
-  if (typeof window === "undefined") return "";
-  try {
-    seenAt = window.localStorage.getItem(SEEN_STORAGE_KEY) ?? "";
-  } catch {
-    seenAt = "";
-  }
-  return seenAt;
-}
-
-// The Orders page was opened: the new orders are now seen (the badge and the bell's list clear)
+// The Orders page was opened: the new orders are now seen (the badge and the bell's list clear). Saved with
+// this staff member's login (store/account-state.ts); the browser's old marker is deleted.
 export function markOrdersSeen() {
-  seenAt = new Date().toISOString();
   try {
-    window.localStorage.setItem(SEEN_STORAGE_KEY, seenAt);
+    window.localStorage.removeItem(OLD_SEEN_STORAGE_KEY);
   } catch {
-    // Storage blocked: seen until the page is refreshed.
+    // Storage blocked: nothing kept to delete.
   }
-  listeners.forEach((onChange) => onChange());
+  markPanelPageSeen("orders");
 }
 
 function subscribe(onChange: () => void) {
@@ -301,7 +285,6 @@ function subscribe(onChange: () => void) {
   // A customer's order placed in another tab (the website open next to the panel)
   function followOtherTabs(event: StorageEvent) {
     if (event.key === STORAGE_KEY) adminOrders = null;
-    else if (event.key === SEEN_STORAGE_KEY) seenAt = null;
     else return;
     onChange();
   }
@@ -323,7 +306,7 @@ export function useAdminOrders() {
 // orders added in the panel itself are not counted
 export function useNewOrders() {
   const allOrders = useAdminOrders();
-  const lastSeen = useSyncExternalStore(subscribe, getSeenAt, () => "");
+  const lastSeen = usePanelSeenAt("orders");
   return useMemo(
     () => allOrders.filter((order) => order.websiteOrderId && order.placedAt > lastSeen),
     [allOrders, lastSeen],

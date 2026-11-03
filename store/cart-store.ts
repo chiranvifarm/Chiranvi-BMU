@@ -1,13 +1,19 @@
 import { useSyncExternalStore } from "react";
+import {
+  getAccountState,
+  subscribeToAccountState,
+  updateAccountState,
+  useIsAccountStateLoaded,
+} from "./account-state";
 
 /*
-  Shopping cart, until a real cart service exists.
-  Saved in this browser (localStorage), so it stays after a refresh, like the login
-  (components/login/login-status.ts). Logging out empties it.
-  Each item keeps the product details it needs for the cart page, plus its quantity.
-
-  "Add to cart" before logging in: the product is remembered as pending; logging in then adds it
+  Shopping cart, kept with the customer's login in the database (store/account-state.ts), so it follows them
+  to any phone or laptop; nothing is kept in the browser. Logging out empties it. Each item keeps the product
+  details the cart page shows, plus its quantity (the prices shown are checked again against the database:
+  orders are always charged the database's prices).
+  "Add to cart" before logging in: the product is remembered (in memory) as pending; logging in then adds it
   to the cart and returns to the landing page.
+  A cart kept in this browser before the database is moved into the saved cart once, then deleted here.
 */
 
 export type CartProduct = {
@@ -23,51 +29,50 @@ export type CartProduct = {
 
 export type CartItem = CartProduct & { quantity: number };
 
-const CART_STORAGE_KEY = "chiranvi-cart";
 const emptyCart: CartItem[] = [];
-let cartItems: CartItem[] = emptyCart;
-let hasReadSavedCart = false;
 let pendingCartProduct: CartProduct | null = null;
-const cartListeners = new Set<() => void>();
 
-function getCartItems() {
-  if (!hasReadSavedCart && typeof window !== "undefined") {
-    hasReadSavedCart = true;
-    try {
-      const saved = JSON.parse(window.localStorage.getItem(CART_STORAGE_KEY) ?? "null");
-      if (Array.isArray(saved)) cartItems = saved;
-    } catch {
-      // Nothing saved, or storage blocked: start with an empty cart.
-    }
-  }
-  return cartItems;
-}
+// The browser's cart from before the database: moved into the saved cart once, then deleted
+const OLD_CART_KEYS = { cart: "chiranvi-cart", coupon: "chiranvi-cart-coupon", subscription: "chiranvi-cart-subscription" };
+let hasMovedOldCart = false;
 
-function saveCartItems(newCartItems: CartItem[]) {
-  cartItems = newCartItems;
-  hasReadSavedCart = true;
+function moveOldBrowserCart() {
+  if (hasMovedOldCart || typeof window === "undefined") return;
+  hasMovedOldCart = true;
   try {
-    window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(newCartItems));
+    const oldCart = JSON.parse(window.localStorage.getItem(OLD_CART_KEYS.cart) ?? "null");
+    const oldSubscription = JSON.parse(window.localStorage.getItem(OLD_CART_KEYS.subscription) ?? "null");
+    const oldCoupon = window.localStorage.getItem(OLD_CART_KEYS.coupon);
+    if (Array.isArray(oldCart) && oldCart.length > 0 && getAccountState().cart.length === 0) {
+      updateAccountState({ cart: oldCart, cartSubscription: oldSubscription, cartCoupon: oldCoupon });
+    }
+    Object.values(OLD_CART_KEYS).forEach((key) => window.localStorage.removeItem(key));
   } catch {
-    // Storage blocked: the cart lasts until the page is refreshed.
+    // Storage blocked or unreadable: nothing to move.
   }
-  cartListeners.forEach((onChange) => onChange());
 }
 
 function subscribeToCart(onChange: () => void) {
-  cartListeners.add(onChange);
-  return () => {
-    cartListeners.delete(onChange);
-  };
+  moveOldBrowserCart();
+  return subscribeToAccountState(onChange);
+}
+
+function getCartItems() {
+  return getAccountState().cart as CartItem[];
+}
+
+function saveCartItems(newCartItems: CartItem[]) {
+  updateAccountState({ cart: newCartItems });
 }
 
 // Items in the cart. On the server the cart is empty.
 export function useCartItems() {
-  return useSyncExternalStore(
-    subscribeToCart,
-    getCartItems,
-    () => emptyCart,
-  );
+  return useSyncExternalStore(subscribeToCart, () => getCartItems() as CartItem[], () => emptyCart);
+}
+
+// True once the saved cart has been read (the cart page waits for it, so it doesn't flash "empty")
+export function useIsCartLoaded() {
+  return useIsAccountStateLoaded();
 }
 
 // Total number of packs in the cart (shown on the navigation bar's cart badge).
@@ -109,36 +114,12 @@ export function changeCartItemQuantity(productId: string, quantityChange: 1 | -1
 }
 
 // The coupon applied at checkout, kept with the cart so a refresh does not drop it
-const COUPON_STORAGE_KEY = "chiranvi-cart-coupon";
-let appliedCouponCode: string | null = null;
-let hasReadSavedCoupon = false;
-
-function getAppliedCouponCode() {
-  if (!hasReadSavedCoupon && typeof window !== "undefined") {
-    hasReadSavedCoupon = true;
-    try {
-      appliedCouponCode = window.localStorage.getItem(COUPON_STORAGE_KEY);
-    } catch {
-      appliedCouponCode = null;
-    }
-  }
-  return appliedCouponCode;
-}
-
 export function setAppliedCouponCode(code: string | null) {
-  appliedCouponCode = code;
-  hasReadSavedCoupon = true;
-  try {
-    if (code) window.localStorage.setItem(COUPON_STORAGE_KEY, code);
-    else window.localStorage.removeItem(COUPON_STORAGE_KEY);
-  } catch {
-    // Storage blocked: the coupon lasts until the page is refreshed.
-  }
-  cartListeners.forEach((onChange) => onChange());
+  updateAccountState({ cartCoupon: code });
 }
 
 export function useAppliedCouponCode() {
-  return useSyncExternalStore(subscribeToCart, getAppliedCouponCode, () => null);
+  return useSyncExternalStore(subscribeToCart, () => getAccountState().cartCoupon, () => null);
 }
 
 /*
@@ -161,49 +142,23 @@ export type CartSubscription = {
   extendsOrderId?: string; // "Extend Plan" on My Subscription: adds these days to that running plan
 };
 
-const SUBSCRIPTION_STORAGE_KEY = "chiranvi-cart-subscription";
-let cartSubscription: CartSubscription | null = null;
-let hasReadSavedSubscription = false;
-
-function getCartSubscription() {
-  if (!hasReadSavedSubscription && typeof window !== "undefined") {
-    hasReadSavedSubscription = true;
-    try {
-      cartSubscription = JSON.parse(window.localStorage.getItem(SUBSCRIPTION_STORAGE_KEY) ?? "null");
-    } catch {
-      cartSubscription = null;
-    }
-  }
-  return cartSubscription;
-}
-
 /*
   Start subscription puts the plan here; null takes it out (paid, switched or removed).
   The milk's quantity (Add Quantity) stays in the cart while the plan waits, so going back to the milk
   page keeps it; once the plan is paid, the cart page takes that milk out (removeCartItem).
 */
 export function setCartSubscription(subscription: CartSubscription | null) {
-  cartSubscription = subscription;
-  hasReadSavedSubscription = true;
-  try {
-    if (subscription) window.localStorage.setItem(SUBSCRIPTION_STORAGE_KEY, JSON.stringify(subscription));
-    else window.localStorage.removeItem(SUBSCRIPTION_STORAGE_KEY);
-  } catch {
-    // Storage blocked: the subscription lasts until the page is refreshed.
-  }
-  cartListeners.forEach((onChange) => onChange());
+  updateAccountState({ cartSubscription: subscription });
 }
 
 export function useCartSubscription() {
-  return useSyncExternalStore(subscribeToCart, getCartSubscription, () => null);
+  return useSyncExternalStore(subscribeToCart, () => getAccountState().cartSubscription as CartSubscription | null, () => null);
 }
 
 // Logging out, or an order placed: the cart (its coupon and any subscription) starts empty.
 export function emptyTheCart() {
   pendingCartProduct = null;
-  setAppliedCouponCode(null);
-  setCartSubscription(null);
-  saveCartItems(emptyCart);
+  updateAccountState({ cart: emptyCart, cartSubscription: null, cartCoupon: null });
 }
 
 // "Add to cart" before logging in: remember the product until the login finishes.

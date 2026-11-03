@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { customerIdForMobile, isCustomerListed, removeCustomer, saveRegisteredCustomer } from "./admin-customers-store";
+import { customerIdForMobile } from "./admin-customers-store";
+import { forgetBrowserCopy } from "./panel-records";
 import { updateAddressesFromProfile } from "./address-store";
 
 /*
@@ -115,17 +116,6 @@ function toRow(details: CustomerProfileDetails) {
   };
 }
 
-// A profile this browser saved before the database existed, for this number (or null)
-function oldBrowserProfile(mobileNumber: string): CustomerProfileDetails | null {
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(OLD_STORAGE_KEY) ?? "null");
-    const profile = saved && typeof saved === "object" ? saved[mobileNumber] : null;
-    return profile && typeof profile.firstName === "string" && profile.firstName.trim() ? profile : null;
-  } catch {
-    return null;
-  }
-}
-
 /*
   Reads this login number's customer row from the database (once; again with refresh). Returns the
   profile, or null for a new customer who has not saved one yet. An older browser-only profile is moved in.
@@ -153,18 +143,14 @@ export function loadCustomerProfile(mobileNumber: string, refresh = false): Prom
     if (error) console.error("Could not read the profile", error);
     const row = data as CustomerRow | null;
     if (row) customerRowIds.set(mobileNumber, row.id);
-    let profile = row && row.profile_completed_at ? toProfile(row) : null;
-    // First time on the database: a profile saved only in this browser before is moved in
-    if (!profile && !error) {
-      const fromBrowser = oldBrowserProfile(mobileNumber);
-      if (fromBrowser) profile = await writeProfile({ ...fromBrowser, primaryMobile: mobileNumber });
-    }
+    const profile = row && row.profile_completed_at ? toProfile(row) : null;
+    // The browser's old copy of the profiles (it held other customers' too): deleted, never read
+    forgetBrowserCopy(OLD_STORAGE_KEY);
     if (profile) profiles[mobileNumber] = profile;
     else delete profiles[mobileNumber];
     loadedMobiles.add(mobileNumber);
     loadingMobiles.delete(mobileNumber);
     announce();
-    if (profile) listOnCustomersPage(profile);
     return profile;
   })();
   loadingMobiles.set(mobileNumber, reading);
@@ -219,24 +205,16 @@ export async function ensureCustomerRowId(mobileNumber: string): Promise<string 
   return data.id as string;
 }
 
-// The Chiranvi Panel's Customers page still keeps its own list in the browser (until it moves to the
-// database): a customer with a saved profile is put on it. Runs after the current drawing.
-function listOnCustomersPage(profile: CustomerProfile) {
-  window.setTimeout(() => {
-    if (!isCustomerListed(profile.primaryMobile)) saveRegisteredCustomer(profile, profile.createdAt);
-  }, 0);
-}
-
 // The saved profile of this login number, or null (a new customer, or not read yet)
 export function getCustomerProfile(mobileNumber: string): CustomerProfile | null {
   return profiles[mobileNumber] ?? null;
 }
 
-// Saves the Profile form; the first save also adds the customer to the Chiranvi Panel's Customers page
+// Saves the Profile form; the database then puts the customer on the Chiranvi Panel's Customers page
 export function saveCustomerProfile(details: CustomerProfileDetails): CustomerProfile {
   const existing = getCustomerProfile(details.primaryMobile);
   const now = new Date().toISOString();
-  const customerId = saveRegisteredCustomer(details, existing?.createdAt);
+  const customerId = customerIdForMobile(details.primaryMobile);
   const profile: CustomerProfile = { ...details, customerId, createdAt: existing?.createdAt ?? now, updatedAt: now };
   // Shown at once …
   profiles[details.primaryMobile] = profile;
@@ -313,13 +291,8 @@ export async function deleteMyAccount(mobileNumber: string): Promise<string | nu
   delete profiles[mobileNumber];
   customerRowIds.delete(mobileNumber);
   loadedMobiles.delete(mobileNumber);
+  // The database took the customer off the panel's Customers list and deleted their saved cart and wishlist
   announce();
-  removeCustomer(customerIdForMobile(mobileNumber));
-  try {
-    window.localStorage.removeItem("chiranvi-wishlist");
-  } catch {
-    // Storage blocked: nothing kept to remove.
-  }
   return null;
 }
 

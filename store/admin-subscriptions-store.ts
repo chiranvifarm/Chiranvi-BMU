@@ -1,13 +1,16 @@
-import { useSyncExternalStore } from "react";
+import { useMemo } from "react";
+import { createPanelRecordStore } from "./panel-records";
 
 /*
-  Milk subscriptions seen in the Chiranvi Panel (Subscriptions page), until the database is connected.
-  Only milk can be subscribed (curd, paneer, ghee and butter are one-time orders): A2 (Gir Cow), Jersey and
-  Skimmed milk, the milks the website sells.
-  The first time, 1,177 sample subscriptions are made; after that the list is saved in this browser,
-  so pausing, resuming, cancelling and new plans stay after a refresh. Subscriptions are
-  paid by plan length. A plan bought on the website is added here too (with its website order number), and
-  a pause the panel approves for it shows it as Paused on those days.
+  Milk subscriptions seen in the Chiranvi Panel (Subscriptions page). Only milk can be subscribed (curd,
+  paneer, ghee and butter are one-time orders): A2 (Gir Cow), Jersey and Skimmed milk, the milks the website
+  sells. Kept in the database (panel_records, "subscriptions"; supabase/migrations/0019_…), seen by the staff
+  member's role. Subscriptions are paid by plan length.
+  - A plan bought and paid on the website joins the list by itself (the database adds it, with its website
+    order number), and a pause the panel approves (Pause requests) shows it as Paused on those days.
+  - Pausing, resuming and cancelling in the panel are saved; a cancelled plan is kept, marked cancelled (it
+    counts in "cancelled this week" and no longer shows on the list).
+  The first time the panel opens the page, 1,177 sample subscriptions are copied in.
 */
 
 export type MilkType = "A2" | "Jersey" | "Skimmed";
@@ -38,6 +41,7 @@ export type AdminSubscription = {
   // A pause approved in the panel (Pause requests): paused from this day until the resume day
   pauseFrom?: string; // ISO date
   resumeOn?: string; // ISO date
+  cancelledAt?: string; // ISO: cancelled in the panel (no longer shown)
 };
 
 // Plans saved before the length was added get one from their number
@@ -54,9 +58,6 @@ export function getSubscriptionStatus(subscription: AdminSubscription, today = n
   }
   return "Active";
 }
-
-const STORAGE_KEY = "chiranvi-admin-subscriptions";
-const CANCELLED_KEY = "chiranvi-admin-subscriptions-cancelled";
 
 const sampleCustomers: [string, string][] = [
   ["Suresh Gowda", "Kengeri"],
@@ -120,92 +121,64 @@ function makeSampleSubscriptions(): AdminSubscription[] {
   return subscriptions;
 }
 
-let subscriptions: AdminSubscription[] | null = null;
-let cancelledThisWeek = 3;
-const listeners = new Set<() => void>();
-const EMPTY: AdminSubscription[] = [];
+const store = createPanelRecordStore<AdminSubscription>({
+  module: "subscriptions",
+  fromData: withCurrentMilkType,
+  seed: { seedKey: "subscriptions", makeSamples: makeSampleSubscriptions, oldStorageKey: "chiranvi-admin-subscriptions" },
+});
 
-function getSubscriptions() {
-  if (subscriptions) return subscriptions;
-  if (typeof window === "undefined") return EMPTY;
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null");
-    subscriptions = Array.isArray(saved) ? (saved as AdminSubscription[]).map(withCurrentMilkType) : makeSampleSubscriptions();
-    cancelledThisWeek = Number(window.localStorage.getItem(CANCELLED_KEY) ?? 3) || 3;
-  } catch {
-    subscriptions = makeSampleSubscriptions();
-  }
-  return subscriptions as AdminSubscription[];
-}
-
-function save(newSubscriptions: AdminSubscription[]) {
-  subscriptions = newSubscriptions;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(newSubscriptions));
-    window.localStorage.setItem(CANCELLED_KEY, String(cancelledThisWeek));
-  } catch {
-    // Storage blocked: changes last until the page is refreshed.
-  }
-  listeners.forEach((onChange) => onChange());
-}
+// The browser's old "cancelled this week" counter (deleted with the old list)
+const OLD_CANCELLED_KEY = "chiranvi-admin-subscriptions-cancelled";
+// The sample week's cancellations (the design shows 3), plus the plans cancelled in the last 7 days
+const SAMPLE_CANCELLED_THIS_WEEK = 3;
 
 export function setSubscriptionPaused(id: string, isPaused: boolean) {
-  save(getSubscriptions().map((subscription) => (subscription.id === id ? { ...subscription, isPaused } : subscription)));
+  void store.change(id, (subscription) => ({ ...subscription, isPaused }));
 }
 
 export function cancelSubscription(id: string) {
-  cancelledThisWeek += 1;
-  save(getSubscriptions().filter((subscription) => subscription.id !== id));
+  void store.change(id, (subscription) => ({ ...subscription, cancelledAt: new Date().toISOString() }));
 }
 
-// A plan bought on the website: its pause dates once the panel approves a pause (Pause requests)
+// A plan bought on the website: its pause dates (the database also sets them when a pause is approved)
 export function setWebsitePlanPause(websiteOrderId: string, pause: { pauseFrom: string; resumeOn: string } | null) {
-  save(
-    getSubscriptions().map((subscription) =>
-      subscription.websiteOrderId === websiteOrderId
-        ? { ...subscription, pauseFrom: pause?.pauseFrom, resumeOn: pause?.resumeOn }
-        : subscription,
-    ),
-  );
+  const subscription = store.getRecords().find((existing) => existing.websiteOrderId === websiteOrderId);
+  if (!subscription) return;
+  void store.change(subscription.id, (existing) => ({ ...existing, pauseFrom: pause?.pauseFrom, resumeOn: pause?.resumeOn }));
 }
 
-// The panel's copy of a plan bought on the website (its area, for a pause request)
+// The panel's copy of a plan bought on the website (only staff can read the list)
 export function findWebsiteSubscription(websiteOrderId: string) {
-  return getSubscriptions().find((subscription) => subscription.websiteOrderId === websiteOrderId) ?? null;
+  return store.getRecords().find((subscription) => subscription.websiteOrderId === websiteOrderId) ?? null;
 }
 
+// A plan added in the panel (website plans join by themselves)
 export function addSubscription(subscription: Omit<AdminSubscription, "id" | "since" | "isPaused">) {
-  const highest = Math.max(0, ...getSubscriptions().map((existing) => Number(existing.id.replace(/\D/g, ""))));
+  const highest = Math.max(0, ...store.getRecords().map((existing) => Number(existing.id.replace(/\D/g, "")) || 0));
   const newSubscription: AdminSubscription = {
     ...subscription,
     id: `SUB-${highest + 1}`,
     since: new Date().toISOString(),
     isPaused: false,
   };
-  save([newSubscription, ...getSubscriptions()]);
+  void store.add(newSubscription);
   return newSubscription;
 }
 
 export function getCancelledThisWeek() {
-  getSubscriptions();
-  return cancelledThisWeek;
-}
-
-// Also follows changes made in other tabs and browsers (shared data), so a new website plan shows at once
-function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  function followOtherTabs(event: StorageEvent) {
-    if (event.key !== STORAGE_KEY) return;
-    subscriptions = null;
-    onChange();
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.removeItem(OLD_CANCELLED_KEY);
+    } catch {
+      // Storage blocked: nothing to delete.
+    }
   }
-  window.addEventListener("storage", followOtherTabs);
-  return () => {
-    listeners.delete(onChange);
-    window.removeEventListener("storage", followOtherTabs);
-  };
+  const weekAgo = Date.now() - 7 * 86400000;
+  return SAMPLE_CANCELLED_THIS_WEEK + store.getRecords().filter((subscription) => subscription.cancelledAt && new Date(subscription.cancelledAt).getTime() > weekAgo).length;
 }
 
+// The plans still running or paused (cancelled ones are left out)
 export function useAdminSubscriptions() {
-  return useSyncExternalStore(subscribe, getSubscriptions, () => EMPTY);
+  const all = store.useRecords();
+  return useMemo(() => all.filter((subscription) => !subscription.cancelledAt), [all]);
 }

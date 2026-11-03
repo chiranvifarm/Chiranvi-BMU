@@ -1,14 +1,15 @@
-import { useSyncExternalStore } from "react";
-import { setWebsitePlanPause, withCurrentMilkPlanName } from "./admin-subscriptions-store";
+import { createPanelRecordStore } from "./panel-records";
+import { withCurrentMilkPlanName } from "./admin-subscriptions-store";
 
 /*
-  Pause requests seen in the Chiranvi Panel (Pause requests page, and the count on its sidebar
-  badge), until the database is connected: customers asking to stop milk for a few days.
-  The first time, 56 sample requests are made (5 waiting for approval); after that the list is saved in
-  this browser, so approvals and rejections stay after a refresh.
-  Customers send real requests from My Subscription ("Pause subscription": from, resume on, reason). The
-  customer sees the answer there; an approved one also pauses that plan on the Subscriptions page for
-  those days.
+  Pause requests: customers asking to stop milk for a few days. Kept in the database (panel_records,
+  "pause-requests"; supabase/migrations/0019_…):
+  - the Chiranvi Panel (Pause requests page, and the count on its sidebar badge) sees all of them and
+    approves or rejects, by the staff member's role;
+  - a customer sends a request from My Subscription ("Pause subscription": from, resume on, reason) and sees
+    only their own, with the answer; the database always saves it as Pending, and only a Pending one can be
+    taken back. An approved one pauses that plan on the Subscriptions page for those days (the database does it).
+  The first time the panel opens the page, 56 sample requests are copied in (5 waiting for approval).
 */
 
 export type PauseRequestStatus = "Pending" | "Approved" | "Rejected";
@@ -33,8 +34,6 @@ export type PauseRequest = {
 
 // Reasons a customer can choose on My Subscription
 export const PAUSE_REASONS = ["Travelling", "Out of town", "Guests at home", "Health reasons", "Other"];
-
-const STORAGE_KEY = "chiranvi-admin-pause-requests";
 
 const sampleCustomers: [string, string, string, PauseRequest["frequency"], number][] = [
   ["Divya Rao", "Banashankari", "Jersey Milk 1 L", "Daily", 1],
@@ -87,74 +86,45 @@ function makeSampleRequests(): PauseRequest[] {
   return requests;
 }
 
-let requests: PauseRequest[] | null = null;
-const listeners = new Set<() => void>();
-const EMPTY: PauseRequest[] = [];
+const store = createPanelRecordStore<PauseRequest>({
+  module: "pause-requests",
+  // Saved with the old milk names (Cow, Buffalo): shown with today's
+  fromData: (request) => ({ ...request, plan: withCurrentMilkPlanName(request.plan) }),
+  seed: {
+    seedKey: "pause-requests",
+    makeSamples: makeSampleRequests,
+    oldStorageKey: "chiranvi-admin-pause-requests",
+    ownerMobileOf: (request) => request.customerMobile,
+  },
+});
 
-function getRequests() {
-  if (requests) return requests;
-  if (typeof window === "undefined") return EMPTY;
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null");
-    // Saved with the old milk names (Cow, Buffalo): shown with today's
-    requests = Array.isArray(saved) ? saved.map((request: PauseRequest) => ({ ...request, plan: withCurrentMilkPlanName(request.plan) })) : makeSampleRequests();
-  } catch {
-    requests = makeSampleRequests();
-  }
-  return requests as PauseRequest[];
-}
-
-function save(newRequests: PauseRequest[]) {
-  requests = newRequests;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(newRequests));
-  } catch {
-    // Storage blocked: changes last until the page is refreshed.
-  }
-  listeners.forEach((onChange) => onChange());
-}
-
-// Approved for a plan bought on the website: that plan is paused for those days on the Subscriptions page
+// Approved for a plan bought on the website: the database pauses that plan for those days on the Subscriptions page
 export function decidePauseRequest(id: string, status: "Approved" | "Rejected", decidedBy: string) {
-  const decided = getRequests().find((request) => request.id === id);
-  save(getRequests().map((request) => (request.id === id ? { ...request, status, decidedBy } : request)));
-  if (decided?.websiteOrderId) {
-    setWebsitePlanPause(decided.websiteOrderId, status === "Approved" ? { pauseFrom: decided.pauseFrom, resumeOn: decided.resumeOn } : null);
-  }
+  void store.change(id, (request) => ({ ...request, status, decidedBy }));
 }
 
 // A customer's request from My Subscription: waits for the panel's answer (Pending)
 export function addPauseRequest(
   request: Pick<PauseRequest, "customerName" | "area" | "plan" | "frequency" | "litresPerDay" | "pauseFrom" | "resumeOn" | "reason" | "websiteOrderId" | "customerMobile">,
 ) {
-  const highest = Math.max(0, ...getRequests().map((existing) => Number(existing.id.replace(/\D/g, ""))));
-  const newRequest: PauseRequest = { ...request, id: `PR-${highest + 1}`, status: "Pending", requestedAt: new Date().toISOString() };
-  save([newRequest, ...getRequests()]);
+  // An id nobody else has (a customer can't see other people's requests to count on from them)
+  const newRequest: PauseRequest = {
+    ...request,
+    id: `PR-${Date.now().toString(36).toUpperCase()}`,
+    status: "Pending",
+    requestedAt: new Date().toISOString(),
+  };
+  void store.add(newRequest, request.customerMobile);
   return newRequest;
 }
 
 // The customer cancels a request the panel has not answered yet
 export function cancelPauseRequest(id: string) {
-  save(getRequests().filter((request) => !(request.id === id && request.status === "Pending")));
-}
-
-// Also follows changes made in other tabs and browsers (shared data): the customer sees the answer at once
-function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  function followOtherTabs(event: StorageEvent) {
-    if (event.key !== STORAGE_KEY) return;
-    requests = null;
-    onChange();
-  }
-  window.addEventListener("storage", followOtherTabs);
-  return () => {
-    listeners.delete(onChange);
-    window.removeEventListener("storage", followOtherTabs);
-  };
+  if (store.getRecords().some((request) => request.id === id && request.status === "Pending")) void store.remove(id);
 }
 
 export function usePauseRequests() {
-  return useSyncExternalStore(subscribe, getRequests, () => EMPTY);
+  return store.useRecords();
 }
 
 // An approved pause whose resume day has come is "Resumed"

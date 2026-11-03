@@ -7,9 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { rememberPageAfterLogin } from "@/components/login/login-status";
 import { getNameInitials } from "@/components/account/account-profile";
 import {
-  DEMO_MOBILE_NUMBER,
   formatTime,
-  leaveDeliveryDemo,
   markNotificationsSeen,
   setOnDuty,
   useAgentStops,
@@ -240,24 +238,6 @@ function DeliveryPanelFrame({ login, children }: { login: AgentLogin; children: 
         </aside>
 
         <main className={styles["delivery-content"]}>
-          {/* DEMO (delete with the demo block in store/delivery-agent-store.ts) */}
-          {login.mobileNumber === DEMO_MOBILE_NUMBER && (
-            <p className={styles["delivery-demo-strip"]}>
-              Demo: sample stops on Route 4, no login. Only while running npm run dev.
-              <button
-                type="button"
-                className={styles["delivery-demo-leave"]}
-                onClick={() => {
-                  leaveDeliveryDemo();
-                  // A full load: with useRouter the panel would first send the now logged-out visitor to the login
-                  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-                  window.location.assign("/");
-                }}
-              >
-                Leave demo
-              </button>
-            </p>
-          )}
           {/* Wide screens: duty switch and bell above the page */}
           <div className={styles["delivery-content-top-row"]}>
             {currentPage && <span className={styles["delivery-content-page-name"]}>{currentPage.label}</span>}

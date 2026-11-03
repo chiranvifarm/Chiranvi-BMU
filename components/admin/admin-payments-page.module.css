@@ -192,3 +192,42 @@
     position: static;
   }
 }
+
+/* "Refund … ?": what happens to the money and the order */
+.admin-payment-refund-note {
+  grid-column: 1 / -1;
+  font-size: calc(13 * var(--admin-pixel));
+  line-height: 1.5;
+  color: #4b5a50;
+}
+
+/* Refund, right in the row (red outline: money goes back) */
+.admin-payment-refund-button {
+  padding: calc(6 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border: 1px solid #e9a8a0;
+  border-radius: 9999px;
+  background: #ffffff;
+  font: inherit;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  color: #c0392b;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.admin-payment-refund-button:hover,
+.admin-payment-refund-button:focus-visible {
+  background: #fdf1f0;
+}
+
+.admin-payment-refunded-label {
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  color: #6e7a72;
+}
+
+/* Actions: the heading and the Refund button centred in the same column */
+table th.admin-payment-actions-column,
+table td.admin-payment-actions-column {
+  text-align: center;
+}

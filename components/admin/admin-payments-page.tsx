@@ -5,13 +5,13 @@ import {
   PAYMENT_METHODS,
   recordPayment,
   refundPayment,
-  retryPayment,
   useAdminPayments,
   type AdminPayment,
   type PaymentMethod,
   type PaymentType,
 } from "@/store/admin-payments-store";
 import { useAdminOrders } from "@/store/admin-orders-store";
+import { useCurrentStaffAccess } from "@/store/staff-access-store";
 import { AdminFeatureGate } from "./admin-panel-layout";
 import {
   AdminDialog,
@@ -19,7 +19,6 @@ import {
   AdminFilterTabs,
   AdminPageTop,
   AdminPagination,
-  AdminRowMenu,
   AdminStatCards,
   adminInputClassName,
   downloadCsv,
@@ -39,11 +38,14 @@ import styles from "./admin-payments-page.module.css";
     top        search (customer, area or transaction), Record payment (pop-up form), Custom range, Export
     numbers    collected in the chosen dates, collected today, refunded, failed payments (red: money to
                recover)
-    table      All / Success / Failed tabs; 14 a page; "..." retries a failed payment or refunds one
+    table      All / Success / Failed tabs; 14 a page; "Refund" in the row (an online payment through
+               Razorpay, the owner only, after "Refund … ?"); a failed online payment is retried by the
+               customer from their cart (its reason shows on "Failed")
     this week  money in by kind (subscriptions, one-time orders), refunds, cash still to collect on
                orders not yet delivered (pending dues), failed payments; for the chosen dates
     methods    how the money came in (UPI, card, cash) as one bar and a list
-  Payments come from store/admin-payments-store.ts (saved in this browser for now).
+  Payments come from store/admin-payments-store.ts (the database: Razorpay payments and payments recorded
+  by hand).
 */
 
 const PAGE_SIZE = 14;
@@ -96,6 +98,10 @@ function PaymentsPage() {
   const { showToast, toast } = useAdminToast();
   // Sensitive actions only the owner can do (Roles & permissions)
   const isOwner = useIsPanelOwner();
+  const recordedBy = useCurrentStaffAccess()?.name ?? "";
+  // The payment waiting for "Refund … ?" (money goes back, so it asks first)
+  const [refundOf, setRefundOf] = useState<AdminPayment | null>(null);
+  const [isRefunding, setIsRefunding] = useState(false);
 
   const paymentsInRange = useMemo(() => {
     const from = new Date(rangeFrom);
@@ -157,19 +163,39 @@ function PaymentsPage() {
     ]);
   }
 
-  function saveNewPayment() {
+  async function confirmRefund() {
+    if (!refundOf || isRefunding) return;
+    setIsRefunding(true);
+    const problem = await refundPayment(refundOf, recordedBy);
+    setIsRefunding(false);
+    if (problem) {
+      showToast(problem);
+      return;
+    }
+    showToast(`${rupees(Math.abs(refundOf.amount))} refunded to ${refundOf.customerName}`);
+    setRefundOf(null);
+  }
+
+  async function saveNewPayment() {
     const amount = Number(newPayment.amount);
     if (!newPayment.customerName.trim() || !(amount > 0)) {
       showToast("Enter the customer and the amount");
       return;
     }
-    const added = recordPayment({
-      customerName: newPayment.customerName.trim(),
-      area: newPayment.area.trim() || "—",
-      type: newPayment.type,
-      method: newPayment.method,
-      amount: newPayment.type === "Refund" ? -amount : amount,
-    });
+    const added = await recordPayment(
+      {
+        customerName: newPayment.customerName.trim(),
+        area: newPayment.area.trim() || "—",
+        type: newPayment.type,
+        method: newPayment.method,
+        amount: newPayment.type === "Refund" ? -amount : amount,
+      },
+      recordedBy,
+    );
+    if ("error" in added) {
+      showToast(added.error);
+      return;
+    }
     setRangeTo(today);
     setIsRecordOpen(false);
     setNewPayment(EMPTY_NEW_PAYMENT);
@@ -269,7 +295,9 @@ function PaymentsPage() {
                   <th scope="col">Method</th>
                   <th scope="col">Amount</th>
                   <th scope="col">Status</th>
-                  <th scope="col" className={dashboardStyles["admin-orders-actions"]}>Actions</th>
+                  <th scope="col" className={`${dashboardStyles["admin-orders-actions"]} ${styles["admin-payment-actions-column"]}`}>
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -300,42 +328,34 @@ function PaymentsPage() {
                         className={`${dashboardStyles["admin-status"]} ${
                           payment.status === "Failed" ? sharedStyles["admin-status-warning"] : dashboardStyles["admin-status-delivered"]
                         }`}
+                        title={payment.failureReason}
                       >
                         {payment.status}
                       </span>
                     </td>
-                    <td className={dashboardStyles["admin-orders-actions"]}>
-                      <AdminRowMenu
-                        label={`Actions for ${payment.id}`}
-                        title="Payment"
-                        options={
-                          payment.status === "Failed"
-                            ? [
-                                {
-                                  label: "Retry payment",
-                                  onSelect: () => {
-                                    retryPayment(payment.id);
-                                    showToast(`${payment.id} collected`);
-                                  },
-                                },
-                              ]
-                            : [
-                                {
-                                  label: "Refund",
-                                  isDisabled: payment.type === "Refund",
-                                  isDanger: true,
-                                  onSelect: () => {
-                                    if (!isOwner && Math.abs(payment.amount) > 500) {
-                                      showToast(OWNER_ONLY_MESSAGE);
-                                      return;
-                                    }
-                                    refundPayment(payment.id);
-                                    showToast(`${rupees(Math.abs(payment.amount))} refunded to ${payment.customerName}`);
-                                  },
-                                },
-                              ]
-                        }
-                      />
+                    <td className={`${dashboardStyles["admin-orders-actions"]} ${styles["admin-payment-actions-column"]}`}>
+                      {/*
+                        Refund, right in the row: an online payment through Razorpay (the owner only), one recorded by
+                        hand by the owner above ₹500. Nothing for a failed payment (the customer pays again from the
+                        cart) or a refund line; "Refunded" once given back.
+                      */}
+                      {payment.status === "Failed" || payment.type === "Refund" ? null : payment.isRefunded ? (
+                        <span className={styles["admin-payment-refunded-label"]}>Refunded</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className={styles["admin-payment-refund-button"]}
+                          onClick={() => {
+                            if (!isOwner && (payment.isOnline || Math.abs(payment.amount) > 500)) {
+                              showToast(OWNER_ONLY_MESSAGE);
+                              return;
+                            }
+                            setRefundOf(payment);
+                          }}
+                        >
+                          Refund
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -428,6 +448,22 @@ function PaymentsPage() {
         </section>
         </div>
       </div>
+
+      {refundOf && (
+        <AdminDialog
+          title={`Refund ${rupees(Math.abs(refundOf.amount))} to ${refundOf.customerName}?`}
+          submitLabel={isRefunding ? "Refunding…" : "Refund"}
+          isDanger
+          onClose={() => setRefundOf(null)}
+          onSubmit={() => void confirmRefund()}
+        >
+          <p className={styles["admin-payment-refund-note"]}>
+            {refundOf.isOnline
+              ? `Razorpay sends the money back to the customer's account (in a few days), and order ${refundOf.websiteOrderId ?? ""} is cancelled. This can't be undone.`
+              : "This records a refund given by hand (cash or bank transfer)."}
+          </p>
+        </AdminDialog>
+      )}
 
       {isRecordOpen && (
         <AdminDialog title="Record payment" submitLabel="Record" onClose={() => setIsRecordOpen(false)} onSubmit={saveNewPayment}>

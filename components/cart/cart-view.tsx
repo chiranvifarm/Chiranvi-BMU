@@ -36,10 +36,13 @@ import {
 import { checkCouponOnServer, useCartCoupons, useCouponCheck, type CouponCart } from "@/store/coupons-store";
 import {
   findRunningPlans,
+  confirmPayment,
   formatPlanDate,
-  placeOrder,
   priceCartOnServer,
+  reportFailedPayment,
+  startPayment,
   useOrders,
+  type CheckoutPart,
   type Order,
   type RunningPlan,
 } from "@/store/orders-store";
@@ -65,8 +68,9 @@ import styles from "./cart-view.module.css";
              a milk plan, or both: Coupons & offers → Coupons in the cart).
     "Select address" (or the address card) opens the address pop-up (same cards as My Addresses: pick,
     Set as Default, Edit, Remove, Add new address). Picking one ticks Address and the button becomes
-    "Pay now · ₹…". Razorpay is not connected yet, so Pay now places the order straight away (nothing is
-    charged), ticks Payment and shows "Your order has been placed" with Track your order.
+    "Pay now · ₹…". Pay now opens Razorpay (test mode; the customer picks UPI, card or net banking
+    there); once our server has confirmed the payment it ticks Payment and shows "Your order has been placed"
+    with Track your order.
   Milk subscription ("Start subscription" on the milk page): the same page, with the plan ("Your
   subscription", highlighted in green) above the one-time items, if any. One address and one payment for
   both: the summary shows the plan at the one-time price and its saving, the items at MRP and their
@@ -79,6 +83,60 @@ import styles from "./cart-view.module.css";
 
 // The only product sold as a subscription (its page has the plans)
 const MILK_PRODUCT_ID = "a2-desi-milk";
+
+// The parts of Razorpay's pop-up (loaded from checkout.js) that the cart uses
+type RazorpaySuccessResponse = { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
+type RazorpayFailureResponse = { error: { description?: string; metadata?: { payment_id?: string; order_id?: string } } };
+type RazorpayPopup = {
+  open: () => void;
+  on: (event: "payment.failed", onFailed: (response: RazorpayFailureResponse) => void) => void;
+};
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, unknown>) => RazorpayPopup;
+  }
+}
+
+const razorpayCheckoutScriptSource = "https://checkout.razorpay.com/v1/checkout.js";
+let razorpayScriptLoading: Promise<boolean> | null = null;
+
+// Loads Razorpay's checkout.js once. True when the pop-up is ready to use.
+function loadRazorpayCheckoutScript() {
+  if (window.Razorpay) return Promise.resolve(true);
+  razorpayScriptLoading ??= new Promise<boolean>((resolve) => {
+    const script = document.createElement("script");
+    script.src = razorpayCheckoutScriptSource;
+    script.onload = () => resolve(Boolean(window.Razorpay));
+    script.onerror = () => {
+      script.remove();
+      razorpayScriptLoading = null;
+      resolve(false);
+    };
+    document.body.appendChild(script);
+  });
+  return razorpayScriptLoading;
+}
+
+const cowEmblemImageSource = "/images/brand/chiranvi-farm-cow-emblem.png";
+let cowEmblemDataUrl = "";
+
+// The cow emblem for the pop-up's header, as image data: Razorpay's secure pop-up cannot load pictures
+// from a plain http address (like localhost), but always shows image data. Empty if it cannot be read.
+async function getCowEmblemDataUrl() {
+  if (cowEmblemDataUrl) return cowEmblemDataUrl;
+  try {
+    const emblemImage = await (await fetch(cowEmblemImageSource)).blob();
+    cowEmblemDataUrl = await new Promise<string>((resolve) => {
+      const imageReader = new FileReader();
+      imageReader.onload = () => resolve(String(imageReader.result));
+      imageReader.onerror = () => resolve("");
+      imageReader.readAsDataURL(emblemImage);
+    });
+  } catch {
+    cowEmblemDataUrl = "";
+  }
+  return cowEmblemDataUrl;
+}
 
 const rupees = (amount: number) => `₹${Math.round(amount).toLocaleString("en-IN")}`;
 
@@ -534,13 +592,13 @@ export default function CartView() {
   }
 
   /*
-    The plan in the cart as one order: every bottle at the plan's price per litre, free delivery.
+    The plan in the cart as one order's details: every bottle at the plan's price per litre, free delivery.
     With a running plan given, it extends that plan (same address) instead of starting a new one.
   */
-  async function placeSubscriptionOrder(deliverTo: string, planToExtend?: RunningPlan) {
+  function planPart(deliverTo: string, planToExtend?: RunningPlan): CheckoutPart | null {
     if (!cartSubscription) return null;
-    const subscriptionOrder = await placeOrder(
-      [
+    return {
+      cartItems: [
         {
           ...cartSubscription.product,
           price: cartSubscription.pricePerLitre,
@@ -548,7 +606,7 @@ export default function CartView() {
           quantity: cartSubscription.bottleCount,
         },
       ],
-      {
+      checkout: {
         total: cartSubscription.planTotal - planCouponDiscount + platformFee,
         couponCode: isCouponForPlan ? appliedCoupon?.code : undefined,
         // Which coupon list the database checks the code against
@@ -572,63 +630,109 @@ export default function CartView() {
           unitName: cartSubscription.unitName,
         },
       },
-    );
-    // The coupon use is counted and recorded by the database with the order
-    return subscriptionOrder;
+    };
   }
 
-  // The one-time items as their own order (same address as the plan, when there is one: then free delivery)
-  async function placeItemsOrder(deliverTo: string, planOrderNumber?: string) {
-    return placeOrder(oneTimeItems, {
-      // With a plan in the cart, the plan's order carries the platform fee
-      total: toPay + (cartSubscription ? 0 : platformFee),
-      couponCode: appliedCoupon && !isCouponForPlan ? appliedCoupon.code : undefined,
-      couponDiscount: itemsCouponDiscount || undefined,
-      deliveryFee,
-      deliverTo,
-      deliveryMobile: deliveryMobileOf(chosenAddress),
-      area: chosenAddress.area,
-      paymentMethod,
-      planOrderNumber,
-    });
+  // The one-time items as their own order's details (with a plan: same address, free delivery, no platform fee)
+  function itemsPart(deliverTo: string): CheckoutPart | null {
+    if (oneTimeItems.length === 0) return null;
+    return {
+      cartItems: oneTimeItems,
+      checkout: {
+        total: toPay + (cartSubscription ? 0 : platformFee),
+        couponCode: appliedCoupon && !isCouponForPlan ? appliedCoupon.code : undefined,
+        couponDiscount: itemsCouponDiscount || undefined,
+        deliveryFee,
+        deliverTo,
+        deliveryMobile: deliveryMobileOf(chosenAddress),
+        area: chosenAddress?.area,
+        paymentMethod,
+      },
+    };
   }
 
   /*
-    Pay now: the plan and the items in one go (two orders), then the cart is emptied. Each order shows as
-    placed only once the database has it. If the plan went in but the items didn't, the plan leaves the
-    cart and the items stay, so Pay now can be tried again for them.
+    Pay now (Razorpay, test mode): the server has the database price the plan and / or the items and save
+    them as orders awaiting payment (one payment for both), then the Razorpay pop-up takes exactly that
+    amount (the customer picks UPI, card or net banking there). Only once the server has checked Razorpay's
+    signature are the orders paid; then the cart is emptied and "Your order has been placed" shows. If the
+    database's total isn't the one shown (prices changed), nothing is charged and the cart takes today's
+    prices. Cancelling or a failed payment keeps the cart for another try (a failed one gets a receipt).
   */
-  async function placeTheOrder() {
-    const deliverTo = planBeingExtended
-      ? planBeingExtended.deliverTo
+  // planToExtend: the running plan this plan extends ("Extend Plan", or the same-address pop-up's Extend)
+  async function placeTheOrder(planToExtend: RunningPlan | null = planBeingExtended) {
+    const deliverTo = planToExtend
+      ? planToExtend.deliverTo
       : chosenAddress
         ? `${chosenAddress.name} · ${formatAddressLine(chosenAddress)}`
         : null;
     if (!deliverTo || isPlacingOrder) return;
     setIsPlacingOrder(true);
     setPlaceOrderError("");
-    const planOrder = await placeSubscriptionOrder(deliverTo, planBeingExtended ?? undefined);
-    if (planOrder && "error" in planOrder) {
+
+    const isScriptReady = await loadRazorpayCheckoutScript();
+    if (!isScriptReady || !window.Razorpay) {
       setIsPlacingOrder(false);
-      setPlaceOrderError(planOrder.error);
-      // The plan's price changed since it was chosen: it leaves the cart, to be chosen again at today's price
-      if (planOrder.reason === "prices" || planOrder.reason === "unavailable") void refreshCartPrices(true);
+      setPlaceOrderError("We couldn't reach the payment service. Please check your internet and try again.");
       return;
     }
-    const itemsOrder = oneTimeItems.length > 0 ? await placeItemsOrder(deliverTo, planOrder?.orderId) : null;
-    setIsPlacingOrder(false);
-    if (itemsOrder && "error" in itemsOrder) {
-      // Prices changed since the items were added: the cart takes today's prices, to check and pay again
-      if (itemsOrder.reason === "prices") void refreshCartPrices();
-      if (planOrder) {
-        removeSubscriptionFromCart();
-        setPlaceOrderError(`Your milk plan is placed (${planOrder.orderId}), but the other items weren't. ${itemsOrder.error}`);
-      } else {
-        setPlaceOrderError(itemsOrder.error);
-      }
+
+    const plan = planPart(deliverTo, planToExtend ?? undefined);
+    const items = itemsPart(deliverTo);
+    const started = await startPayment(plan, items, amountToPay);
+    if ("error" in started) {
+      setIsPlacingOrder(false);
+      setPlaceOrderError(started.error);
+      // Prices changed or a product can't be ordered: the cart takes today's prices (a changed plan leaves it)
+      if (started.reason === "prices" || started.reason === "unavailable") void refreshCartPrices(Boolean(plan));
       return;
     }
-    // Also takes out the milk's quantity from Add Quantity (the plan pays for those bottles now)
+
+    // Set when Razorpay reports a failed attempt, so closing the pop-up afterwards keeps that message
+    let lastFailureMessage = "";
+    const razorpayPopup = new window.Razorpay({
+      key: started.keyId,
+      order_id: started.razorpayOrderId,
+      amount: started.amount,
+      currency: started.currency,
+      name: "Chiranvi Farm",
+      description: cartSubscription ? `${cartSubscription.planName} milk plan` : `${itemCount} ${itemCount === 1 ? "item" : "items"}`,
+      image: (await getCowEmblemDataUrl()) || undefined,
+      prefill: {
+        name: chosenAddress?.name,
+        contact: chosenAddress?.mobileNumber.replace(/[^\d+]/g, ""),
+      },
+      theme: { color: "#2F6B3F" },
+      // Paid: the server checks Razorpay's signature and only then are the order(s) paid
+      handler: async (success: RazorpaySuccessResponse) => {
+        const result = await confirmPayment(success, plan, items);
+        setIsPlacingOrder(false);
+        if ("error" in result) {
+          setPlaceOrderError(result.error);
+          return;
+        }
+        finishPaidOrder(result.planOrder, result.itemsOrder);
+      },
+      modal: {
+        ondismiss: () => {
+          setIsPlacingOrder(false);
+          setPlaceOrderError(lastFailureMessage || "Payment cancelled. No money was taken. You can try again whenever you're ready.");
+        },
+      },
+    });
+    razorpayPopup.on("payment.failed", (failure) => {
+      // Razorpay's reason without its own full stop (ours follows)
+      const reason = failure.error.description?.trim().replace(/\.+$/, "");
+      lastFailureMessage = `Payment failed${reason ? `: ${reason}` : ""}. No money was taken. Please try again.`;
+      // Kept as a "Payment failed" receipt in My Orders (the server checks with Razorpay that it really failed)
+      const failedPaymentId = failure.error.metadata?.payment_id;
+      if (failedPaymentId) reportFailedPayment(started.razorpayOrderId, failedPaymentId);
+    });
+    razorpayPopup.open();
+  }
+
+  // Paid: the cart empties (with the milk's quantity from Add Quantity: the plan pays for those bottles now)
+  function finishPaidOrder(planOrder: Order | null, itemsOrder: Order | null) {
     emptyTheCart();
     setPlanAtPickedAddress(null);
     setIsAddressPickerOpen(false);
@@ -1205,7 +1309,7 @@ export default function CartView() {
                   {planBeingExtended ? (
                     /* Extending a plan: same address, so straight to paying */
                     isLoggedIn ? (
-                      <button type="button" className={styles["checkout-place-button"]} onClick={placeTheOrder} disabled={isPlacingOrder}>
+                      <button type="button" className={styles["checkout-place-button"]} onClick={() => void placeTheOrder()} disabled={isPlacingOrder}>
                         {isPlacingOrder ? "Placing your order…" : `Pay now · ${rupees(amountToPay)}`}
                       </button>
                     ) : (
@@ -1218,7 +1322,7 @@ export default function CartView() {
                       Select address
                     </button>
                   ) : isLoggedIn ? (
-                    <button type="button" className={styles["checkout-place-button"]} onClick={placeTheOrder} disabled={isPlacingOrder}>
+                    <button type="button" className={styles["checkout-place-button"]} onClick={() => void placeTheOrder()} disabled={isPlacingOrder}>
                       {isPlacingOrder ? "Placing your order…" : `Pay now · ${rupees(amountToPay)}`}
                     </button>
                   ) : (
@@ -1374,7 +1478,10 @@ export default function CartView() {
           newPlan={cartSubscription}
           amountToPay={amountToPay}
           isLoggedIn={isLoggedIn}
-          onExtend={(plan) => placeSubscriptionOrder(plan.deliverTo, plan)}
+          onExtend={(plan) => {
+            closeSameAddressDialog();
+            void placeTheOrder(plan);
+          }}
           onClose={closeSameAddressDialog}
         />
       )}

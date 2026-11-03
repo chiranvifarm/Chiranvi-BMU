@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import BestSellersSection from "@/components/landing/best-sellers/best-sellers-section";
 import { addProductToCart } from "@/store/cart-store";
-import { useOrders, type Order, type OrderStatus } from "@/store/orders-store";
+import { isFailedPayment, isOnItsWay, useOrdersAndFailedPayments, type Order, type OrderStatus } from "@/store/orders-store";
 import { AccountPageHeading } from "../account-dashboard-layout";
+import OrderReceiptDialog from "./order-receipt-dialog";
 import styles from "./orders-page.module.css";
 
 /*
@@ -15,9 +15,11 @@ import styles from "./orders-page.module.css";
   - No orders yet: the empty message and the Best Sellers row below it.
   - After ordering ("Pay now" on the cart page), the orders list (design): filter buttons
     (All / Active / Delivered / Cancelled) and one card per order: product pictures, the items,
-    order number and date, the delivery line, the status on the right with "Need help?" (on its way)
-    or the total and "Reorder" (delivered or cancelled), and the delivery steps
-    Placed -> Packed -> Out for delivery -> Delivered.
+    order number and date, the delivery line, the status on the right as a pill (green; red when cancelled
+    or the payment failed) with "Order details" (on its way, or payment failed: opens the receipt pop-up,
+    order-receipt-dialog.tsx) or the total and "Reorder" (delivered or cancelled), and the delivery steps
+    Placed -> Packed -> Out for delivery -> Delivered (not for a failed payment).
+  A failed payment shows only under All (it is never delivered).
   Reorder puts the same items back in the cart and opens the cart page.
 */
 
@@ -46,7 +48,7 @@ const statusLabels: Record<OrderStatus, string> = {
 };
 
 function isActiveOrder(order: Order) {
-  return order.status !== "delivered" && order.status !== "cancelled";
+  return isOnItsWay(order);
 }
 
 // 1781234567890 -> "12 Oct 2026"
@@ -91,9 +93,13 @@ function DeliveryTracker({ status }: { status: OrderStatus }) {
 }
 
 export default function OrdersPage() {
-  const orders = useOrders();
+  // Failed payments come with them (their "Payment failed" receipts)
+  const orders = useOrdersAndFailedPayments();
   const router = useRouter();
   const [selectedFilter, setSelectedFilter] = useState<OrderFilter>("all");
+  // The order whose receipt is open ("Order details")
+  const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
+  const receiptOrder = orders.find((order) => order.orderId === receiptOrderId) ?? null;
 
   const shownOrders = orders.filter(
     (order) =>
@@ -163,6 +169,7 @@ export default function OrdersPage() {
         <ul className={styles["orders-list"]}>
           {shownOrders.map((order) => {
             const isActive = isActiveOrder(order);
+            const hasPaymentFailed = isFailedPayment(order);
             return (
               <li key={order.orderId} className={styles["order-card"]}>
                 <div className={styles["order-summary-row"]}>
@@ -187,7 +194,9 @@ export default function OrdersPage() {
                     <p className={styles["order-number-and-date"]}>
                       Order {order.orderId} · {formatOrderDate(order.placedAt)}
                     </p>
-                    {isActive ? (
+                    {hasPaymentFailed ? (
+                      <p className={styles["order-payment-failed-line"]}>The payment did not go through. No order was placed.</p>
+                    ) : isActive ? (
                       <p className={styles["order-arrival"]}>Arriving tomorrow by 7:00 AM</p>
                     ) : (
                       <p className={styles["order-number-and-date"]}>
@@ -199,15 +208,15 @@ export default function OrdersPage() {
                   <div className={styles["order-status-area"]}>
                     <p
                       className={`${styles["order-status"]} ${
-                        order.status === "cancelled" ? styles["order-status-cancelled"] : ""
+                        order.status === "cancelled" || hasPaymentFailed ? styles["order-status-cancelled"] : ""
                       }`}
                     >
-                      {statusLabels[order.status]}
+                      {hasPaymentFailed ? "Payment failed" : statusLabels[order.status]}
                     </p>
-                    {isActive ? (
-                      <Link href="/account/help" className={styles["order-help-button"]}>
-                        Need help?
-                      </Link>
+                    {isActive || hasPaymentFailed ? (
+                      <button type="button" className={styles["order-details-text-button"]} onClick={() => setReceiptOrderId(order.orderId)}>
+                        Order details
+                      </button>
                     ) : (
                       <>
                         <p className={styles["order-total"]}>₹{order.total}</p>
@@ -219,12 +228,14 @@ export default function OrdersPage() {
                   </div>
                 </div>
 
-                {order.status !== "cancelled" && <DeliveryTracker status={order.status} />}
+                {order.status !== "cancelled" && !hasPaymentFailed && <DeliveryTracker status={order.status} />}
               </li>
             );
           })}
         </ul>
       )}
+
+      {receiptOrder && <OrderReceiptDialog order={receiptOrder} onClose={() => setReceiptOrderId(null)} />}
     </>
   );
 }

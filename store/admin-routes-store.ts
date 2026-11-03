@@ -77,7 +77,7 @@ const agentStore = createPanelRecordStore<AgentRecord>({
 // The agent's login number (their route and stops carry it, so the Delivery Panel shows them only their own)
 export function agentPhoneOf(agentName: string): string | undefined {
   const phone = (agentStore.getRecords().find((agent) => agent.name === agentName) ?? STARTING_AGENTS.find((agent) => agent.name === agentName))?.phone;
-  return phone && /^d{10}$/.test(phone) ? phone : undefined;
+  return phone && /^\d{10}$/.test(phone) ? phone : undefined;
 }
 
 // Edit routes: new area or agent for each route (a route given to another agent goes with that agent's number)
@@ -105,7 +105,7 @@ export function addRoute(area: string, agent: string) {
 }
 
 export function addAgent(agent: DeliveryAgent) {
-  void agentStore.add({ ...agent, id: agent.name }, /^d{10}$/.test(agent.phone) ? agent.phone : undefined);
+  void agentStore.add({ ...agent, id: agent.name }, /^\d{10}$/.test(agent.phone) ? agent.phone : undefined);
 }
 
 // Set from the Staff page: an agent on leave is not on duty here either

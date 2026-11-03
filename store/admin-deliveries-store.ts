@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { STARTING_ROUTES, agentPhoneOf, type DeliveryRoute } from "./admin-routes-store";
 import { createPanelRecordStore } from "./panel-records";
@@ -23,7 +23,8 @@ export type DeliveryStatus = "Delivered" | "Out for delivery" | "Pending" | "Mis
 export type DeliverySlot = "5–6 AM" | "6–7 AM" | "7–8 AM";
 
 // One agent asking another to take a stop, waiting for an answer
-export type DeliveryTransferRequest = { fromAgent: string; toAgent: string; reason: string; requestedAt: string };
+// (fromMobile / toMobile: set when agents ask each other in the Delivery Panel, 0026_agent_stop_exchange.sql)
+export type DeliveryTransferRequest = { fromAgent: string; toAgent: string; reason: string; requestedAt: string; fromMobile?: string; toMobile?: string };
 
 export type DeliveryEventKind =
   | "assigned"
@@ -49,6 +50,10 @@ export type Delivery = {
   deliveredAt?: string; // ISO date and time
   orderNumber?: string; // "#CF-60084": the order this stop delivers (given to the agent on the Orders page)
   area?: string; // the order's area ("Kengeri")
+  // An order's stop: what to hand over and the cash to collect (only for a cash order), copied from the order
+  // (the agent can't read the orders themselves)
+  items?: { name: string; packSize: string; quantity: number; price: number }[];
+  cashToCollect?: number; // rupees
   transferRequest?: DeliveryTransferRequest;
   history?: DeliveryEvent[];
 };
@@ -186,7 +191,16 @@ function changed() {
 
 export function setDeliveryStatus(id: string, status: DeliveryStatus) {
   changed();
-  void store.change(id, (delivery) => ({ ...delivery, status, deliveredAt: status === "Delivered" ? new Date().toISOString() : undefined }));
+  const orderNumber = store.getRecords().find((delivery) => delivery.id === id)?.orderNumber;
+  void store
+    .change(id, (delivery) => ({ ...delivery, status, deliveredAt: status === "Delivered" ? new Date().toISOString() : undefined }))
+    .then(async (isSaved) => {
+      // An order's stop: the order follows it (Out for delivery, Delivered) for the customer and the panel,
+      // done by the database from the stop it saved (supabase/migrations/0025_order_follows_its_stop.sql)
+      if (!isSaved || !orderNumber) return;
+      const { error } = await createClient().rpc("order_follows_its_stop", { stop_id: id });
+      if (error) console.error("The order did not follow its delivery stop", error);
+    });
 }
 
 // Missed deliveries given to another agent: out for delivery again (with that agent's number)
@@ -248,15 +262,25 @@ export function assignOrderDelivery(details: {
   area: string;
   routeId: string;
   agent: string;
+  items: NonNullable<Delivery["items"]>;
+  cashToCollect: number;
 }) {
   const existing = store.getRecords().find((delivery) => delivery.orderNumber === details.orderNumber);
   changed();
   if (existing) {
-    if (existing.agent === details.agent && existing.routeId === details.routeId) return existing;
+    // The same agent again: their number and the order's items are put on it again
+    if (existing.agent === details.agent && existing.routeId === details.routeId) {
+      void store.change(
+        existing.id,
+        (delivery) => ({ ...delivery, items: details.items, cashToCollect: details.cashToCollect }),
+        agentPhoneOf(details.agent) ?? null,
+      );
+      return existing;
+    }
     void store.change(
       existing.id,
       (delivery) =>
-        withEvent({ ...delivery, agent: details.agent, routeId: details.routeId, transferRequest: undefined }, {
+        withEvent({ ...delivery, agent: details.agent, routeId: details.routeId, transferRequest: undefined, items: details.items, cashToCollect: details.cashToCollect }, {
           kind: "reassigned",
           fromAgent: delivery.agent,
           toAgent: details.agent,
@@ -375,33 +399,45 @@ export function useDeliveryTransferNews(): DeliveryTransferNews[] {
   A new day: order stops not finished on an earlier day move on to today (their date changes; staff who
   may change deliveries do it, once a day in this browser). Then today's list is read again.
 */
+let carryOverStartedOn = "";
+// The day the move finished in this browser (an order is only given to an agent after it, so no stop is doubled)
 let carriedOverOn = "";
+const carryOverListeners = new Set<() => void>();
 
 async function carryOverOpenOrderDeliveries() {
   const today = toDateKey(new Date());
-  if (carriedOverOn === today) return;
-  carriedOverOn = today;
+  if (carryOverStartedOn === today) return;
+  carryOverStartedOn = today;
   const supabase = createClient();
   const { data: login } = await supabase.auth.getSession();
-  if (!login.session) return;
-  const { data, error } = await supabase
-    .from("panel_records")
-    .select("id, data")
-    .eq("module", "deliveries")
-    .lt("data->>date", today)
-    .in("data->>status", ["Pending", "Out for delivery"])
-    .not("data->>orderNumber", "is", null);
-  if (error || !data || data.length === 0) return;
-  let movedAny = false;
-  for (const row of data as { id: string; data: Delivery }[]) {
-    const { error: moveError } = await supabase
+  if (login.session) {
+    const { data, error } = await supabase
       .from("panel_records")
-      .update({ data: { ...row.data, date: today } })
+      .select("id, data")
       .eq("module", "deliveries")
-      .eq("id", row.id);
-    if (!moveError) movedAny = true;
+      .lte("data->>date", today)
+      .in("data->>status", ["Pending", "Out for delivery"])
+      .not("data->>orderNumber", "is", null);
+    if (!error && data) {
+      const rows = data as { id: string; data: Delivery }[];
+      // An order that already has a stop today keeps that one
+      const ordersToday = new Set(rows.filter((row) => row.data.date === today).map((row) => row.data.orderNumber));
+      let movedAny = false;
+      for (const row of rows) {
+        if (row.data.date === today || ordersToday.has(row.data.orderNumber)) continue;
+        ordersToday.add(row.data.orderNumber);
+        const { error: moveError } = await supabase
+          .from("panel_records")
+          .update({ data: { ...row.data, date: today } })
+          .eq("module", "deliveries")
+          .eq("id", row.id);
+        if (!moveError) movedAny = true;
+      }
+      if (movedAny) await store.reload();
+    }
   }
-  if (movedAny) void store.reload();
+  carriedOverOn = today;
+  carryOverListeners.forEach((onChange) => onChange());
 }
 
 // The panel's Orders and Deliveries pages: unfinished order stops from earlier days come along to today
@@ -409,6 +445,18 @@ export function useCarryOverOrderDeliveries() {
   useEffect(() => {
     void carryOverOpenOrderDeliveries();
   }, []);
+}
+
+// Earlier days' unfinished order stops are in today's list (or there were none)
+export function useAreOrderStopsCarriedOver() {
+  return useSyncExternalStore(
+    (onChange) => {
+      carryOverListeners.add(onChange);
+      return () => carryOverListeners.delete(onChange);
+    },
+    () => carriedOverOn === toDateKey(new Date()),
+    () => false,
+  );
 }
 
 // Each agent's day as the Delivery Panel saves it (on / off duty), read only
@@ -431,6 +479,11 @@ export function useAgentOnDutyReader() {
 
 export function useTodayDeliveries() {
   return store.useRecords();
+}
+
+// Read today's list again now (a stop another agent handed over)
+export function reloadTodayDeliveries() {
+  return store.reload();
 }
 
 // Today's list has been read (a new stop is numbered after the ones already there)

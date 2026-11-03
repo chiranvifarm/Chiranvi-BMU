@@ -18,6 +18,7 @@ import {
   describeDeliveryEvent,
   isDeliveryOpen,
   useAgentOnDutyReader,
+  useAreOrderStopsCarriedOver,
   useAreTodayDeliveriesLoaded,
   useCarryOverOrderDeliveries,
   useTodayDeliveries,
@@ -138,7 +139,10 @@ function OrdersPage() {
   const assigning = orders.find((order) => order.orderNumber === assigningNumber);
   // Each order's stop today (its agent), by order number
   const todaysDeliveries = useTodayDeliveries();
-  const areDeliveriesLoaded = useAreTodayDeliveriesLoaded();
+  // A new stop is numbered after today's ones, and yesterday's unfinished ones must be in today's list first
+  const areTodaysDeliveriesLoaded = useAreTodayDeliveriesLoaded();
+  const areOrderStopsCarriedOver = useAreOrderStopsCarriedOver();
+  const areDeliveriesLoaded = areTodaysDeliveriesLoaded && areOrderStopsCarriedOver;
   const routes = useDeliveryRoutes();
   const deliveryOfOrder = useMemo(() => {
     const byOrder = new Map<string, Delivery>();

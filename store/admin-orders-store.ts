@@ -255,6 +255,12 @@ export function assignAdminOrderAgent(order: AdminOrder, agent: string, routeId:
     area: order.area,
     routeId,
     agent,
+    // What to hand over: the order's items (an order made in the panel only has its items as one line)
+    items: order.itemList?.length
+      ? order.itemList.map((item) => ({ name: item.name, packSize: item.packSize, quantity: item.quantity, price: item.price }))
+      : [{ name: order.items, packSize: "", quantity: 1, price: order.amount }],
+    // Website orders are paid online; only a cash order taken in the panel is collected at the door
+    cashToCollect: order.payment === "Cash" ? order.amount : 0,
   });
   if (order.status === "Placed") changeAdminOrderStatus(order.orderNumber, "Packed");
 }

@@ -1,6 +1,4 @@
 import { useMemo, useSyncExternalStore } from "react";
-// The panel's lists that aren't in the database yet are still shared between staff browsers this way
-import "./shared-data-sync";
 import { createClient } from "@/lib/supabase/client";
 import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import type { CartItem } from "./cart-store";

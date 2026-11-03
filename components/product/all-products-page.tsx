@@ -178,18 +178,6 @@ function toUpcomingFlourCards(pageSlugs: Set<string>) {
   return UPCOMING_FLOUR_CARDS.filter((card) => !pageSlugs.has(card.slug));
 }
 
-// "Notify me" for a card that is not on the panel yet (the upcoming flours): remembered in this browser
-const NOTIFY_STORAGE_KEY = "chiranvi-notify-me";
-
-function readNotifyRequests(): string[] {
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(NOTIFY_STORAGE_KEY) ?? "[]");
-    return Array.isArray(saved) ? saved : [];
-  } catch {
-    return [];
-  }
-}
-
 /*
   Logged out: the heart and Notify me go to the login first (nothing is saved without an account), and the
   login comes back to this page.
@@ -201,18 +189,14 @@ function goToLoginAndBack(router: ReturnType<typeof useRouter>) {
 
 /*
   Notify me: for a card on the panel the request is kept in the database (the panel's "waiting" list, and
-  "✓ We'll notify you" on every device); isLarge is the product page's bigger button.
+  "✓ We'll notify you" on every device); isLarge is the product page's bigger button. A card that is not on the
+  panel yet (the upcoming flours) has nothing to wait on: its "✓ We'll notify you" lasts for the visit only.
 */
-function NotifyMeButton({ cardId, panelCardId, isLoggedIn, isLarge = false }: { cardId: string; panelCardId?: string; isLoggedIn: boolean; isLarge?: boolean }) {
+function NotifyMeButton({ panelCardId, isLoggedIn, isLarge = false }: { cardId: string; panelCardId?: string; isLoggedIn: boolean; isLarge?: boolean }) {
   const router = useRouter();
   const shopProducts = useShopProducts();
   const mobileNumber = useLoggedInMobileNumber();
   const [isRequestedHere, setIsRequestedHere] = useState(false);
-  useEffect(() => {
-    // Read once in the browser (localStorage is not there while the page is drawn on the server)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!panelCardId) setIsRequestedHere(readNotifyRequests().includes(cardId));
-  }, [cardId, panelCardId]);
   const isRequested = panelCardId
     ? Boolean(mobileNumber && shopProducts.find((product) => product.productId === panelCardId)?.waitingCustomers?.includes(mobileNumber.slice(-10)))
     : isRequestedHere;
@@ -237,11 +221,6 @@ function NotifyMeButton({ cardId, panelCardId, isLoggedIn, isLarge = false }: { 
         if (panelCardId && mobileNumber) {
           askToBeNotified(panelCardId, mobileNumber);
           return;
-        }
-        try {
-          window.localStorage.setItem(NOTIFY_STORAGE_KEY, JSON.stringify([...readNotifyRequests(), cardId]));
-        } catch {
-          // Storage blocked: shown as requested until the page is refreshed.
         }
         setIsRequestedHere(true);
       }}

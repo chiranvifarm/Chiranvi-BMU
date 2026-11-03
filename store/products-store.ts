@@ -100,7 +100,6 @@ export function useProductCategories(): ProductCategory[] {
   return all.filter((category, index) => category && all.indexOf(category) === index);
 }
 
-const NOTICES_STORAGE_KEY = "chiranvi-restock-notices";
 
 function hoursAgo(hours: number) {
   return new Date(Date.now() - hours * 3600000).toISOString();
@@ -391,12 +390,7 @@ export function markRestocked(productId: string, restockedBy: string, managers: 
   updateProduct(productId, { stock: "in", isVisible: true, outOfStockReport: undefined, waitingCustomers: [] });
   // The waiting list is cleared once they have been told
   void createClient().from("restock_requests").delete().eq("product_id", productId);
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(NOTICES_STORAGE_KEY) ?? "[]");
-    window.localStorage.setItem(NOTICES_STORAGE_KEY, JSON.stringify([notice, ...(Array.isArray(saved) ? saved : [])].slice(0, 50)));
-  } catch {
-    // Storage blocked: the notice is only shown in the panel's message.
-  }
+  // The notice is shown in the panel's message (nothing is kept in the browser)
   return notice;
 }
 

@@ -2,8 +2,6 @@ import { useEffect, useSyncExternalStore } from "react";
 import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import { createClient } from "@/lib/supabase/client";
 import { PANEL_FEATURES, type PanelFeature } from "./panel-features";
-// The panel's other data (orders, products …) is still shared through this until it moves to the database
-import "./shared-data-sync";
 
 /*
   Who can open the Chiranvi Panel (/admin) and what they can do there. Managed on the Roles & permissions

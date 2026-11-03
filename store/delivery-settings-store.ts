@@ -10,7 +10,7 @@ import type { ProductPage } from "@/components/product/product-page-data";
   - each product's own setting: free delivery, its own charge, or an offer (a lower charge, or free when
     that product's total reaches an amount). No setting: the overall charge;
   - the platform fee, once per checkout.
-  quoteDelivery() shows the cart what it charges. The order itself is charged by the database (place_order)
+  quoteDelivery() shows the cart what it charges. The order itself is charged by the database (start_checkout)
   with the same rules, so a charge changed in a browser never reaches an order. A milk plan in the cart
   always means free delivery.
 */

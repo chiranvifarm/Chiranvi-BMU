@@ -62,7 +62,7 @@ export type PanelRole = {
 export type StaffMember = {
   mobileNumber: string; // 10 digits
   name: string;
-  roleId: string;
+  roleId: string | null; // null: on the Staff section without a login role (a farm worker …)
   title?: string; // "Hub manager"
   deleteRequestedAt?: string; // they asked the admin to delete their account (Profile → Delete account → Request)
 };
@@ -118,7 +118,7 @@ type RoleRow = { id: string; name: string; is_built_in: boolean; has_panel_acces
 type StaffRow = {
   mobile_number: string;
   name: string;
-  role_id: string;
+  role_id: string | null;
   title: string | null;
   is_active: boolean;
   password_kind: "pin" | "password" | null;
@@ -188,6 +188,11 @@ async function loadTeam(mobileNumber: string | null) {
 function ensureTeamFor(mobileNumber: string | null, refresh = false) {
   if (!refresh && (loadedForMobile === mobileNumber || loadingForMobile === mobileNumber)) return;
   void loadTeam(mobileNumber);
+}
+
+// Reads the team again (the Staff section added, changed or removed someone)
+export function refreshTeam() {
+  ensureTeamFor(loadedForMobile ?? null, true);
 }
 
 // After a change: show it at once, save it, and read the team again if the database refused it

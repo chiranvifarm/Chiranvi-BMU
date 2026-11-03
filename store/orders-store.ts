@@ -8,11 +8,10 @@ import { getCustomerProfile } from "./customer-profiles-store";
 /*
   Customers' orders, saved in the Supabase "orders" and "order_items" tables
   (supabase/migrations/0010_orders.sql).
-  "Pay now" on the cart page (checkout) places an order from the cart through the database's
-  place_order(), which fills in who ordered (from the login), the order number (CF-60001 …) and the
-  promised delivery (the next day by 7 AM). The order shows as placed only once the database has it.
-  Razorpay is not connected yet, so nothing is charged; the payment method chosen (UPI / Net banking /
-  Card) is kept, and the database marks the payment "not_charged".
+  "Pay now" on the cart page (checkout) saves the order through the database's start_checkout() (it fills
+  in who ordered from the login, the order number CF-60001 … and the promised delivery, the next day by
+  7 AM), and Razorpay takes the payment; the order counts only once the payment is confirmed (see
+  startPayment() below). Orders from before online payments are marked "not_charged".
   The database's rules decide which orders come back: a customer gets their own (My Orders, My
   Subscription), staff with Orders → View get every order (the Chiranvi Panel's Orders page uses the same
   list). When the panel moves an order along (Packed, Out for delivery, Delivered), it changes the same row,

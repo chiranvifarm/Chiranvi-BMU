@@ -27,7 +27,9 @@ import { createClient } from "@/lib/supabase/client";
   starting one marks it Out for delivery.
   The stops' products, bottles to collect, landmark, gate code, notes, cash to collect and map position are
   sample details made from the delivery's ID, so they stay the same every time, until orders and addresses
-  come from the database.
+  come from the database. A stop with a map pin (the customer's address pin, or the spot the agent saved at
+  the gate; 0027_address_pins.sql) uses it: Google Maps goes to that exact spot. Without one, Maps searches
+  the address text.
   Stops: Ongoing is the first unfinished stop in the agent's order, Up next the other unfinished ones, and
   Completed the finished ones (including those the panel already shows as Delivered or Missed).
 */
@@ -103,6 +105,7 @@ export type AgentStop = {
   changedByDispatch: boolean; // the panel added this stop today or moved it to this agent
   latitude: number;
   longitude: number;
+  hasExactPin: boolean; // latitude / longitude are the address's real pin (else made up near the area's centre)
   // The agent's progress
   step?: StopStep;
   outcome?: StopOutcome;
@@ -325,6 +328,11 @@ function sampleDetails(delivery: Delivery, route: DeliveryRoute | undefined, isT
   // One stop in nine pays cash (an order taken in the panel); website orders are paid online
   const cashToCollect = seed % 9 === 4 ? items.reduce((sum, item) => sum + item.price * item.quantity, 0) : 0;
   const [baseLatitude, baseLongitude] = AREA_POSITIONS[area] ?? AREA_POSITIONS[route?.area ?? ""] ?? BENGALURU_CENTRE;
+  // The stop's real map pin, when its address has one
+  const exactPin =
+    typeof delivery.latitude === "number" && typeof delivery.longitude === "number"
+      ? { latitude: delivery.latitude, longitude: delivery.longitude, hasExactPin: true }
+      : null;
   // A real order given to the agent (Orders page): its own items and cash only, nothing made up
   if (delivery.orderNumber) {
     return {
@@ -336,9 +344,11 @@ function sampleDetails(delivery: Delivery, route: DeliveryRoute | undefined, isT
       gateCode: undefined,
       note: undefined,
       changedByDispatch: false,
-      // On the map: around the area's centre (the address has no map position yet)
+      // On the map: the address's pin, else around the area's centre
       latitude: baseLatitude + (((seed * 7919) % 1000) / 1000 - 0.5) * 0.028,
       longitude: baseLongitude + (((seed * 104729) % 1000) / 1000 - 0.5) * 0.028,
+      hasExactPin: false,
+      ...exactPin,
     };
   }
   return {
@@ -351,9 +361,11 @@ function sampleDetails(delivery: Delivery, route: DeliveryRoute | undefined, isT
     note: seed % 5 === 3 ? NOTES[seed % NOTES.length] : undefined,
     // Added in the panel today, or moved here from another route's agent
     changedByDispatch: !isTheirRouteAgent || seed > 812,
-    // Up to about 1.5 km around the area's centre
+    // Up to about 1.5 km around the area's centre (or the spot the agent saved at the gate)
     latitude: baseLatitude + (((seed * 7919) % 1000) / 1000 - 0.5) * 0.028,
     longitude: baseLongitude + (((seed * 104729) % 1000) / 1000 - 0.5) * 0.028,
+    hasExactPin: false,
+    ...exactPin,
   };
 }
 
@@ -620,6 +632,22 @@ export async function answerStopExchange(stopId: string, accept: boolean) {
 
 // ---------- What the agent does ----------
 
+/*
+  "Save this spot as the customer's location" at the gate (0027_address_pins.sql): the database checks it is
+  the agent's own stop today and changes only the pin: on the stop, its order and the customer's saved
+  address (so every later delivery there is exact). Answers a problem to show, or null when saved.
+*/
+export async function saveStopLocation(stopId: string, pin: { latitude: number; longitude: number }) {
+  const { error } = await createClient().rpc("save_stop_location", {
+    stop_id: stopId,
+    pin_latitude: pin.latitude,
+    pin_longitude: pin.longitude,
+  });
+  await reloadTodayDeliveries();
+  if (error) return error.message || "Couldn't save the location. Try again.";
+  return null;
+}
+
 export function setOnDuty(mobileNumber: string, isOnDuty: boolean) {
   saveDay(mobileNumber, (day) => ({ ...day, isOnDuty }));
 }
@@ -726,8 +754,10 @@ export function messageLink(phone: string) {
   return `sms:+91${phone}`;
 }
 
+// Where Google Maps goes: the exact pin ("12.9081,77.4826"), else the address text for Maps to search
 function placeQuery(stop: AgentStop) {
-  return `${stop.address}, ${stop.landmark}, Bengaluru`;
+  if (stop.hasExactPin) return `${stop.latitude},${stop.longitude}`;
+  return [stop.address, stop.landmark, "Bengaluru"].filter(Boolean).join(", ");
 }
 
 // Google Maps directions to one stop

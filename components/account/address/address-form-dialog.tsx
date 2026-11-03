@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import BengaluruAreaPicker, { OTHER_AREA, PincodeCheckNote, areaChoiceFor, otherAreaTextFor, pincodeForArea } from "@/components/area-picker/bengaluru-area-picker";
+import BengaluruAreaPicker, {
+  BENGALURU_AREAS,
+  OTHER_AREA,
+  PincodeCheckNote,
+  areaChoiceFor,
+  otherAreaTextFor,
+  pincodeForArea,
+} from "@/components/area-picker/bengaluru-area-picker";
 import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import type { SavedAddress } from "@/store/address-store";
 import { saveCustomerProfile, useCustomerProfile } from "@/store/customer-profiles-store";
@@ -11,7 +18,7 @@ import styles from "./address-form-dialog.module.css";
   Pop-up form to add a new address or edit one (opened from "Add new address" / "Edit" on My Addresses,
   and from the address step of the cart checkout).
   Fields: address name (Home / Work / Other), full name, mobile number, house / flat and street,
-  area, city (Bengaluru only, as we deliver only there) and pincode, plus "Make this my default address".
+  area, city and pincode, plus "Make this my default address".
   Area: chosen from the Bengaluru list, which fills in its pincode (still editable); "Others" opens a box
   to type the area, which is what gets saved.
   Checks before saving: every field filled, a 10-digit mobile number and a 6-digit pincode.
@@ -23,6 +30,11 @@ import styles from "./address-form-dialog.module.css";
   asksProfileDetails (the cart, for a logged-in customer without a Profile): "Full name" becomes First name and
   Last name, and Email is asked too, so the address gives every detail the Profile needs; they go to onSave
   as profileDetails (with the address's number as the second number when it is "mine").
+  "Use my current location" (optional): the phone's GPS gives the address's map pin, so the delivery agent's
+  Google Maps goes to the gate. The phone asks the customer first; nothing is read without the tap. The spot is
+  then looked up on OpenStreetMap (free, no key, anywhere in India) to fill in the street (only when that box is
+  empty), area, city and pincode; the customer checks them and adds the house / flat number. A Bengaluru area
+  on our list is chosen in the area box; any other place goes in as "Others" with its name.
 */
 
 export type { SavedAddress };
@@ -30,8 +42,72 @@ export type { SavedAddress };
 const addressLabels = ["Home", "Work", "Other"];
 
 type FormValues = Omit<SavedAddress, "id">;
+// The fields typed in boxes (the pin comes from the phone's GPS)
+type TextFieldName = Exclude<keyof FormValues, "pin" | "pinSavedBy">;
 // The Profile's details asked with the address (asksProfileDetails)
 type ProfileValues = { firstName: string; lastName: string; email: string };
+// "Use my current location": idle, asking the phone, done (how exact, in metres, and whether the address boxes
+// were filled from it), or why it didn't work
+type PinState =
+  | { step: "idle" }
+  | { step: "finding" }
+  | { step: "saved"; accuracyMetres: number; isAddressFilled: boolean }
+  | { step: "failed"; message: string };
+// Further than this from the gate: saved, but the customer is told it isn't very exact
+const ROUGH_PIN_METRES = 100;
+
+// India, roughly (the database refuses pins outside it)
+function isInIndia(latitude: number, longitude: number) {
+  return latitude >= 6 && latitude <= 37.5 && longitude >= 68 && longitude <= 97.5;
+}
+
+// The address boxes filled from a spot; listedArea: the Bengaluru area on our list it is in, if any
+type AddressFromLocation = { houseAndStreet: string; area: string; city: string; pincode: string; listedArea: string | null };
+
+// OpenStreetMap's free address lookup (no key; one lookup per tap is well within its limit of one a second)
+const OPENSTREETMAP_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse";
+
+/*
+  The address at a spot, anywhere in India, from OpenStreetMap. null: no answer (offline, slow, or nothing
+  there). The parts OpenStreetMap has differ by place, so the first one present is taken for each box.
+*/
+async function lookUpAddress(latitude: number, longitude: number): Promise<AddressFromLocation | null> {
+  const query = new URLSearchParams({
+    format: "jsonv2",
+    addressdetails: "1",
+    zoom: "18",
+    "accept-language": "en",
+    lat: String(latitude),
+    lon: String(longitude),
+  });
+  const stopWaiting = new AbortController();
+  const timer = window.setTimeout(() => stopWaiting.abort(), 8000);
+  try {
+    const response = await fetch(`${OPENSTREETMAP_REVERSE_URL}?${query}`, { signal: stopWaiting.signal });
+    if (!response.ok) return null;
+    const place = (await response.json()) as { address?: Record<string, string> };
+    const parts = place.address;
+    if (!parts || parts.country_code !== "in") return null;
+    // Office divisions ("Zone 5 Royapuram", "Bengaluru South City Corporation") are not what people call their area
+    const isOfficeDivision = (name: string) => /^(zone|ward)\b|corporation|municipal/i.test(name);
+    const firstOf = (...keys: string[]) => keys.map((key) => parts[key]?.trim()).find((name) => name && !isOfficeDivision(name)) ?? "";
+    const city = firstOf("city", "town", "municipality", "village", "county", "state_district");
+    const area = firstOf("neighbourhood", "suburb", "quarter", "hamlet", "village", "city_district", "town");
+    const houseAndStreet = [...new Set([parts.house_number, parts.house_name, parts.building, parts.road].map((part) => part?.trim()).filter(Boolean))].join(", ");
+    const pincode = (parts.postcode ?? "").replace(/\s/g, "");
+    // In Bengaluru: the area on our list that the place's own area names contain ("Koramangala 4th Block")
+    const placeAreas = [parts.suburb, parts.neighbourhood, parts.quarter, parts.city_district].filter(Boolean).map((part) => part.toLowerCase());
+    const isBengaluru = /bengaluru|bangalore/i.test(`${city} ${parts.state_district ?? ""}`);
+    const listedArea = isBengaluru
+      ? (BENGALURU_AREAS.find((listed) => placeAreas.some((placeArea) => placeArea.includes(listed.toLowerCase()))) ?? null)
+      : null;
+    return { houseAndStreet, area: area !== city ? area : "", city, pincode: /^\d{6}$/.test(pincode) ? pincode : "", listedArea };
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
 type FieldErrors = Partial<Record<keyof FormValues | keyof ProfileValues, string>>;
 
 // What the address adds to an empty Profile
@@ -70,6 +146,7 @@ function findFieldErrors(formValues: FormValues, areaChoice: string, profileValu
   if (!formValues.houseAndStreet.trim()) fieldErrors.houseAndStreet = "Enter the house / flat and street";
   if (!areaChoice) fieldErrors.area = "Choose the area";
   else if (!formValues.area.trim()) fieldErrors.area = "Enter the area";
+  if (!formValues.city.trim()) fieldErrors.city = "Enter the city";
   if (!/^\d{6}$/.test(formValues.pincode.trim())) fieldErrors.pincode = "Enter a 6-digit pincode";
   return fieldErrors;
 }
@@ -97,6 +174,7 @@ export default function AddressFormDialog({
   });
   // The area box: a listed area, "Others" (then formValues.area is the typed text) or nothing yet
   const [areaChoice, setAreaChoice] = useState(() => areaChoiceFor(addressToEdit?.area ?? ""));
+  const [pinState, setPinState] = useState<PinState>({ step: "idle" });
   // "Whose number is this?" shown over the form (the address is saved once it is answered)
   const [isNumberQuestionOpen, setIsNumberQuestionOpen] = useState(false);
   const isNumberQuestionOpenRef = useRef(false);
@@ -130,7 +208,68 @@ export default function AddressFormDialog({
     };
   }, []);
 
-  function updateField(field: keyof FormValues | keyof ProfileValues, value: string) {
+  // The phone's GPS, once, when the customer taps the button (the phone asks them first)
+  function addCurrentLocation() {
+    if (!("geolocation" in navigator)) {
+      setPinState({ step: "failed", message: "This phone or browser can't share its location." });
+      return;
+    }
+    setPinState({ step: "finding" });
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        if (!isInIndia(latitude, longitude)) {
+          setPinState({ step: "failed", message: "This location is outside India, so it can't be used for a delivery address." });
+          return;
+        }
+        setFormValues((previousValues) => ({ ...previousValues, pin: { latitude, longitude } }));
+        // The address boxes from the spot: the street only when it is still empty (it may have a flat number typed)
+        const found = await lookUpAddress(latitude, longitude);
+        if (found) {
+          setAreaChoice(found.listedArea ?? (found.area ? OTHER_AREA : areaChoice));
+          setFormValues((previousValues) => ({
+            ...previousValues,
+            houseAndStreet: previousValues.houseAndStreet.trim() ? previousValues.houseAndStreet : found.houseAndStreet,
+            area: found.listedArea ?? (found.area || previousValues.area),
+            city: found.city || previousValues.city,
+            pincode: found.pincode || (found.listedArea ? pincodeForArea(found.listedArea) : "") || previousValues.pincode,
+          }));
+          setFieldErrors((previousErrors) => ({ ...previousErrors, houseAndStreet: undefined, area: undefined, city: undefined, pincode: undefined }));
+        }
+        setPinState({ step: "saved", accuracyMetres: Math.round(accuracy), isAddressFilled: Boolean(found) });
+      },
+      (problem) => {
+        setPinState({
+          step: "failed",
+          message:
+            problem.code === problem.PERMISSION_DENIED
+              ? "Location is blocked. Allow location for this website in your phone's settings, or skip this."
+              : "Couldn't find your location. Try again near a window or outdoors, or skip this.",
+        });
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  }
+
+  // The line under the location button
+  function pinNote() {
+    if (pinState.step === "finding") return "Finding your location and address…";
+    if (pinState.step === "failed") return pinState.message;
+    if (pinState.step === "saved") {
+      const filledLine = pinState.isAddressFilled
+        ? "Location added and the address filled in from it. Check it, add your house / flat number, then save."
+        : "Location added, but we couldn't fill in the address from it. Please type it, then save.";
+      return pinState.accuracyMetres > ROUGH_PIN_METRES
+        ? `${filledLine} (Only exact to about ${pinState.accuracyMetres} m: try again near a window or outdoors for a closer spot.)`
+        : filledLine;
+    }
+    if (formValues.pin) {
+      return formValues.pinSavedBy === "agent" ? "Location saved by our delivery partner at your door." : "Location saved.";
+    }
+    return "Optional. Tap this while you're at this address, so our delivery partner reaches your gate exactly.";
+  }
+
+  function updateField(field: TextFieldName | keyof ProfileValues, value: string) {
     if (field === "firstName" || field === "lastName" || field === "email") setProfileValues((previousValues) => ({ ...previousValues, [field]: value }));
     else setFormValues((previousValues) => ({ ...previousValues, [field]: value }));
     setFieldErrors((previousErrors) => ({ ...previousErrors, [field]: undefined }));
@@ -178,6 +317,8 @@ export default function AddressFormDialog({
         houseAndStreet: formValues.houseAndStreet.trim(),
         area: formValues.area.trim(),
         pincode: formValues.pincode.trim(),
+        // A pin added just now is the customer's (the database notes it too)
+        pinSavedBy: pinState.step === "saved" ? "customer" : formValues.pinSavedBy,
       },
       shouldBeDefault,
       asksProfileDetails
@@ -192,7 +333,7 @@ export default function AddressFormDialog({
   }
 
   function renderTextField(
-    field: keyof FormValues | keyof ProfileValues,
+    field: TextFieldName | keyof ProfileValues,
     label: string,
     options: { placeholder: string; inputMode?: "numeric" | "tel" | "email"; maxLength?: number; isWide?: boolean; note?: ReactNode },
   ) {
@@ -313,14 +454,30 @@ export default function AddressFormDialog({
             })}
             {/* "Others": the area in the customer's own words */}
             {areaChoice === OTHER_AREA && renderTextField("area", "Your area", { placeholder: "Area or landmark", isWide: true })}
-            <label className={`${styles["address-form-field"]} ${styles["address-form-field-wide"]}`}>
-              <span className={styles["address-form-label"]}>City</span>
-              <input
-                value="Bengaluru"
-                readOnly
-                className={`${styles["address-form-input"]} ${styles["address-form-input-locked"]}`}
-              />
-            </label>
+            {/* Any city in India (filled from the location, or typed) */}
+            {renderTextField("city", "City", { placeholder: "Bengaluru", isWide: true })}
+          </div>
+
+          {/* The map pin for the delivery agent (optional) */}
+          <div className={styles["address-form-location"]}>
+            <button
+              type="button"
+              className={styles["address-form-location-button"]}
+              disabled={pinState.step === "finding"}
+              onClick={addCurrentLocation}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z" />
+                <circle cx="12" cy="10" r="2.4" />
+              </svg>
+              {formValues.pin ? "Update to my current location" : "Use my current location"}
+            </button>
+            <span
+              role="status"
+              className={pinState.step === "failed" ? styles["address-form-error"] : styles["address-form-location-note"]}
+            >
+              {pinNote()}
+            </span>
           </div>
 
           <label className={styles["address-form-default-option"]}>

@@ -16,6 +16,7 @@ import {
   navigationLink,
   raiseRequest,
   rupees,
+  saveStopLocation,
   setStopStep,
   shrinkPhoto,
   useStopExchanges,
@@ -38,7 +39,9 @@ import styles from "./delivery-ongoing-page.module.css";
 
 /*
   Deliveries → Ongoing (/delivery): the stop the agent is on now.
-  - The customer: name, phone, address, landmark, gate code; Call, WhatsApp and Message; Navigate (Google Maps).
+  - The customer: name, phone, address, landmark, gate code; Call, WhatsApp and Message; Navigate (Google Maps:
+    the address's exact pin when it has one, else the address text); "Save this spot as the customer's
+    location" at the gate.
   - What to hand over (products and quantities), empty bottles to collect, cash to collect, the customer's note.
   - Steps: Picked up → On the way → Reached → Delivered (one button for the next step).
   - Finish: Delivered (proof: the customer's OTP or a photo), Left at door (photo), Not delivered (reason).
@@ -52,6 +55,76 @@ import styles from "./delivery-ongoing-page.module.css";
 */
 
 type OpenSheet = { kind: "finish"; outcome: StopOutcome } | { kind: "request" } | { kind: "exchange" } | null;
+
+// Further than this from the spot (the phone's own estimate): not saved, the agent tries again
+const ROUGH_SPOT_METRES = 50;
+
+type SpotState = { step: "idle" } | { step: "finding" } | { step: "saved" } | { step: "failed"; message: string };
+
+/*
+  At the gate: the agent's GPS becomes the customer's location. The database changes only the pin (on the
+  stop, its order and the customer's address), so the next delivery here, by anyone, goes straight to the gate.
+*/
+function SaveStopSpot({ stop, canWork }: { stop: AgentStop; canWork: boolean }) {
+  const [spotState, setSpotState] = useState<SpotState>({ step: "idle" });
+
+  function saveSpot() {
+    if (!("geolocation" in navigator)) {
+      setSpotState({ step: "failed", message: "This phone can't share its location." });
+      return;
+    }
+    setSpotState({ step: "finding" });
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        if (position.coords.accuracy > ROUGH_SPOT_METRES) {
+          setSpotState({
+            step: "failed",
+            message: `Not exact enough yet (about ${Math.round(position.coords.accuracy)} m). Wait a few seconds in the open and try again.`,
+          });
+          return;
+        }
+        const problem = await saveStopLocation(stop.id, { latitude: position.coords.latitude, longitude: position.coords.longitude });
+        setSpotState(problem ? { step: "failed", message: problem } : { step: "saved" });
+      },
+      (problem) => {
+        setSpotState({
+          step: "failed",
+          message:
+            problem.code === problem.PERMISSION_DENIED
+              ? "Location is blocked. Allow location for this website in your phone's settings."
+              : "Couldn't find your location. Try again in the open.",
+        });
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  }
+
+  return (
+    <div className={styles["ongoing-location"]}>
+      <p className={styles["ongoing-location-text"]}>
+        {stop.hasExactPin ? "Exact location saved: Maps goes to the gate." : "No exact location yet: Maps searches the address."}
+      </p>
+      <button
+        type="button"
+        className={`${deliveryButtonStyles.outlined} ${deliveryButtonStyles.small}`}
+        disabled={!canWork || spotState.step === "finding"}
+        onClick={saveSpot}
+      >
+        {spotState.step === "finding" ? "Finding your location…" : "Save this spot as the customer's location"}
+      </button>
+      {spotState.step === "saved" && (
+        <p role="status" className={styles["ongoing-location-saved"]}>
+          Saved. The next delivery here goes straight to this spot.
+        </p>
+      )}
+      {spotState.step === "failed" && (
+        <p role="alert" className={styles["ongoing-form-error"]}>
+          {spotState.message}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function DeliveryOngoingPage() {
   const { login, stops } = useDeliveryPanel();
@@ -139,6 +212,8 @@ export default function DeliveryOngoingPage() {
               </svg>
               Navigate in Google Maps
             </a>
+            {/* A new stop starts the location box again */}
+            <SaveStopSpot key={stop.id} stop={stop} canWork={canWork} />
           </section>
 
           {/* What to hand over and collect */}

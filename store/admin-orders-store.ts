@@ -6,6 +6,7 @@ import {
   type Order,
   type OrderStatus,
 } from "./orders-store";
+import type { MapPin } from "./address-store";
 import { customerIdForMobile } from "./admin-customers-store";
 import { assignOrderDelivery, removeOrderDelivery } from "./admin-deliveries-store";
 import { markPanelPageSeen, usePanelSeenAt } from "./account-state";
@@ -59,6 +60,7 @@ export type AdminOrder = {
   deliveryMobile?: string; // 10 digits, the delivery address's number (when it is not the login number)
   promisedAt?: string; // ISO: when Chiranvi promised to deliver it (next day by 7 AM)
   statusChangedAt?: Partial<Record<AdminOrderStatus, string>>; // ISO time each step was reached
+  deliveryPin?: MapPin; // the delivery address's map pin (website orders whose address has one)
 };
 
 const TO_CUSTOMER_STATUS: Record<AdminOrderStatus, OrderStatus> = {
@@ -117,6 +119,7 @@ function toAdminOrder(order: Order): AdminOrder {
     deliveryMobile: order.deliveryMobile && order.deliveryMobile !== customerMobile ? order.deliveryMobile : undefined,
     promisedAt: order.promisedAt ? new Date(order.promisedAt).toISOString() : undefined,
     statusChangedAt,
+    deliveryPin: order.deliveryPin,
   };
 }
 
@@ -261,6 +264,8 @@ export function assignAdminOrderAgent(order: AdminOrder, agent: string, routeId:
       : [{ name: order.items, packSize: "", quantity: 1, price: order.amount }],
     // Website orders are paid online; only a cash order taken in the panel is collected at the door
     cashToCollect: order.payment === "Cash" ? order.amount : 0,
+    // The exact spot for the agent's Google Maps (none: the address text is used)
+    pin: order.deliveryPin,
   });
   if (order.status === "Placed") changeAdminOrderStatus(order.orderNumber, "Packed");
 }

@@ -93,7 +93,9 @@ function DeliveriesPage() {
   const routes = useDeliveryRoutes();
   const agents = useDeliveryAgents();
   const agentsOnDuty = agents.filter((agent) => !agent.isOnLeave).map((agent) => agent.name);
-  const routeOf = (routeId: string): DeliveryRoute => routes.find((route) => route.id === routeId) ?? routes[0];
+  // Routes load from the database on their own, so a delivery can arrive before its route: show its id until then
+  const routeOf = (routeId: string): DeliveryRoute =>
+    routes.find((route) => route.id === routeId) ?? { id: routeId, name: routeId, area: "", agent: "", colour: "#285C3A" };
   const updatedAt = useDeliveriesUpdatedAt();
   const [today] = useState(() => new Date());
   const [rangeFrom, setRangeFrom] = useState(today);

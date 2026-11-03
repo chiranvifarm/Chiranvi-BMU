@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -31,6 +31,7 @@ import {
   useAppliedCouponCode,
   useCartItems,
   useCartSubscription,
+  useIsCartLoaded,
   type CartSubscription,
 } from "@/store/cart-store";
 import { checkCouponOnServer, useCartCoupons, useCouponCheck, type CouponCart } from "@/store/coupons-store";
@@ -144,11 +145,6 @@ const rupees = (amount: number) => `₹${Math.round(amount).toLocaleString("en-I
 function deliveryMobileOf(address: { mobileNumber: string } | null | undefined) {
   const digits = address?.mobileNumber.replace(/[^0-9]/g, "").replace(/^91(?=[0-9]{10}$)/, "") ?? "";
   return digits.length === 10 ? digits : undefined;
-}
-
-// The cart is saved in the browser, so it is only known after the page has loaded there.
-function subscribeToNothing() {
-  return () => {};
 }
 
 type Step = "cart" | "address" | "payment";
@@ -354,7 +350,8 @@ export default function CartView() {
   const isProfileKnown = useIsCustomerProfileKnown(loggedInMobile);
   const isProfileMissing = Boolean(loggedInMobile) && isProfileKnown && !customerProfile;
   const { addresses, defaultAddressId } = useAddressBook();
-  const isCartLoaded = useSyncExternalStore(subscribeToNothing, () => true, () => false);
+  // The saved cart has been read from the database (until then nothing is drawn, so it never flashes "empty")
+  const isCartLoaded = useIsCartLoaded();
   const router = useRouter();
 
   const [chosenAddressId, setChosenAddressId] = useState<string | null>(null);

@@ -11,7 +11,6 @@ import {
   usePauseRequests,
   type PauseRequest,
 } from "@/store/admin-pause-requests-store";
-import { findWebsiteSubscription } from "@/store/admin-subscriptions-store";
 import { setCartSubscription } from "@/store/cart-store";
 import { findRunningPlans, formatPlanDate, useOrders, type RunningPlan } from "@/store/orders-store";
 import { AccountPageHeading } from "../account-dashboard-layout";
@@ -458,6 +457,8 @@ export default function SubscriptionPage() {
   ×, Cancel, Escape or the dimmed page close it.
 */
 function PauseRequestPopup({ plan, onClose }: { plan: RunningPlan; onClose: () => void }) {
+  // The plan's own order (its delivery area goes with the request)
+  const planOrder = useOrders().find((order) => order.orderId === plan.orderId);
   const mobileNumber = useLoggedInMobileNumber();
   const [earliestDay] = useState(getEarliestPauseDay);
   const lastResumeDay = new Date(plan.endsOn);
@@ -492,7 +493,7 @@ function PauseRequestPopup({ plan, onClose }: { plan: RunningPlan; onClose: () =
     const isHalfLitre = plan.bottleLabel === "500 ml";
     addPauseRequest({
       customerName: plan.deliverTo.split(" · ")[0],
-      area: findWebsiteSubscription(plan.orderId)?.area ?? "",
+      area: planOrder?.area ?? "",
       plan: `${plan.product.name} ${plan.bottlesPerDay} × ${plan.bottleLabel}`,
       frequency: "Daily",
       litresPerDay: plan.bottlesPerDay * (isHalfLitre ? 0.5 : 1),

@@ -1,10 +1,14 @@
-import { useSyncExternalStore } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { createPanelRecordStore } from "./panel-records";
 
 /*
-  Leads seen in the Chiranvi Panel (Leads page), until the database is connected: people who asked
-  about Chiranvi from Instagram, the website, referrals, Google or a walk-in.
-  Each lead is in one stage: New, Contacted, Free trial, Converted or Lost. The first time, 37 sample
-  leads are made; after that the list is saved in this browser, so moves and new leads stay.
+  Leads: people who asked about Chiranvi from Instagram, the website, referrals, Google or a walk-in.
+  Kept in the database (panel_records, "leads"; supabase/migrations/0018_…), seen on the Chiranvi Panel's
+  Leads page by the staff member's role. Each lead is in one stage: New, Contacted, Free trial, Converted or Lost.
+  New leads — from the panel, and from the website's bulk order and "Request delivery" forms, also by visitors
+  who aren't logged in — go through the database's submit_lead(), which checks them and limits how many one
+  number can send; visitors can never read leads.
+  The first time the panel opens the page, 37 sample leads are copied in.
 */
 
 export type LeadStage = "new" | "contacted" | "trial" | "converted" | "lost";
@@ -37,8 +41,6 @@ export type AdminLead = {
 };
 
 export type BulkOrderItem = { productName: string; packLabel: string; quantity: number };
-
-const STORAGE_KEY = "chiranvi-admin-leads";
 
 const sampleLeads: [string, LeadStage, LeadSource, number, string?][] = [
   ["Anitha R", "new", "Instagram", 1],
@@ -94,76 +96,42 @@ function makeSampleLeads(): AdminLead[] {
   }));
 }
 
-let leads: AdminLead[] | null = null;
-const listeners = new Set<() => void>();
-const EMPTY: AdminLead[] = [];
-
-function getLeads() {
-  if (leads) return leads;
-  if (typeof window === "undefined") return EMPTY;
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null");
-    leads = Array.isArray(saved) ? saved : makeSampleLeads();
-  } catch {
-    leads = makeSampleLeads();
-  }
-  return leads as AdminLead[];
-}
-
-function save(newLeads: AdminLead[]) {
-  leads = newLeads;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(newLeads));
-  } catch {
-    // Storage blocked: changes last until the page is refreshed.
-  }
-  listeners.forEach((onChange) => onChange());
-}
+const store = createPanelRecordStore<AdminLead>({
+  module: "leads",
+  seed: { seedKey: "leads", makeSamples: makeSampleLeads, oldStorageKey: "chiranvi-admin-leads" },
+});
 
 // Moving a lead sets the note that stage shows on its card
 export function moveLead(id: string, stage: LeadStage) {
   const notes: Partial<Record<LeadStage, string>> = { contacted: "Call back 5 PM", converted: "Daily Milk", lost: "Price" };
-  save(
-    getLeads().map((lead) =>
-      lead.id === id
-        ? {
-            ...lead,
-            stage,
-            note: notes[stage],
-            trialEndsAt: stage === "trial" ? new Date(Date.now() + 3 * 86400000).toISOString() : undefined,
-          }
-        : lead,
-    ),
-  );
+  void store.change(id, (lead) => ({
+    ...lead,
+    stage,
+    note: notes[stage],
+    trialEndsAt: stage === "trial" ? new Date(Date.now() + 3 * 86400000).toISOString() : undefined,
+  }));
 }
 
-// A new lead (stage New). The website's bulk order form also sends a note, the address, email and products.
+/*
+  A new lead (stage New): sent to the database's submit_lead(), which gives it its number. The website's bulk
+  order form also sends a note, the address, email and products. Answers the lead as sent (the panel's list
+  shows it with its number once the database has it).
+*/
 export function addLead(lead: Pick<AdminLead, "name" | "phone" | "source"> & Partial<Pick<AdminLead, "note" | "address" | "email" | "bulkOrderItems">>) {
-  const highest = Math.max(0, ...getLeads().map((existing) => Number(existing.id.replace(/\D/g, ""))));
-  const newLead: AdminLead = { ...lead, id: `LD-${highest + 1}`, stage: "new", createdAt: new Date().toISOString() };
-  save([newLead, ...getLeads()]);
-  return newLead;
+  const sentLead: AdminLead = { ...lead, id: "", stage: "new", createdAt: new Date().toISOString() };
+  void createClient()
+    .rpc("submit_lead", { lead })
+    .then(({ error }) => {
+      if (error) console.error("The database did not take the lead", error);
+      void store.reload();
+    });
+  return sentLead;
 }
 
 export function removeLead(id: string) {
-  save(getLeads().filter((lead) => lead.id !== id));
-}
-
-function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  // A lead (e.g. a bulk quote from the website) saved in another tab or browser (shared data)
-  function followOtherTabs(event: StorageEvent) {
-    if (event.key !== STORAGE_KEY) return;
-    leads = null;
-    onChange();
-  }
-  window.addEventListener("storage", followOtherTabs);
-  return () => {
-    listeners.delete(onChange);
-    window.removeEventListener("storage", followOtherTabs);
-  };
+  void store.remove(id);
 }
 
 export function useAdminLeads() {
-  return useSyncExternalStore(subscribe, getLeads, () => EMPTY);
+  return store.useRecords();
 }

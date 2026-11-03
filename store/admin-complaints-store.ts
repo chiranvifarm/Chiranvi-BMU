@@ -1,10 +1,11 @@
-import { useSyncExternalStore } from "react";
+import { createPanelRecordStore } from "./panel-records";
 
 /*
   Complaint tickets seen in the Chiranvi Panel (Refunds & complaints page, and the red count on its
-  sidebar badge), until the database is connected: customer issues, any refund given, and who is
-  handling them. Refunds go back to the customer's payment method (no wallet).
-  The first time, 96 sample tickets are made; after that they are saved in this browser.
+  sidebar badge): customer issues, any refund given, and who is handling them. Refunds go back to the
+  customer's payment method (no wallet). Kept in the database (panel_records, "refunds";
+  supabase/migrations/0018_…), seen by the staff member's role (Refunds & complaints).
+  The first time the panel opens the page, 96 sample tickets are copied in.
 */
 
 export type TicketPriority = "High" | "Medium" | "Low";
@@ -34,8 +35,6 @@ export const TICKET_ISSUES = [
 ];
 export const TICKET_HANDLERS = ["Karthik N", "Divya Rao"];
 export const TICKET_PRIORITIES: TicketPriority[] = ["High", "Medium", "Low"];
-
-const STORAGE_KEY = "chiranvi-admin-complaints";
 
 const sampleCustomers: [string, string][] = [
   ["Meena Iyer", "Uttarahalli"],
@@ -98,65 +97,31 @@ function makeSampleTickets(): ComplaintTicket[] {
   return tickets;
 }
 
-let tickets: ComplaintTicket[] | null = null;
-const listeners = new Set<() => void>();
-const EMPTY: ComplaintTicket[] = [];
-
-function getTickets() {
-  if (tickets) return tickets;
-  if (typeof window === "undefined") return EMPTY;
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null");
-    tickets = Array.isArray(saved) ? saved : makeSampleTickets();
-  } catch {
-    tickets = makeSampleTickets();
-  }
-  return tickets as ComplaintTicket[];
-}
-
-function save(newTickets: ComplaintTicket[]) {
-  tickets = newTickets;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(newTickets));
-  } catch {
-    // Storage blocked: changes last until the page is refreshed.
-  }
-  listeners.forEach((onChange) => onChange());
-}
+const store = createPanelRecordStore<ComplaintTicket>({
+  module: "refunds",
+  seed: { seedKey: "refunds", makeSamples: makeSampleTickets, oldStorageKey: "chiranvi-admin-complaints" },
+});
 
 export function updateTicket(id: string, changes: Partial<Pick<ComplaintTicket, "status" | "assignedTo" | "refund" | "priority">>) {
-  save(
-    getTickets().map((ticket) =>
-      ticket.id === id
-        ? {
-            ...ticket,
-            ...changes,
-            resolvedAt:
-              changes.status === "Resolved"
-                ? new Date().toISOString()
-                : changes.status
-                  ? undefined
-                  : ticket.resolvedAt,
-          }
-        : ticket,
-    ),
-  );
+  void store.change(id, (ticket) => ({
+    ...ticket,
+    ...changes,
+    resolvedAt:
+      changes.status === "Resolved"
+        ? new Date().toISOString()
+        : changes.status
+          ? undefined
+          : ticket.resolvedAt,
+  }));
 }
 
 export function addTicket(ticket: Omit<ComplaintTicket, "id" | "raisedAt" | "status" | "resolvedAt">) {
-  const highest = Math.max(0, ...getTickets().map((existing) => Number(existing.id.replace(/\D/g, ""))));
+  const highest = Math.max(0, ...store.getRecords().map((existing) => Number(existing.id.replace(/D/g, "")) || 0));
   const newTicket: ComplaintTicket = { ...ticket, id: `TK-${highest + 1}`, raisedAt: new Date().toISOString(), status: "Open" };
-  save([newTicket, ...getTickets()]);
+  void store.add(newTicket);
   return newTicket;
 }
 
-function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  return () => {
-    listeners.delete(onChange);
-  };
-}
-
 export function useComplaintTickets() {
-  return useSyncExternalStore(subscribe, getTickets, () => EMPTY);
+  return store.useRecords();
 }

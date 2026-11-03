@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from "react";
+import { getAccountState, subscribeToAccountState, updateAccountState } from "./account-state";
 
 /*
   Wishlist: the products hearted on the All products page, shown on the account's "Wishlist" page.
-  Each item keeps what that page needs (so it still shows if the product changes later). Saved in this
-  browser (like the login), until accounts are kept in Supabase.
+  Each item keeps what that page needs (so it still shows if the product changes later). Kept with the
+  customer's login in the database (store/account-state.ts), so it follows them to any phone or laptop;
+  nothing is kept in the browser. A wishlist kept in this browser before the database is moved in once.
 */
 
 export type WishlistItem = {
@@ -18,46 +20,30 @@ export type WishlistItem = {
   imageHeight: number;
 };
 
-const STORAGE_KEY = "chiranvi-wishlist";
 const emptyWishlist: WishlistItem[] = [];
-let wishlist: WishlistItem[] | null = null;
-const listeners = new Set<() => void>();
+const OLD_STORAGE_KEY = "chiranvi-wishlist";
+let hasMovedOldWishlist = false;
 
-function getWishlist() {
-  if (typeof window === "undefined") return emptyWishlist;
-  if (!wishlist) {
-    try {
-      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "[]");
-      wishlist = Array.isArray(saved) ? saved : [];
-    } catch {
-      wishlist = [];
-    }
+// The browser's wishlist from before the database: moved into the saved one once, then deleted
+function moveOldBrowserWishlist() {
+  if (hasMovedOldWishlist || typeof window === "undefined") return;
+  hasMovedOldWishlist = true;
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(OLD_STORAGE_KEY) ?? "null");
+    if (Array.isArray(saved) && saved.length > 0 && getAccountState().wishlist.length === 0) updateAccountState({ wishlist: saved });
+    window.localStorage.removeItem(OLD_STORAGE_KEY);
+  } catch {
+    // Storage blocked or unreadable: nothing to move.
   }
-  return wishlist as WishlistItem[];
 }
 
-function save(items: WishlistItem[]) {
-  wishlist = items;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  } catch {
-    // Storage blocked: the wishlist lasts until the page is refreshed.
-  }
-  listeners.forEach((onChange) => onChange());
+function getWishlist() {
+  return getAccountState().wishlist as WishlistItem[];
 }
 
 function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  function followOtherTabs(event: StorageEvent) {
-    if (event.key !== STORAGE_KEY) return;
-    wishlist = null;
-    onChange();
-  }
-  window.addEventListener("storage", followOtherTabs);
-  return () => {
-    listeners.delete(onChange);
-    window.removeEventListener("storage", followOtherTabs);
-  };
+  moveOldBrowserWishlist();
+  return subscribeToAccountState(onChange);
 }
 
 export function useWishlist() {
@@ -67,9 +53,11 @@ export function useWishlist() {
 // Heart: adds the item, or takes it out when it is already there
 export function toggleWishlistItem(item: WishlistItem) {
   const items = getWishlist();
-  save(items.some((saved) => saved.itemId === item.itemId) ? items.filter((saved) => saved.itemId !== item.itemId) : [...items, item]);
+  updateAccountState({
+    wishlist: items.some((saved) => saved.itemId === item.itemId) ? items.filter((saved) => saved.itemId !== item.itemId) : [...items, item],
+  });
 }
 
 export function removeWishlistItem(itemId: string) {
-  save(getWishlist().filter((saved) => saved.itemId !== itemId));
+  updateAccountState({ wishlist: getWishlist().filter((saved) => saved.itemId !== itemId) });
 }

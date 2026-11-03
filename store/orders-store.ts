@@ -1,12 +1,10 @@
 import { useMemo, useSyncExternalStore } from "react";
-// Orders placed before the database kept them are still shared between browsers this way
+// The panel's lists that aren't in the database yet are still shared between staff browsers this way
 import "./shared-data-sync";
 import { createClient } from "@/lib/supabase/client";
 import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import type { CartItem } from "./cart-store";
 import type { OrderPaymentMethod } from "./admin-orders-store";
-import { recordCustomerOrder } from "./admin-customers-store";
-import { addSubscription, type MilkType, type PlanLength } from "./admin-subscriptions-store";
 import { getCustomerProfile } from "./customer-profiles-store";
 
 /*
@@ -21,7 +19,8 @@ import { getCustomerProfile } from "./customer-profiles-store";
   Subscription), staff with Orders → View get every order (the Chiranvi Panel's Orders page uses the same
   list). When the panel moves an order along (Packed, Out for delivery, Delivered), it changes the same row,
   so the customer's tracker follows.
-  Orders placed before this were kept only in the browser (localStorage); they still show, unchanged.
+  Orders are never kept in the browser: the old browser copy (from before the database, which also held other
+  customers' orders) is deleted.
 
   Order steps, in order: placed -> packed -> out-for-delivery -> delivered (or cancelled).
   A new order starts at "placed".
@@ -91,35 +90,10 @@ export type CheckoutDetails = {
   cartType?: "subscription" | "subscription-and-one-time"; // a plan's order: alone, or with one-time items (which coupon list)
 };
 
-const ORDERS_STORAGE_KEY = "chiranvi-orders";
+// The browser's old copy of orders (from before the database): deleted, never read
+const OLD_ORDERS_STORAGE_KEY = "chiranvi-orders";
 const noOrders: Order[] = [];
-let orders: Order[] = noOrders;
-let hasReadSavedOrders = false;
 const ordersListeners = new Set<() => void>();
-
-function getOrders() {
-  if (!hasReadSavedOrders && typeof window !== "undefined") {
-    hasReadSavedOrders = true;
-    try {
-      const saved = JSON.parse(window.localStorage.getItem(ORDERS_STORAGE_KEY) ?? "null");
-      if (Array.isArray(saved)) orders = saved;
-    } catch {
-      // Nothing saved, or storage blocked: no orders yet.
-    }
-  }
-  return orders;
-}
-
-function saveOrders(newOrders: Order[]) {
-  orders = newOrders;
-  hasReadSavedOrders = true;
-  try {
-    window.localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(newOrders));
-  } catch {
-    // Storage blocked: orders last until the page is refreshed.
-  }
-  announceOrders();
-}
 
 function announceOrders() {
   ordersListeners.forEach((onChange) => onChange());
@@ -293,36 +267,20 @@ export async function setSavedOrderStatus(orderId: string, status: OrderStatus) 
   }
 }
 
-// ---------- Both together ----------
-
-// Saved orders, then the older browser-only ones, newest first (kept as one list while neither changes)
-let mergedFrom: { saved: Order[]; browser: Order[] } | null = null;
-let mergedOrders: Order[] = noOrders;
-
 function getAllOrders() {
-  const browserOrders = getOrders();
-  if (mergedFrom && mergedFrom.saved === savedOrders && mergedFrom.browser === browserOrders) return mergedOrders;
-  const savedIds = new Set(savedOrders.map((order) => order.orderId));
-  mergedOrders = [...savedOrders, ...browserOrders.filter((order) => !savedIds.has(order.orderId))].sort(
-    (first, second) => second.placedAt - first.placedAt,
-  );
-  mergedFrom = { saved: savedOrders, browser: browserOrders };
-  return mergedOrders;
+  return savedOrders;
 }
 
 function subscribeToOrders(onChange: () => void) {
   ordersListeners.add(onChange);
   startFollowingSavedOrders();
-  // A step changed in the Chiranvi Panel open in another tab
-  function followOtherTabs(event: StorageEvent) {
-    if (event.key !== ORDERS_STORAGE_KEY) return;
-    hasReadSavedOrders = false;
-    onChange();
+  try {
+    window.localStorage.removeItem(OLD_ORDERS_STORAGE_KEY);
+  } catch {
+    // Storage blocked: nothing kept to delete.
   }
-  window.addEventListener("storage", followOtherTabs);
   return () => {
     ordersListeners.delete(onChange);
-    window.removeEventListener("storage", followOtherTabs);
   };
 }
 
@@ -356,16 +314,6 @@ export function isFailedPayment(order: Order) {
 // Paid (or placed before payments) and not yet delivered or cancelled
 export function isOnItsWay(order: Order) {
   return !isFailedPayment(order) && order.status !== "delivered" && order.status !== "cancelled";
-}
-
-// The panel moved an older browser-only order along: the customer's tracker shows the same step
-export function setCustomerOrderStatus(orderId: string, status: OrderStatus) {
-  const now = Date.now();
-  saveOrders(
-    getOrders().map((order) =>
-      order.orderId === orderId ? { ...order, status, statusChangedAt: { ...order.statusChangedAt, [status]: now } } : order,
-    ),
-  );
 }
 
 // The logged-in number, read from the login saved in this browser
@@ -493,9 +441,9 @@ export function reportFailedPayment(razorpayOrderId: string, razorpayPaymentId: 
 }
 
 /*
-  A paid order (as the database saved it, with its own prices and amounts) joins My Orders, and counts on the
-  customer's record and (a new milk plan) the panel's Subscriptions page, which are still kept in the browser
-  (the payment itself is on the Payments page from the database). Answers the order as the website shows it.
+  A paid order (as the database saved it, with its own prices and amounts) joins My Orders. The database
+  itself counts it on the customer's record on the panel's Customers page, adds a new milk plan to
+  Subscriptions, and lists the payment on Payments. Answers the order as the website shows it.
 */
 function rememberPlacedOrder(answer: PlacedOrderAnswer, cartItems: CartItem[], checkout: CheckoutDetails): Order {
   const customerMobile = readLoggedInMobileNumber() ?? "";
@@ -526,53 +474,9 @@ function rememberPlacedOrder(answer: PlacedOrderAnswer, cartItems: CartItem[], c
     razorpayPaymentId: answer.razorpayPaymentId ?? undefined,
     platformFee: answer.platformFee ?? undefined,
   };
-  const area = checkout.area;
   savedOrders = [newOrder, ...savedOrders.filter((order) => order.orderId !== newOrder.orderId)];
   announceOrders();
-
-  const customerName = answer.customerName;
-  if (customerMobile) {
-    recordCustomerOrder(customerMobile, {
-      amount: newOrder.total,
-      plan: newOrder.subscription ? `${cartItems[0]?.name ?? "Milk"} · ${newOrder.subscription.planName}` : null,
-    });
-  }
-
-  // (The payment itself is on the panel's Payments page from the database: panel_payments())
-  const panelArea = answer.area || area || profile?.location || "";
-
-  // A new milk plan (not an extension of one) on the panel's Subscriptions page
-  const plan = newOrder.subscription;
-  if (plan && !plan.extendsOrderId) {
-    const isHalfLitre = (plan.bottleLabel ?? "1 L") === "500 ml";
-    const litresPerDelivery = plan.bottlesPerDay * (isHalfLitre ? 0.5 : 1);
-    addSubscription({
-      customerName,
-      area: panelArea,
-      milkType: milkTypeOf(cartItems[0]?.productId ?? ""),
-      quantity: litresPerDelivery < 1 ? `${litresPerDelivery * 1000} ml` : `${litresPerDelivery} L`,
-      litresPerDelivery,
-      container: `${plan.bottlesPerDay} × ${plan.bottleLabel ?? "1 L"} glass bottle`,
-      frequency: "Daily",
-      planLength: planLengthOf(plan.months),
-      websiteOrderId: newOrder.orderId,
-      customerMobile,
-    });
-  }
   return newOrder;
-}
-
-// The panel's milk name for a milk bought on the website ("a2-desi-milk", "jersey-milk-half-litre" …)
-function milkTypeOf(productId: string): MilkType {
-  if (productId.startsWith("jersey-milk")) return "Jersey";
-  if (productId.startsWith("skimmed-milk")) return "Skimmed";
-  return "A2";
-}
-
-function planLengthOf(months: number): PlanLength {
-  if (months >= 12) return "1 year";
-  if (months >= 6) return "6 months";
-  return "3 months";
 }
 
 /*

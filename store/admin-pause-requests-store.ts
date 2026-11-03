@@ -3,7 +3,7 @@ import { withCurrentMilkPlanName } from "./admin-subscriptions-store";
 
 /*
   Pause requests: customers asking to stop milk for a few days. Kept in the database (panel_records,
-  "pause-requests"; supabase/migrations/0018_…):
+  "pause-requests"; supabase/migrations/0019_…):
   - the Chiranvi Panel (Pause requests page, and the count on its sidebar badge) sees all of them and
     approves or rejects, by the staff member's role;
   - a customer sends a request from My Subscription ("Pause subscription": from, resume on, reason) and sees

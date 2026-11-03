@@ -6,7 +6,7 @@ import { createPanelRecordStore, forgetBrowserCopy } from "./panel-records";
 
 /*
   Customers seen in the Chiranvi Panel (Customers page). Kept in the database (panel_records, "customers";
-  supabase/migrations/0018_…), seen by the staff member's role. (No wallet: Chiranvi does not use one.)
+  supabase/migrations/0019_…), seen by the staff member's role. (No wallet: Chiranvi does not use one.)
   - Customers who sign up on the website join the list by themselves when they save their Profile (the
     database adds them, with all its details, and updates them when they save again); every paid order counts
     on their record (orders, last order, lifetime value, their plan). Nothing is written from a customer's browser.

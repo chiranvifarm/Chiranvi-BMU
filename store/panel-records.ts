@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 /*
-  The Chiranvi Panel's lists in the database (table panel_records, supabase/migrations/0018_…): one row per
+  The Chiranvi Panel's lists in the database (table panel_records, supabase/migrations/0019_…): one row per
   record, by page ("module"). The database's rules decide what comes back: staff get a page's records by
   Roles & permissions (View / Create / Edit / Delete), a customer only their own (their pause requests),
   visitors nothing. So nothing of these lists is kept in the browser.

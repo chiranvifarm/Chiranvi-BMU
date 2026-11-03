@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/client";
 
 /*
   The logged-in person's own things, kept in the database (table account_state, one row per login,
-  supabase/migrations/0018_…): the cart, the milk plan waiting in it and its coupon code, the wishlist, and
+  supabase/migrations/0019_…): the cart, the milk plan waiting in it and its coupon code, the wishlist, and
   when panel pages were last opened (their "new" badges). Only that person can read or change the row, and
   it follows them to any phone or laptop. Nothing of it is kept in the browser.
   Logged out: the same things are held only in memory for the visit (e.g. a product tapped before logging in);

@@ -4,7 +4,7 @@ import { createPanelRecordStore } from "./panel-records";
 /*
   Milk subscriptions seen in the Chiranvi Panel (Subscriptions page). Only milk can be subscribed (curd,
   paneer, ghee and butter are one-time orders): A2 (Gir Cow), Jersey and Skimmed milk, the milks the website
-  sells. Kept in the database (panel_records, "subscriptions"; supabase/migrations/0018_…), seen by the staff
+  sells. Kept in the database (panel_records, "subscriptions"; supabase/migrations/0019_…), seen by the staff
   member's role. Subscriptions are paid by plan length.
   - A plan bought and paid on the website joins the list by itself (the database adds it, with its website
     order number), and a pause the panel approves (Pause requests) shows it as Paused on those days.

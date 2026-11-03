@@ -1,5 +1,5 @@
 -- =====================================================================================================
--- 0018 · Nothing kept in the browser (round 1): the customer's own cart and wishlist, and the Chiranvi Panel's
+-- 0019 · Nothing kept in the browser (round 1): the customer's own cart and wishlist, and the Chiranvi Panel's
 --        Customers, Subscriptions, Pause requests, Leads and Refunds & complaints lists, in the database
 --   Before this, these lived in each browser's storage and were copied between browsers through
 --   /api/shared-data, so a customer's browser could hold other people's details.

@@ -3,7 +3,7 @@ import { createPanelRecordStore } from "./panel-records";
 
 /*
   Leads: people who asked about Chiranvi from Instagram, the website, referrals, Google or a walk-in.
-  Kept in the database (panel_records, "leads"; supabase/migrations/0018_…), seen on the Chiranvi Panel's
+  Kept in the database (panel_records, "leads"; supabase/migrations/0019_…), seen on the Chiranvi Panel's
   Leads page by the staff member's role. Each lead is in one stage: New, Contacted, Free trial, Converted or Lost.
   New leads — from the panel, and from the website's bulk order and "Request delivery" forms, also by visitors
   who aren't logged in — go through the database's submit_lead(), which checks them and limits how many one

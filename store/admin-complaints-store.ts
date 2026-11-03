@@ -4,7 +4,7 @@ import { createPanelRecordStore } from "./panel-records";
   Complaint tickets seen in the Chiranvi Panel (Refunds & complaints page, and the red count on its
   sidebar badge): customer issues, any refund given, and who is handling them. Refunds go back to the
   customer's payment method (no wallet). Kept in the database (panel_records, "refunds";
-  supabase/migrations/0018_…), seen by the staff member's role (Refunds & complaints).
+  supabase/migrations/0019_…), seen by the staff member's role (Refunds & complaints).
   The first time the panel opens the page, 96 sample tickets are copied in.
 */
 

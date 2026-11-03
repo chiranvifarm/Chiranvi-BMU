@@ -133,7 +133,7 @@ function StaffPage() {
     );
   }
 
-  function saveForm() {
+  async function saveForm() {
     const phone = form.phone.replace(/\D/g, "");
     const salary = Number(form.salary);
     if ((editing === "new" && !form.name.trim()) || phone.length !== 10 || !salary) {
@@ -142,7 +142,11 @@ function StaffPage() {
     }
     const group = STAFF_JOBS.find((staffJob) => staffJob.job === form.job)?.group ?? "Farm";
     if (editing === "new") {
-      const added = addStaffPerson({ name: form.name.trim(), job: form.job, group, phone, shift: form.shift, salary });
+      const added = await addStaffPerson({ name: form.name.trim(), job: form.job, group, phone, shift: form.shift, salary });
+      if ("error" in added) {
+        showToast(added.error);
+        return;
+      }
       if (group === "Delivery") addAgent({ name: added.name, phone, bike: "—" });
       setTab("all");
       setIsAwayOnly(false);

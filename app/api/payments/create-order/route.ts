@@ -2,7 +2,7 @@
   POST /api/payments/create-order
   "Pay now" on the cart page: starts a Razorpay payment for the logged-in customer's checkout.
 
-  The browser sends the milk plan's order and / or the one-time items' order (place_order()'s details: what
+  The browser sends the milk plan's order and / or the one-time items' order (each order's details: what
   is bought, the coupon code, the address) and the total the customer saw:
     { planOrder, itemsOrder, shownTotal }
   1. The database prices them and saves them as orders awaiting payment (start_checkout). If its total is

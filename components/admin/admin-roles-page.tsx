@@ -29,7 +29,6 @@ import {
   type RolePermissions,
   type StaffMember,
 } from "@/store/staff-access-store";
-import { useStaffList } from "@/store/admin-staff-store";
 import { decideLeave, getLeaveDays, useLeaveRequests, type LeaveRequest } from "@/store/admin-leave-store";
 import { saveCustomerProfile, useCustomerProfile } from "@/store/customer-profiles-store";
 import { AdminFeatureGate } from "./admin-panel-layout";
@@ -67,7 +66,10 @@ import styles from "./admin-roles-page.module.css";
     note       sensitive actions (prices, salaries, deleting customers, refunds above ₹500) always need
                the owner.
   Only the owner changes anything here; anyone else with View on this page can only look.
-  Roles and people come from store/staff-access-store.ts; delivery agents from the Staff page.
+  Roles and people come from store/staff-access-store.ts (staff_members). People are added in the Staff
+  section; "Invite person" gives a role to one of them (picked from a drop-down of everyone on the list,
+  with their mobile number filled in).
+  The Staff card lists everyone on the staff list; Invite can also change someone's role (a promotion).
 */
 
 const ROLE_ICONS: Record<string, string[]> = {
@@ -100,7 +102,8 @@ function summaryOf(role: PanelRole) {
 
 const samePermissions = (first: RolePermissions, second: RolePermissions) => JSON.stringify(first) === JSON.stringify(second);
 
-type PersonForm = { name: string; mobileNumber: string; roleId: string; title: string };
+// isInvite: giving a role to someone from the Staff section (picked from the drop-down); otherwise editing
+type PersonForm = { name: string; mobileNumber: string; roleId: string; title: string; isInvite?: boolean };
 
 export default function AdminRolesPage() {
   return (
@@ -114,7 +117,6 @@ function RolesPage() {
   const roles = usePanelRoles();
   const team = useStaffMembers();
   const owner = useOwnerDetails();
-  const staff = useStaffList();
   const isOwner = useIsPanelOwner();
   const [searchText, setSearchText] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState("manager");
@@ -141,20 +143,19 @@ function RolesPage() {
 
   const allRoles = [OWNER_ROLE, ...roles];
   const selectedRole = allRoles.find((role) => role.id === selectedRoleId) ?? allRoles[0];
-  const panelRoles = roles.filter((role) => role.hasPanelAccess);
-  const deliveryAgents = staff.filter((person) => person.group === "Delivery");
   const isLocked = !isOwner || selectedRole.id === "owner" || !selectedRole.hasPanelAccess;
   const shownPermissions = drafts[selectedRole.id] ?? selectedRole.permissions;
   const hasUnsavedChanges = Boolean(drafts[selectedRole.id]) && !samePermissions(drafts[selectedRole.id], selectedRole.permissions);
 
+  // The Staff card counts everyone on the staff list (managers and delivery agents too); the others their own
   const peopleIn = (role: PanelRole) =>
-    role.id === "owner" ? 1 : role.id === "delivery-agent" ? deliveryAgents.length : team.filter((member) => member.roleId === role.id).length;
-  const totalPeople = allRoles.reduce((sum, role) => sum + peopleIn(role), 0);
+    role.id === "owner" ? 1 : role.id === "staff" ? team.length : team.filter((member) => member.roleId === role.id).length;
+  const totalPeople = 1 + team.length;
 
-  // People shown on the left: the chosen role's, or everyone matching the search
+  // People shown on the left: the chosen role's (Staff: everyone on the staff list), or everyone matching the search
   const words = searchText.trim().toLowerCase();
   type PersonRow = { key: string; name: string; detail: string; member?: StaffMember; isOwnerRow?: boolean; roleName?: string };
-  const everyone: (PersonRow & { roleId: string })[] = [
+  const everyone: (PersonRow & { roleId: string | null })[] = [
     { key: owner.mobileNumber, name: owner.name, detail: `Owner · ${formatIndianMobileNumber(owner.mobileNumber)}`, isOwnerRow: true, roleId: "owner" },
     ...team.map((member) => ({
       key: member.mobileNumber,
@@ -163,17 +164,13 @@ function RolesPage() {
       member,
       roleId: member.roleId,
     })),
-    ...deliveryAgents.map((person) => ({
-      key: `agent-${person.id}`,
-      name: person.name,
-      detail: `${person.job} · delivery app`,
-      roleId: "delivery-agent",
-    })),
   ];
   const shownPeople = (words
     ? everyone.filter((person) => `${person.name} ${person.detail}`.toLowerCase().includes(words))
-    : everyone.filter((person) => person.roleId === selectedRole.id)
-  ).map((person) => ({ ...person, roleName: allRoles.find((role) => role.id === person.roleId)?.name }));
+    : selectedRole.id === "staff"
+      ? everyone.filter((person) => !person.isOwnerRow)
+      : everyone.filter((person) => person.roleId === selectedRole.id)
+  ).map((person) => ({ ...person, roleName: allRoles.find((role) => role.id === person.roleId)?.name ?? "No role" }));
 
   // Ticking any action ticks View; unticking View unticks the rest
   function toggle(module: PanelModule, action: PermissionAction) {
@@ -242,6 +239,10 @@ function RolesPage() {
 
   function savePerson() {
     if (!personForm) return;
+    if (personForm.isInvite && !personForm.mobileNumber) {
+      showToast("Choose a person from the Staff section");
+      return;
+    }
     const mobileNumber = personForm.mobileNumber.replace(/\D/g, "");
     if (!personForm.name.trim() || mobileNumber.length !== 10) {
       showToast("Enter the name and a 10-digit mobile number");
@@ -252,14 +253,20 @@ function RolesPage() {
       return;
     }
     const existing = team.find((member) => member.mobileNumber === mobileNumber);
+    const hadRole = Boolean(existing?.roleId);
     saveStaffMember({ name: personForm.name.trim(), mobileNumber, roleId: personForm.roleId, title: personForm.title.trim() || existing?.title });
     const role = allRoles.find((item) => item.id === personForm.roleId);
     setPersonForm(null);
     setSelectedRoleId(personForm.roleId);
     showToast(
-      existing ? `${personForm.name.trim()} is now ${role?.name}` : `${personForm.name.trim()} can now log in with ${formatIndianMobileNumber(mobileNumber)} as ${role?.name}`,
+      hadRole
+        ? `${personForm.name.trim()} is now ${role?.name}`
+        : `${personForm.name.trim()} can now log in with ${formatIndianMobileNumber(mobileNumber)} as ${role?.name}`,
     );
   }
+
+  // Invite person: everyone on the staff list; giving someone who has a role another one changes it (a promotion)
+  const roleNameOf = (member: StaffMember) => allRoles.find((role) => role.id === member.roleId)?.name ?? "No role";
 
   // Staff: what waits for the admin (shown as a count on the Staff card)
   const isOnTeam = (mobileNumber: string) => team.some((member) => member.mobileNumber === mobileNumber);
@@ -442,7 +449,7 @@ function RolesPage() {
                     )}
                   </span>
                   <span className={styles["admin-person-detail"]}>
-                    {words ? `${person.roleName} · ` : ""}
+                    {words || selectedRole.id === "staff" ? `${person.roleName} · ` : ""}
                     {person.detail}
                   </span>
                 </span>
@@ -456,17 +463,17 @@ function RolesPage() {
             {shownPeople.length === 0 && <li className={styles["admin-person-empty"]}>{words ? "No one matches this search." : "No one has this role yet."}</li>}
           </ul>
 
-          {isOwner && selectedRole.hasPanelAccess && selectedRole.id !== "owner" && !words && (
-            <button
-              type="button"
-              className={styles["admin-person-invite"]}
-              onClick={() => setPersonForm({ name: "", mobileNumber: "", roleId: selectedRole.id, title: "" })}
-            >
-              + Invite person
-            </button>
-          )}
-          {!selectedRole.hasPanelAccess && !words && (
-            <p className={styles["admin-roles-hint"]}>Delivery agents are added on the Staff page and use the delivery app, not the panel.</p>
+          {isOwner && selectedRole.id !== "owner" && !words && (
+            <>
+              <button
+                type="button"
+                className={styles["admin-person-invite"]}
+                onClick={() => setPersonForm({ name: "", mobileNumber: "", roleId: selectedRole.id, title: "", isInvite: true })}
+              >
+                + Invite person
+              </button>
+              <p className={styles["admin-roles-hint"]}>People are added in the Staff section; Invite gives one of them this role.</p>
+            </>
           )}
 
           <h3 className={styles["admin-roles-section-title"]}>What each role can do</h3>
@@ -502,7 +509,7 @@ function RolesPage() {
                 </thead>
                 <tbody>
                   {team.map((member) => {
-                    const roleName = allRoles.find((role) => role.id === member.roleId)?.name ?? member.roleId;
+                    const roleName = allRoles.find((role) => role.id === member.roleId)?.name ?? "No role";
                     const pendingLeave = pendingLeaveOf(member.mobileNumber).length;
                     const allLeave = leaveRequests.filter((request) => request.staffMobile === member.mobileNumber).length;
                     return (
@@ -547,7 +554,7 @@ function RolesPage() {
                                 aria-label={`Edit ${member.name}`}
                                 title={`Edit ${member.name}`}
                                 onClick={() =>
-                                  setPersonForm({ name: member.name, mobileNumber: member.mobileNumber, roleId: member.roleId, title: member.title ?? "" })
+                                  setPersonForm({ name: member.name, mobileNumber: member.mobileNumber, roleId: member.roleId ?? (roles[0]?.id ?? ""), title: member.title ?? "" })
                                 }
                               >
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -714,32 +721,50 @@ function RolesPage() {
 
       {personForm && (
         <AdminDialog
-          title={team.some((member) => member.mobileNumber === personForm.mobileNumber) ? `Edit ${personForm.name}` : "Invite person"}
-          submitLabel={team.some((member) => member.mobileNumber === personForm.mobileNumber) ? "Save" : "Give access"}
+          title={personForm.isInvite ? "Invite person" : `Edit ${personForm.name}`}
+          submitLabel={personForm.isInvite ? "Give access" : "Save"}
           onClose={() => setPersonForm(null)}
           onSubmit={savePerson}
         >
           <AdminDialogField label="Name">
-            <input
-              className={adminInputClassName}
-              value={personForm.name}
-              onChange={(changeEvent) => setPersonForm({ ...personForm, name: changeEvent.target.value })}
-              autoFocus
-            />
+            {personForm.isInvite ? (
+              // Everyone on the staff list, with their role now; picking one fills in their number
+              <select
+                className={adminInputClassName}
+                value={personForm.mobileNumber}
+                autoFocus
+                onChange={(changeEvent) => {
+                  const picked = team.find((member) => member.mobileNumber === changeEvent.target.value);
+                  setPersonForm({ ...personForm, name: picked?.name ?? "", mobileNumber: picked?.mobileNumber ?? "", title: picked?.title ?? "" });
+                }}
+              >
+                <option value="">{team.length > 0 ? "Choose a staff member" : "No one in the Staff section yet"}</option>
+                {team.map((member) => (
+                  <option key={member.mobileNumber} value={member.mobileNumber}>
+                    {member.name} · {roleNameOf(member)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className={adminInputClassName}
+                value={personForm.name}
+                onChange={(changeEvent) => setPersonForm({ ...personForm, name: changeEvent.target.value })}
+                autoFocus
+              />
+            )}
           </AdminDialogField>
           <AdminDialogField label="Mobile number">
             <input
               className={adminInputClassName}
-              inputMode="numeric"
-              placeholder="10 digits"
-              disabled={team.some((member) => member.mobileNumber === personForm.mobileNumber)}
-              value={personForm.mobileNumber}
-              onChange={(changeEvent) => setPersonForm({ ...personForm, mobileNumber: changeEvent.target.value.replace(/\D/g, "").slice(0, 10) })}
+              placeholder={personForm.isInvite ? "Filled in when you choose a name" : ""}
+              disabled
+              value={personForm.mobileNumber ? formatIndianMobileNumber(personForm.mobileNumber) : ""}
             />
           </AdminDialogField>
           <AdminDialogField label="Role">
             <select className={adminInputClassName} value={personForm.roleId} onChange={(changeEvent) => setPersonForm({ ...personForm, roleId: changeEvent.target.value })}>
-              {panelRoles.map((role) => (
+              {roles.map((role) => (
                 <option key={role.id} value={role.id}>
                   {role.name}
                 </option>
@@ -755,12 +780,14 @@ function RolesPage() {
             />
           </AdminDialogField>
           <p className={styles["admin-roles-dialog-note"]}>
-            They log in on the website with this number as usual and find &ldquo;Chiranvi Panel&rdquo; in their account.
+            {personForm.isInvite && team.length === 0
+              ? "No one in the Staff section yet. Add the person there first."
+              : `They log in on the website with this number as usual and find “${personForm.roleId === "delivery-agent" ? "Delivery Panel" : "Chiranvi Panel"}” in their account.`}
           </p>
           {/* Someone already on the team: remove them (asks "Remove … from the team?" first) */}
           {(() => {
             const member = team.find((existing) => existing.mobileNumber === personForm.mobileNumber);
-            return member && canRemove(member) ? (
+            return member && canRemove(member) && !personForm.isInvite ? (
               <button
                 type="button"
                 className={styles["admin-roles-remove-from-team"]}
@@ -878,8 +905,7 @@ function RolesPage() {
           }}
         >
           <p className={styles["admin-roles-dialog-note"]}>
-            {formatIndianMobileNumber(memberToRemove.mobileNumber)} will no longer open the Chiranvi Panel. They stay on the Staff
-            page if they work at the farm.
+            {formatIndianMobileNumber(memberToRemove.mobileNumber)} loses their access and is deleted from the Staff section too.
           </p>
         </AdminDialog>
       )}

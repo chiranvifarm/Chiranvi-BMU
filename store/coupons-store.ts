@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
   - The Chiranvi Panel (Coupons & offers page) reads and changes them, by the staff member's role
     (Coupons → View / Create / Edit / Delete). Customers can't read the list, so codes stay private.
   - Checkout asks the database whether a code works on the cart and how much it takes off (check_coupon);
-    the order itself works the discount out again in the database (place_order), which also counts the use
+    the order itself works the discount out again in the database (start_checkout), and the payment counts the use
     and records the redemption. So a discount can't be made up in a browser.
   - Status comes from the dates, the use limit and the pause switch: Active, Scheduled (starts later),
     Paused, Expired (ended or fully used).

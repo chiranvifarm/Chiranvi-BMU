@@ -136,7 +136,7 @@ function PaymentsPage() {
   const collectedFrom = (type: PaymentType) =>
     moneyIn.filter((payment) => payment.type === type).reduce((sum, payment) => sum + payment.amount, 0);
   const cashToCollect = orders.filter(
-    (order) => order.payment === "Cash" && (order.status === "Pending" || order.status === "Packed" || order.status === "Out for delivery"),
+    (order) => order.payment === "Cash" && (order.status === "Placed" || order.status === "Packed" || order.status === "Out for delivery"),
   );
   const pendingDues = cashToCollect.reduce((sum, order) => sum + order.amount, 0);
   const isLastSevenDays =

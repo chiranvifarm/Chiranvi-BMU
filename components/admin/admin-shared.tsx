@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useCurrentStaffAccess, type PanelModule, type PermissionAction } from "@/store/staff-access-store";
 import { useNewOrders } from "@/store/admin-orders-store";
 import { useNewCustomers } from "@/store/admin-customers-store";
+import { useDeliveryTransferNews } from "@/store/admin-deliveries-store";
+import { usePanelSeenAt } from "@/store/account-state";
 import { dashboardAlerts } from "./admin-dashboard-data";
 import AdminDateRangePicker from "./admin-date-range-picker";
 import dashboardStyles from "./admin-dashboard.module.css";
@@ -118,6 +120,9 @@ export function AdminNotificationsBell() {
   // Only what the person's role can open
   const newOrders = useNewOrders();
   const newCustomers = useNewCustomers();
+  // Transfers between agents since the Deliveries page was last opened
+  const transfersSeenAt = usePanelSeenAt("delivery-transfers");
+  const newTransfers = useDeliveryTransferNews().filter((news) => news.event.at > transfersSeenAt);
   const newItems = [
     ...(access?.can("orders", "view") ? newOrders : []).map((order) => ({
       key: `order-${order.orderNumber}`,
@@ -134,6 +139,14 @@ export function AdminNotificationsBell() {
       title: `New customer ${customer.name}`,
       detail: `${customer.id}${customer.area ? ` · ${customer.area}` : ""}`,
       icon: ["M12 11.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M4.5 20.5a7.5 7.5 0 0 1 15 0"],
+    })),
+    ...(access?.can("deliveries", "view") ? newTransfers : []).map((news) => ({
+      key: `transfer-${news.key}`,
+      href: "/admin/deliveries",
+      time: news.event.at,
+      title: `Transfer ${news.event.kind === "transfer-requested" ? "asked" : news.event.kind === "transfer-accepted" ? "accepted" : "declined"}${news.orderNumber ? ` · ${news.orderNumber}` : ""}`,
+      detail: `${news.event.fromAgent} → ${news.event.toAgent} · ${news.customerName}`,
+      icon: ["M4 8h13l-3-3", "M20 16H7l3 3"],
     })),
   ].sort((first, second) => second.time.localeCompare(first.time));
 
@@ -155,7 +168,7 @@ export function AdminNotificationsBell() {
       {isOpen && (
         <div className={`${dashboardStyles["admin-popup"]} ${dashboardStyles["admin-notifications"]}`}>
           <p className={dashboardStyles["admin-popup-title"]}>New{newItems.length > 0 ? ` (${newItems.length})` : ""}</p>
-          {newItems.length === 0 && <p className={dashboardStyles["admin-notification-empty"]}>No new orders or customers</p>}
+          {newItems.length === 0 && <p className={dashboardStyles["admin-notification-empty"]}>No new orders, customers or transfers</p>}
           {newItems.slice(0, NEW_ITEMS_SHOWN).map((item) => (
             <Link key={item.key} href={item.href} className={dashboardStyles["admin-notification-link"]} onClick={() => setIsOpen(false)}>
               <span className={`${dashboardStyles["admin-alert-icon"]} ${dashboardStyles["admin-alert-icon-green"]}`}>
@@ -494,6 +507,7 @@ export function AdminDialog({
   submitLabel,
   children,
   isDanger = false,
+  isLarge = false,
 }: {
   title: string;
   onClose: () => void;
@@ -501,6 +515,7 @@ export function AdminDialog({
   submitLabel: string;
   children: ReactNode;
   isDanger?: boolean;
+  isLarge?: boolean; // a wider pop-up (an order's details, choosing an agent)
 }) {
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
@@ -516,7 +531,7 @@ export function AdminDialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={styles["admin-dialog"]}
+        className={`${styles["admin-dialog"]} ${isLarge ? styles["admin-dialog-large"] : ""}`}
         onSubmit={(submitEvent) => {
           submitEvent.preventDefault();
           onSubmit();

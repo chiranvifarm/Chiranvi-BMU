@@ -39,7 +39,7 @@ const STATUS_CLASS_NAMES: Record<AdminOrderStatus, string> = {
   Delivered: styles["admin-status-delivered"],
   "Out for delivery": styles["admin-status-out-for-delivery"],
   Packed: styles["admin-status-packed"],
-  Pending: styles["admin-status-pending"],
+  Placed: styles["admin-status-pending"],
   Cancelled: sharedStyles["admin-status-cancelled"],
 };
 

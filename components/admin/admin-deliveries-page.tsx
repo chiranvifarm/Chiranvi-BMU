@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { markPanelPageSeen } from "@/store/account-state";
 import {
   DELIVERY_SLOTS,
   addDelivery,
+  cancelDeliveryTransfer,
   getDeliveriesForRange,
   reassignMissed,
   setDeliveryStatus,
   toDateKey,
+  useCarryOverOrderDeliveries,
   useDeliveriesUpdatedAt,
   useTodayDeliveries,
   type Delivery,
@@ -108,6 +111,12 @@ function DeliveriesPage() {
   const [isReassignOpen, setIsReassignOpen] = useState(false);
   const [reassignTo, setReassignTo] = useState("Somu N");
   const { showToast, toast } = useAdminToast();
+  useCarryOverOrderDeliveries();
+
+  // Opening this page counts as seeing the transfers between agents (the bell's list clears)
+  useEffect(() => {
+    markPanelPageSeen("delivery-transfers");
+  }, []);
 
   const todayKey = toDateKey(today);
   const isOnlyToday = toDateKey(rangeFrom) === todayKey && toDateKey(rangeTo) === todayKey;
@@ -338,6 +347,7 @@ function DeliveriesPage() {
                       <td>
                         <span className={dashboardStyles["admin-orders-customer"]}>{delivery.customerName}</span>
                         <span className={dashboardStyles["admin-orders-area"]}>
+                          {delivery.orderNumber ? `${delivery.orderNumber} · ` : ""}
                           {delivery.address}
                           {isOnlyToday ? "" : ` · ${new Date(`${delivery.date}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
                         </span>
@@ -348,7 +358,15 @@ function DeliveriesPage() {
                           {route.id}
                         </span>
                       </td>
-                      <td>{firstName(delivery.agent)}</td>
+                      <td>
+                        {firstName(delivery.agent)}
+                        {/* Asked another agent to take it, waiting for their answer */}
+                        {delivery.transferRequest && (
+                          <span className={styles["admin-delivery-transfer-note"]}>
+                            Transfer to {firstName(delivery.transferRequest.toAgent)} · waiting
+                          </span>
+                        )}
+                      </td>
                       <td className={dashboardStyles["admin-orders-muted"]}>{delivery.slot}</td>
                       <td>
                         <span className={`${dashboardStyles["admin-status"]} ${STATUS_CLASS_NAMES[delivery.status]}`}>{delivery.status}</span>
@@ -370,12 +388,26 @@ function DeliveriesPage() {
                           <AdminRowMenu
                             label={`Actions for ${delivery.customerName}`}
                             title="Delivery"
-                            options={(["Delivered", "Out for delivery", "Pending", "Missed"] as DeliveryStatus[]).map((status) => ({
-                              label: status === "Pending" ? "Back to pending" : `Mark ${status.toLowerCase()}`,
-                              isDisabled: status === delivery.status,
-                              isDanger: status === "Missed",
-                              onSelect: () => markDelivery(delivery, status),
-                            }))}
+                            options={[
+                              ...(["Delivered", "Out for delivery", "Pending", "Missed"] as DeliveryStatus[]).map((status) => ({
+                                label: status === "Pending" ? "Back to pending" : `Mark ${status.toLowerCase()}`,
+                                isDisabled: status === delivery.status,
+                                isDanger: status === "Missed",
+                                onSelect: () => markDelivery(delivery, status),
+                              })),
+                              ...(delivery.transferRequest
+                                ? [
+                                    {
+                                      label: "Cancel transfer",
+                                      isDanger: true,
+                                      onSelect: () => {
+                                        cancelDeliveryTransfer(delivery.id);
+                                        showToast(`Transfer of ${delivery.customerName}'s delivery taken back`);
+                                      },
+                                    },
+                                  ]
+                                : []),
+                            ]}
                           />
                         )}
                       </td>

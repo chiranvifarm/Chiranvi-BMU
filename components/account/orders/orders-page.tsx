@@ -200,7 +200,7 @@ export default function OrdersPage() {
                       <p className={styles["order-arrival"]}>Arriving tomorrow by 7:00 AM</p>
                     ) : (
                       <p className={styles["order-number-and-date"]}>
-                        {order.status === "cancelled" ? "Refunded to wallet" : `Delivered ${formatOrderDate(order.placedAt)}`}
+                        {order.status === "cancelled" ? "Order cancelled · refund to your original payment method" : `Delivered ${formatOrderDate(order.placedAt)}`}
                       </p>
                     )}
                   </div>

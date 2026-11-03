@@ -133,51 +133,6 @@ export type DeliveryAgentLogin =
   | { state: "not-an-agent" }
   | { state: "agent"; mobileNumber: string; name: string; agent: DeliveryAgent | null; route: DeliveryRoute | null };
 
-// ---------- DEMO (for checking the panel without an OTP login; delete this block after testing) ----------
-// Only while the site runs with "npm run dev" (never on the live site). Open /delivery?demo=1 to start it:
-// you are "Demo agent" on Prakash S's route (Route 4, Jayanagar: 11 stops still to go in the sample day).
-// "Leave demo" in the sidebar ends it. To remove: delete this block, its two uses below and in
-// components/delivery/delivery-panel-layout.tsx, and the browser key "chiranvi-admin-agent-day-0000000000".
-const DEMO_FLAG_KEY = "chiranvi-delivery-demo";
-export const DEMO_MOBILE_NUMBER = "0000000000";
-const DEMO_ROUTE_AGENT = "Prakash S";
-
-function isDemoOn() {
-  if (process.env.NODE_ENV !== "development" || typeof window === "undefined") return false;
-  try {
-    if (new URLSearchParams(window.location.search).get("demo") === "1") {
-      window.sessionStorage.setItem(DEMO_FLAG_KEY, "on");
-      return true;
-    }
-    return window.sessionStorage.getItem(DEMO_FLAG_KEY) === "on";
-  } catch {
-    return false;
-  }
-}
-
-const demoListeners = new Set<() => void>();
-
-function useIsDemoOn() {
-  return useSyncExternalStore(
-    (onChange) => {
-      demoListeners.add(onChange);
-      return () => demoListeners.delete(onChange);
-    },
-    isDemoOn,
-    () => false,
-  );
-}
-
-export function leaveDeliveryDemo() {
-  try {
-    window.sessionStorage.removeItem(DEMO_FLAG_KEY);
-  } catch {
-    // Storage blocked: the demo ends with the tab.
-  }
-  demoListeners.forEach((onChange) => onChange());
-}
-// ---------- end of DEMO ----------
-
 // The logged-in person as a delivery agent: their role (database) and their agent on Routes & agents (same number)
 export function useDeliveryAgentLogin(): DeliveryAgentLogin {
   const isLoginStatusKnown = useIsLoginStatusKnown();
@@ -186,14 +141,7 @@ export function useDeliveryAgentLogin(): DeliveryAgentLogin {
   const team = useStaffMembers();
   const agents = useDeliveryAgents();
   const routes = useDeliveryRoutes();
-  const isDemo = useIsDemoOn(); // DEMO
   return useMemo(() => {
-    // DEMO: the demo agent on Route 4's stops, no login needed
-    if (isDemo) {
-      const agent = agents.find((existing) => existing.name === DEMO_ROUTE_AGENT) ?? null;
-      const route = agent ? (routes.find((existing) => existing.agent === agent.name) ?? null) : null;
-      return { state: "agent", mobileNumber: DEMO_MOBILE_NUMBER, name: "Demo agent", agent, route };
-    }
     if (!isLoginStatusKnown) return { state: "loading" };
     if (!mobileNumber) return { state: "logged-out" };
     if (!isStaffAccessKnown) return { state: "loading" };
@@ -202,7 +150,7 @@ export function useDeliveryAgentLogin(): DeliveryAgentLogin {
     const agent = agents.find((existing) => existing.phone === mobileNumber) ?? null;
     const route = agent ? (routes.find((existing) => existing.agent === agent.name) ?? null) : null;
     return { state: "agent", mobileNumber, name: agent?.name ?? member.name, agent, route };
-  }, [isDemo, isLoginStatusKnown, mobileNumber, isStaffAccessKnown, team, agents, routes]);
+  }, [isLoginStatusKnown, mobileNumber, isStaffAccessKnown, team, agents, routes]);
 }
 
 // For the account page's "Delivery Panel" button

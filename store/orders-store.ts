@@ -6,7 +6,6 @@ import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import type { CartItem } from "./cart-store";
 import type { OrderPaymentMethod } from "./admin-orders-store";
 import { recordCustomerOrder } from "./admin-customers-store";
-import { recordWebsitePayment } from "./admin-payments-store";
 import { addSubscription, type MilkType, type PlanLength } from "./admin-subscriptions-store";
 import { getCustomerProfile } from "./customer-profiles-store";
 
@@ -53,7 +52,15 @@ export type Order = {
   isSaved?: boolean;
   customerName?: string; // the name the order was saved with (the panel's Customer)
   area?: string; // the delivery address's area (the panel's Location)
+  // Razorpay (orders paid online; older ones are "not_charged")
+  paymentStatus?: OrderPaymentStatus;
+  paidAt?: number; // time in milliseconds
+  razorpayPaymentId?: string; // pay_…
+  paymentFailureReason?: string; // Razorpay's reason, on a failed payment's receipt
+  platformFee?: number; // ₹ (once per checkout)
 };
+
+export type OrderPaymentStatus = "not_charged" | "paid" | "failed" | "refunded";
 
 // The plan bought with a subscription order (shown on My Subscription)
 export type OrderSubscription = {
@@ -149,6 +156,11 @@ type OrderRow = {
   placed_at: string;
   promised_at: string;
   order_items: OrderItemRow[] | null;
+  payment_status: OrderPaymentStatus;
+  paid_at: string | null;
+  razorpay_payment_id: string | null;
+  payment_failure_reason: string | null;
+  platform_fee_paise: number | null;
 };
 
 // Read again this often while the page is open: new orders reach the panel, and a customer's tracker
@@ -190,8 +202,19 @@ function toOrder(row: OrderRow): Order {
     isSaved: true,
     customerName: row.customer_name,
     area: row.area,
+    paymentStatus: row.payment_status,
+    paidAt: row.paid_at ? new Date(row.paid_at).getTime() : undefined,
+    razorpayPaymentId: row.razorpay_payment_id ?? undefined,
+    paymentFailureReason: row.payment_failure_reason ?? undefined,
+    platformFee: row.platform_fee_paise === null ? undefined : row.platform_fee_paise / 100,
   };
 }
+
+/*
+  A customer's failed online payments (the database shows them only to that customer): not orders (nothing
+  to pack or deliver), kept apart for their "Payment failed" receipts on My Orders.
+*/
+let failedPayments: Order[] = noOrders;
 
 async function loadSavedOrders() {
   if (isLoadingSavedOrders) return;
@@ -201,8 +224,9 @@ async function loadSavedOrders() {
   const { data: login } = await supabase.auth.getSession();
   if (!login.session) {
     isLoadingSavedOrders = false;
-    if (savedOrders !== noOrders) {
+    if (savedOrders !== noOrders || failedPayments !== noOrders) {
       savedOrders = noOrders;
+      failedPayments = noOrders;
       announceOrders();
     }
     return;
@@ -216,7 +240,9 @@ async function loadSavedOrders() {
     console.error("Could not read the orders", error);
     return;
   }
-  savedOrders = ((data ?? []) as OrderRow[]).map(toOrder);
+  const rows = (data ?? []) as OrderRow[];
+  savedOrders = rows.filter((row) => row.payment_status !== "failed").map(toOrder);
+  failedPayments = rows.filter((row) => row.payment_status === "failed").map(toOrder);
   announceOrders();
 }
 
@@ -310,6 +336,28 @@ export function useOrders() {
   );
 }
 
+// The logged-in customer's failed online payments, newest first (for their receipts on My Orders)
+export function useFailedPayments() {
+  return useSyncExternalStore(followSavedOrders, () => failedPayments, () => noOrders);
+}
+
+// My Orders: the customer's orders and their failed payments together, newest first
+export function useOrdersAndFailedPayments() {
+  const orders = useOrders();
+  const failed = useFailedPayments();
+  return useMemo(() => (failed.length === 0 ? orders : [...orders, ...failed].sort((first, second) => second.placedAt - first.placedAt)), [orders, failed]);
+}
+
+// A payment that did not go through: no order was placed (only its receipt is kept)
+export function isFailedPayment(order: Order) {
+  return order.paymentStatus === "failed";
+}
+
+// Paid (or placed before payments) and not yet delivered or cancelled
+export function isOnItsWay(order: Order) {
+  return !isFailedPayment(order) && order.status !== "delivered" && order.status !== "cancelled";
+}
+
 // The panel moved an older browser-only order along: the customer's tracker shows the same step
 export function setCustomerOrderStatus(orderId: string, status: OrderStatus) {
   const now = Date.now();
@@ -349,8 +397,13 @@ export async function priceCartOnServer(productIds: string[]): Promise<CartLineP
   return (data as CartLinePrice[]).map((line) => ({ ...line, price: Number(line.price), originalPrice: Number(line.originalPrice) }));
 }
 
-// What place_order() answers: the order as the database saved it, with its own prices and amounts (₹)
+// A saved order as the database answers it (mark_checkout_paid), with its own prices and amounts (₹)
 type PlacedOrderAnswer = {
+  kind?: "plan" | "items";
+  paymentStatus?: OrderPaymentStatus;
+  paidAt?: number | null;
+  razorpayPaymentId?: string | null;
+  platformFee?: number | null;
   orderNumber: string;
   placedAt: number;
   promisedAt: number;
@@ -369,29 +422,85 @@ type PlacedOrderAnswer = {
 export type PlaceOrderProblem = { error: string; reason?: "prices" | "unavailable" | "coupon" };
 
 /*
-  "Pay now": sends the cart (products and quantities, the coupon code, the address, how to pay) to the
-  database's place_order(), which works out every price, the coupon discount and the delivery fee itself and
-  saves the order with those (the Chiranvi Panel's Orders page shows it). If the total it works out isn't the
-  one the customer saw, nothing is saved ("Prices have changed"). Then the order counts on the customer's
-  record, the Payments page and (a new milk plan) the Subscriptions page, which are still kept in the browser,
-  with the database's amounts. Answers the saved order, or the problem to show.
+  "Pay now" with Razorpay (app/api/payments/*). The cart sends the milk plan's order and / or the one-time
+  items' order (products and quantities, the coupon code, the address) and the total the customer saw:
+    startPayment()         the database prices and saves them awaiting payment (one payment for both), and
+                           Razorpay gets an order for exactly that amount; the cart then opens the pop-up.
+                           Prices changed, a product sold out or a coupon gone: nothing is saved, the reason
+                           comes back ("prices" / "unavailable" / "coupon").
+    confirmPayment()       after the pop-up: our server checks Razorpay's signature and marks them paid; then
+                           they count here (rememberPlacedOrder).
+    reportFailedPayment()  a failed attempt: our server asks Razorpay and keeps a "Payment failed" receipt.
 */
-export async function placeOrder(cartItems: CartItem[], checkout: CheckoutDetails): Promise<Order | PlaceOrderProblem> {
+export type CheckoutPart = { cartItems: CartItem[]; checkout: CheckoutDetails };
+export type StartedPayment = { razorpayOrderId: string; amount: number; currency: string; keyId: string };
+type RazorpaySuccess = { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string };
+
+function detailsOf(part: CheckoutPart | null) {
+  return part ? { ...part.checkout, paymentMethod: part.checkout.paymentMethod ?? "UPI", items: part.cartItems } : null;
+}
+
+export async function startPayment(plan: CheckoutPart | null, items: CheckoutPart | null, shownTotal: number): Promise<StartedPayment | PlaceOrderProblem> {
+  const reply = (await fetch("/api/payments/create-order", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ planOrder: detailsOf(plan), itemsOrder: detailsOf(items), shownTotal }),
+  })
+    .then((response) => response.json())
+    .catch(() => null)) as (Partial<StartedPayment> & { error?: string; reason?: string }) | null;
+  if (!reply) return { error: "Couldn't start the payment. Check your internet and try again." };
+  if (reply.razorpayOrderId && reply.amount && reply.currency && reply.keyId) {
+    return { razorpayOrderId: reply.razorpayOrderId, amount: reply.amount, currency: reply.currency, keyId: reply.keyId };
+  }
+  if (reply.reason === "login") return { error: "Please log in again to pay." };
+  const reason = reply.reason === "prices" || reply.reason === "unavailable" || reply.reason === "coupon" ? reply.reason : undefined;
+  return { error: reply.error ?? "Couldn't start the payment. Please try again.", reason };
+}
+
+export async function confirmPayment(
+  success: RazorpaySuccess,
+  plan: CheckoutPart | null,
+  items: CheckoutPart | null,
+): Promise<{ planOrder: Order | null; itemsOrder: Order | null } | PlaceOrderProblem> {
+  const reply = (await fetch("/api/payments/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(success),
+  })
+    .then((response) => response.json())
+    .catch(() => null)) as { verified?: boolean; orders?: PlacedOrderAnswer[] } | null;
+  if (!reply?.verified || !reply.orders) {
+    return {
+      error: `We couldn't confirm your payment yet. If money left your account, your order will appear in My Orders shortly. Payment ID: ${success.razorpay_payment_id}.`,
+    };
+  }
+  const planAnswer = reply.orders.find((answer) => answer.kind === "plan");
+  const itemsAnswer = reply.orders.find((answer) => answer.kind === "items");
+  return {
+    planOrder: plan && planAnswer ? rememberPlacedOrder(planAnswer, plan.cartItems, plan.checkout) : null,
+    itemsOrder: items && itemsAnswer ? rememberPlacedOrder(itemsAnswer, items.cartItems, items.checkout) : null,
+  };
+}
+
+export function reportFailedPayment(razorpayOrderId: string, razorpayPaymentId: string) {
+  void fetch("/api/payments/failed", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ razorpay_order_id: razorpayOrderId, razorpay_payment_id: razorpayPaymentId }),
+  })
+    .then(() => loadSavedOrders())
+    .catch(() => {});
+}
+
+/*
+  A paid order (as the database saved it, with its own prices and amounts) joins My Orders, and counts on the
+  customer's record and (a new milk plan) the panel's Subscriptions page, which are still kept in the browser
+  (the payment itself is on the Payments page from the database). Answers the order as the website shows it.
+*/
+function rememberPlacedOrder(answer: PlacedOrderAnswer, cartItems: CartItem[], checkout: CheckoutDetails): Order {
   const customerMobile = readLoggedInMobileNumber() ?? "";
   const profile = customerMobile ? getCustomerProfile(customerMobile) : null;
   const paymentMethod = checkout.paymentMethod ?? "UPI";
-  const { data, error } = await createClient().rpc("place_order", { details: { ...checkout, paymentMethod, items: cartItems } });
-  if (error || !data) {
-    console.error("Could not place the order", error);
-    if (error?.message === "Log in to place an order") return { error: "Please log in again to place your order." };
-    if (error?.hint === "prices") return { error: error.message, reason: "prices" };
-    if (error?.hint === "unavailable") return { error: error.message, reason: "unavailable" };
-    if (error?.hint === "coupon") return { error: error.message, reason: "coupon" };
-    // The database's own words for a problem with the cart (no address, quantities …); otherwise the connection
-    if (error?.code === "P0001" && error.message) return { error: error.message };
-    return { error: "Couldn't place your order. Check your internet and try again." };
-  }
-  const answer = data as PlacedOrderAnswer;
   const newOrder: Order = {
     orderId: answer.orderNumber,
     placedAt: answer.placedAt,
@@ -412,6 +521,10 @@ export async function placeOrder(cartItems: CartItem[], checkout: CheckoutDetail
     isSaved: true,
     customerName: answer.customerName,
     area: answer.area,
+    paymentStatus: answer.paymentStatus ?? "paid",
+    paidAt: answer.paidAt ?? undefined,
+    razorpayPaymentId: answer.razorpayPaymentId ?? undefined,
+    platformFee: answer.platformFee ?? undefined,
   };
   const area = checkout.area;
   savedOrders = [newOrder, ...savedOrders.filter((order) => order.orderId !== newOrder.orderId)];
@@ -425,16 +538,8 @@ export async function placeOrder(cartItems: CartItem[], checkout: CheckoutDetail
     });
   }
 
-  // The payment, on the panel's Payments page
+  // (The payment itself is on the panel's Payments page from the database: panel_payments())
   const panelArea = answer.area || area || profile?.location || "";
-  recordWebsitePayment({
-    customerName,
-    area: panelArea,
-    type: newOrder.subscription ? "Subscription" : "Order",
-    method: paymentMethod,
-    amount: newOrder.total,
-    websiteOrderId: newOrder.orderId,
-  });
 
   // A new milk plan (not an extension of one) on the panel's Subscriptions page
   const plan = newOrder.subscription;

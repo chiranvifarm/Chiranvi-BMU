@@ -1,11 +1,17 @@
 import { useSyncExternalStore } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 /*
-  Payments seen in the Chiranvi Panel (Payments page), until the database and the payment gateway are
-  connected. No wallet: money comes in for orders and subscription plans, and goes out as refunds.
-  The first time, 600 sample payments from the last seven days are made (newest first); after that
-  the list is saved in this browser, so retries, refunds and recorded payments stay after a refresh.
-  Every payment made on the website (an order or a milk plan, Pay now in the cart) is added here too.
+  Payments seen in the Chiranvi Panel (Payments page, and the money on Reports and Coupons & offers), from
+  the database (panel_payments(), supabase/migrations/0017_panel_payments.sql). No wallet: money comes in
+  for orders and subscription plans, and goes out as refunds.
+  - Online payments (Razorpay): one line per payment, Success or Failed, with its order numbers; a refunded
+    one also has a Refund line. Refund gives the money back through Razorpay (owner only,
+    app/api/payments/refund) and cancels the order(s).
+  - Recorded by hand (Record payment: cash at the door, a bank transfer, a refund given by hand): saved in
+    the manual_payments table; Refund on one of these records the refund by hand.
+  A failed online payment is retried by the customer from their cart (nothing to do here).
+  Read when first needed, again when the window comes back into focus, and after every change.
 */
 
 export type PaymentType = "Order" | "Subscription" | "Refund";
@@ -14,7 +20,7 @@ export type PaymentMethod = "UPI" | "Net banking" | "Card" | "Cash";
 export type PaymentStatus = "Success" | "Failed";
 
 export type AdminPayment = {
-  id: string; // TXN88214
+  id: string; // pay_… (online), TXN90001 (recorded by hand)
   paidAt: string; // ISO date and time
   customerName: string;
   area: string;
@@ -22,151 +28,106 @@ export type AdminPayment = {
   method: PaymentMethod;
   amount: number; // money in is positive, refunds are negative
   status: PaymentStatus;
-  websiteOrderId?: string; // paid on the website: its order number
+  websiteOrderId?: string; // paid on the website: its order number(s)
+  isOnline: boolean; // Razorpay (false: recorded by hand)
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  isRefunded?: boolean; // an online payment already refunded
+  failureReason?: string; // Razorpay's reason, on a failed payment
 };
 
 export const PAYMENT_METHODS: PaymentMethod[] = ["UPI", "Net banking", "Card", "Cash"];
 
-const STORAGE_KEY = "chiranvi-admin-payments";
+type PaymentLine = Omit<AdminPayment, "paidAt"> & { paidAt: number };
 
-const sampleCustomers: [string, string][] = [
-  ["Ravi Kumar", "Jayanagar"],
-  ["Anitha R", "Basavanagudi"],
-  ["Suresh Gowda", "Kengeri"],
-  ["Meena Iyer", "Uttarahalli"],
-  ["Karthik N", "Vijayanagar"],
-  ["Divya Rao", "Banashankari"],
-  ["Harish Patil", "JP Nagar"],
-  ["Lakshmi Devi", "RR Nagar"],
-  ["Arjun Shetty", "Jayanagar"],
-  ["Kavya M", "Basavanagudi"],
-  ["Naveen Reddy", "Kengeri"],
-  ["Sneha Kulkarni", "Uttarahalli"],
-  ["Mahesh B", "Vijayanagar"],
-  ["Deepa S", "Banashankari"],
-];
-
-const sampleKinds: [PaymentType, PaymentMethod, number][] = [
-  ["Subscription", "UPI", 2040],
-  ["Order", "UPI", 136],
-  ["Subscription", "Card", 4080],
-  ["Refund", "UPI", -45],
-  ["Order", "Cash", 113],
-  ["Subscription", "UPI", 1020],
-  ["Order", "Card", 420],
-  ["Order", "UPI", 163],
-  ["Refund", "Card", -68],
-  ["Order", "UPI", 95],
-  ["Subscription", "UPI", 2040],
-  ["Order", "Cash", 72],
-];
-
-function makeSamplePayments(): AdminPayment[] {
-  const payments: AdminPayment[] = [];
-  const now = new Date();
-  for (let index = 0; index < 600; index++) {
-    const paidAt = new Date(now);
-    paidAt.setDate(now.getDate() - Math.floor(index / 86));
-    paidAt.setHours(10, -((index % 86) * 6), 0, 0);
-    const [customerName, area] = sampleCustomers[index % sampleCustomers.length];
-    const [type, method, amount] = sampleKinds[index % sampleKinds.length];
-    payments.push({
-      id: `TXN${88214 - index * 17}`,
-      paidAt: paidAt.toISOString(),
-      customerName,
-      area,
-      type,
-      method,
-      amount,
-      // A few failed payments to recover (4 in the last two days)
-      status: index === 2 || index === 9 || index === 61 || index === 140 ? "Failed" : "Success",
-    });
-  }
-  return payments;
-}
-
-let payments: AdminPayment[] | null = null;
-const listeners = new Set<() => void>();
 const EMPTY: AdminPayment[] = [];
+let payments: AdminPayment[] = EMPTY;
+let isFollowing = false;
+const listeners = new Set<() => void>();
 
-function getPayments() {
-  if (payments) return payments;
-  if (typeof window === "undefined") return EMPTY;
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null");
-    payments = Array.isArray(saved) ? saved : makeSamplePayments();
-  } catch {
-    payments = makeSamplePayments();
-  }
-  return payments as AdminPayment[];
-}
-
-function save(newPayments: AdminPayment[]) {
-  payments = newPayments;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(newPayments));
-  } catch {
-    // Storage blocked: changes last until the page is refreshed.
+async function loadPayments() {
+  const supabase = createClient();
+  // Payments are for the team: nobody logged in → nothing to read
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return;
+  const { data, error } = await supabase.rpc("panel_payments");
+  if (error) {
+    // Not allowed (no Payments → View): an empty list, not an error
+    if (error.code !== "P0001") console.error("Could not read the payments:", error.message || error.code);
+    payments = EMPTY;
+  } else {
+    payments = ((data ?? []) as PaymentLine[]).map((line) => ({ ...line, paidAt: new Date(line.paidAt).toISOString(), amount: Number(line.amount) }));
   }
   listeners.forEach((onChange) => onChange());
 }
 
-function nextId() {
-  const highest = Math.max(0, ...getPayments().map((payment) => Number(payment.id.replace(/\D/g, ""))));
-  return `TXN${highest + 1}`;
+function startFollowingPayments() {
+  if (isFollowing || typeof window === "undefined") return;
+  isFollowing = true;
+  void loadPayments();
+  window.addEventListener("focus", () => void loadPayments());
+  createClient().auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_IN" || event === "SIGNED_OUT") window.setTimeout(() => void loadPayments(), 0);
+  });
 }
 
-// Failed payment collected on a second try
-export function retryPayment(id: string) {
-  save(getPayments().map((payment) => (payment.id === id ? { ...payment, status: "Success" } : payment)));
+// Money received or given back by hand (cash at the door, a bank transfer…). Answers the new line, or a problem.
+export async function recordPayment(
+  payment: Pick<AdminPayment, "customerName" | "area" | "type" | "method" | "amount">,
+  recordedBy: string,
+): Promise<AdminPayment | { error: string }> {
+  const { data, error } = await createClient()
+    .from("manual_payments")
+    .insert({
+      customer_name: payment.customerName,
+      area: payment.area,
+      payment_type: payment.type,
+      method: payment.method,
+      amount_paise: Math.round(payment.amount * 100),
+      recorded_by: recordedBy,
+    })
+    .select("payment_number, recorded_at")
+    .single();
+  if (error || !data) {
+    console.error("The database did not accept the payment", error);
+    return { error: "Couldn't record the payment. You may not be allowed to (Payments → Create)." };
+  }
+  void loadPayments();
+  return { ...payment, id: data.payment_number, paidAt: data.recorded_at, status: "Success", isOnline: false };
 }
 
-// Gives the money back: a new refund line for the same customer
-export function refundPayment(id: string) {
-  const original = getPayments().find((payment) => payment.id === id);
-  if (!original) return;
-  const refund: AdminPayment = {
-    ...original,
-    id: nextId(),
-    paidAt: new Date().toISOString(),
-    type: "Refund",
-    amount: -Math.abs(original.amount),
-    status: "Success",
-  };
-  save([refund, ...getPayments()]);
+/*
+  Refund: an online payment goes back through Razorpay (the owner only; the order(s) are cancelled); a payment
+  recorded by hand gets a refund line recorded by hand. Answers null, or the problem to show.
+*/
+export async function refundPayment(payment: AdminPayment, recordedBy: string): Promise<string | null> {
+  if (payment.isOnline) {
+    const reply = (await fetch("/api/payments/refund", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ razorpayOrderId: payment.razorpayOrderId, razorpayPaymentId: payment.razorpayPaymentId }),
+    })
+      .then((response) => response.json())
+      .catch(() => null)) as { refunded?: boolean; error?: string } | null;
+    if (!reply?.refunded) return reply?.error ?? "Couldn't refund. Check your internet and try again.";
+    await loadPayments();
+    return null;
+  }
+  const refund = await recordPayment(
+    { customerName: payment.customerName, area: payment.area, type: "Refund", method: payment.method, amount: -Math.abs(payment.amount) },
+    recordedBy,
+  );
+  return "error" in refund ? refund.error : null;
 }
 
-// Money received by hand (cash at the door, bank transfer...)
-export function recordPayment(payment: Pick<AdminPayment, "customerName" | "area" | "type" | "method" | "amount">) {
-  const newPayment: AdminPayment = { ...payment, id: nextId(), paidAt: new Date().toISOString(), status: "Success" };
-  save([newPayment, ...getPayments()]);
-  return newPayment;
-}
-
-// A payment made on the website (Pay now in the cart), with the order's number
-export function recordWebsitePayment(
-  payment: Pick<AdminPayment, "customerName" | "area" | "type" | "method" | "amount"> & { websiteOrderId: string },
-) {
-  const newPayment: AdminPayment = { ...payment, id: nextId(), paidAt: new Date().toISOString(), status: "Success" };
-  save([newPayment, ...getPayments()]);
-  return newPayment;
-}
-
-// Also follows changes made in other tabs and browsers (shared data), so a website payment shows at once
 function subscribe(onChange: () => void) {
   listeners.add(onChange);
-  function followOtherTabs(event: StorageEvent) {
-    if (event.key !== STORAGE_KEY) return;
-    payments = null;
-    onChange();
-  }
-  window.addEventListener("storage", followOtherTabs);
+  startFollowingPayments();
   return () => {
     listeners.delete(onChange);
-    window.removeEventListener("storage", followOtherTabs);
   };
 }
 
 export function useAdminPayments() {
-  return useSyncExternalStore(subscribe, getPayments, () => EMPTY);
+  return useSyncExternalStore(subscribe, () => payments, () => EMPTY);
 }

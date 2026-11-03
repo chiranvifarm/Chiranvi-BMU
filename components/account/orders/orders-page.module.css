@@ -166,6 +166,13 @@
 }
 
 /* "Arriving tomorrow by 7:00 AM": Ubuntu Bold, green */
+/* A failed payment: no order was placed */
+.order-payment-failed-line {
+  margin-top: calc(6 * var(--account-design-pixel));
+  font-size: calc(13 * var(--account-design-pixel));
+  color: #e03a3a;
+}
+
 .order-arrival {
   margin-top: calc(6 * var(--account-design-pixel));
   font-family: var(--font-ubuntu), sans-serif;
@@ -182,15 +189,22 @@
   align-items: flex-end;
 }
 
+/* Status as a pill: green, red when cancelled or the payment failed */
 .order-status {
+  display: inline-flex;
+  align-items: center;
+  padding: calc(5 * var(--account-design-pixel)) calc(12 * var(--account-design-pixel));
+  border-radius: 9999px;
+  background: #2f6b3f;
   font-family: var(--font-ubuntu), sans-serif;
   font-size: calc(12 * var(--account-design-pixel));
   font-weight: 700;
-  color: #2f6b3f;
+  white-space: nowrap;
+  color: #ffffff;
 }
 
 .order-status-cancelled {
-  color: #e03a3a;
+  background: #e03a3a;
 }
 
 .order-total {
@@ -201,8 +215,7 @@
   color: #1e2a22;
 }
 
-.order-reorder-button,
-.order-help-button {
+.order-reorder-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -227,16 +240,23 @@
   background: #245433;
 }
 
-.order-help-button {
+/* "Order details": plain green text (opens the receipt pop-up) */
+.order-details-text-button {
   margin-top: calc(14 * var(--account-design-pixel));
-  border: 1px solid #d9e2d8;
-  background: #ffffff;
-  color: #1e2a22;
+  padding: 0;
+  background: none;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14 * var(--account-design-pixel));
+  font-weight: 700;
+  color: #2f6b3f;
+  cursor: pointer;
 }
 
-.order-help-button:hover,
-.order-help-button:focus-visible {
-  background: #f2f5f0;
+.order-details-text-button:hover,
+.order-details-text-button:focus-visible {
+  color: #245433;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* Delivery steps: four dots on a line, label under each dot */
@@ -329,8 +349,21 @@
 
   .order-total,
   .order-reorder-button,
-  .order-help-button {
+  .order-details-text-button {
     margin-top: 0;
+  }
+
+  .order-details-text-button {
+    font-size: 14px;
+  }
+
+  .order-status {
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+
+  .order-payment-failed-line {
+    font-size: 12px;
   }
 
   .order-tracker-step {

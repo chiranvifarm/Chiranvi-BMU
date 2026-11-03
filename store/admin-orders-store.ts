@@ -7,6 +7,7 @@ import {
   type OrderStatus,
 } from "./orders-store";
 import { customerIdForMobile } from "./admin-customers-store";
+import { assignOrderDelivery, removeOrderDelivery } from "./admin-deliveries-store";
 import { markPanelPageSeen, usePanelSeenAt } from "./account-state";
 import { createPanelRecordStore } from "./panel-records";
 
@@ -22,11 +23,13 @@ import { createPanelRecordStore } from "./panel-records";
   Both are shown as one list, newest first.
 */
 
-// The order's steps: Pending (placed, waiting) -> Packed -> Out for delivery -> Delivered (or Cancelled)
-export type AdminOrderStatus = "Pending" | "Packed" | "Out for delivery" | "Delivered" | "Cancelled";
-export const ADMIN_ORDER_STATUSES: AdminOrderStatus[] = ["Pending", "Packed", "Out for delivery", "Delivered", "Cancelled"];
+// The order's steps: Placed -> Packed -> Out for delivery -> Delivered (or Cancelled)
+export type AdminOrderStatus = "Placed" | "Packed" | "Out for delivery" | "Delivered" | "Cancelled";
+export const ADMIN_ORDER_STATUSES: AdminOrderStatus[] = ["Placed", "Packed", "Out for delivery", "Delivered", "Cancelled"];
+// The delivery steps (the status drop-down and the details card's steps)
+export const ADMIN_DELIVERY_STEPS: AdminOrderStatus[] = ["Placed", "Packed", "Out for delivery", "Delivered"];
 // Still to be delivered
-export const OPEN_ORDER_STATUSES: AdminOrderStatus[] = ["Pending", "Packed", "Out for delivery"];
+export const OPEN_ORDER_STATUSES: AdminOrderStatus[] = ["Placed", "Packed", "Out for delivery"];
 
 // How customers pay on the website (no cash on delivery); "Cash" is only for orders taken in the panel
 export type OrderPaymentMethod = "UPI" | "Net banking" | "Card";
@@ -59,7 +62,7 @@ export type AdminOrder = {
 };
 
 const TO_CUSTOMER_STATUS: Record<AdminOrderStatus, OrderStatus> = {
-  Pending: "placed",
+  Placed: "placed",
   Packed: "packed",
   "Out for delivery": "out-for-delivery",
   Delivered: "delivered",
@@ -67,7 +70,7 @@ const TO_CUSTOMER_STATUS: Record<AdminOrderStatus, OrderStatus> = {
 };
 
 const TO_ADMIN_STATUS: Record<OrderStatus, AdminOrderStatus> = {
-  placed: "Pending",
+  placed: "Placed",
   packed: "Packed",
   "out-for-delivery": "Out for delivery",
   delivered: "Delivered",
@@ -168,7 +171,7 @@ function makeSampleOrders(): AdminOrder[] {
     const [items, amount] = sampleItems[(index * 7) % sampleItems.length];
     let status: AdminOrderStatus = "Delivered";
     if (index % 59 === 33) status = "Cancelled";
-    else if (index < 37) status = index % 3 === 0 ? "Out for delivery" : "Pending";
+    else if (index < 37) status = index % 3 === 0 ? "Out for delivery" : "Placed";
     orders.push({
       orderNumber: `#CF-${2041 - index}`,
       placedAt: placedAt.toISOString(),
@@ -190,10 +193,14 @@ const EMPTY: AdminOrder[] = [];
 type PanelOrderRecord = AdminOrder & { id: string };
 
 // Orders saved before the wallet was removed show UPI instead; a website order's Customer ID comes from the
-// customer's mobile number (older ones were numbered)
+// customer's mobile number (older ones were numbered); the old step "Pending" (and its time) is "Placed"
 function asShown(order: PanelOrderRecord): PanelOrderRecord {
+  const oldTimes = order.statusChangedAt as Record<string, string> | undefined;
+  const { Pending: oldPlacedAt, ...times } = oldTimes ?? {};
   return {
     ...order,
+    status: (order.status as string) === "Pending" ? "Placed" : order.status,
+    statusChangedAt: oldTimes ? { ...(oldPlacedAt ? { Placed: oldPlacedAt } : {}), ...times } : undefined,
     payment: ((order.payment as string) === "Wallet" ? "UPI" : order.payment) as AdminOrder["payment"],
     customerId: order.customerMobile ? customerIdForMobile(order.customerMobile) : order.customerId,
   };
@@ -220,6 +227,8 @@ function mergeOrders(savedOrders: Order[], panelOrders: AdminOrder[]) {
 
 // Moving an order along; a website order's customer sees the same step on their Orders page
 export function changeAdminOrderStatus(orderNumber: string, status: AdminOrderStatus) {
+  // A cancelled order isn't delivered: its stop goes from the agent's list
+  if (status === "Cancelled") removeOrderDelivery(orderNumber);
   // A website order in the database: changed there (the customer's order is the same row)
   const savedOrder = getSavedOrders().find((order) => `#${order.orderId}` === orderNumber);
   if (savedOrder) {
@@ -229,6 +238,25 @@ export function changeAdminOrderStatus(orderNumber: string, status: AdminOrderSt
   // The panel's own (sample or panel-made) orders: no customer on the website to tell
   const now = new Date().toISOString();
   void store.change(orderNumber, (order) => ({ ...order, status, statusChangedAt: { ...order.statusChangedAt, [status]: now } }));
+}
+
+/*
+  Gives the order to a delivery agent: today's stop for it (on routeId) goes to that agent. A Placed order
+  becomes Packed (a website order's customer sees Packed too).
+*/
+export function assignAdminOrderAgent(order: AdminOrder, agent: string, routeId: string) {
+  // "Name · #12, 4th Cross, Kengeri": the address part
+  const address = order.deliverTo?.split(" · ").slice(1).join(" · ").trim() || order.area;
+  assignOrderDelivery({
+    orderNumber: order.orderNumber,
+    customerName: order.customerName,
+    address,
+    phone: order.deliveryMobile || order.customerMobile || "",
+    area: order.area,
+    routeId,
+    agent,
+  });
+  if (order.status === "Placed") changeAdminOrderStatus(order.orderNumber, "Packed");
 }
 
 // A new order goes to the top, numbered after the newest one (website orders keep their own IDs)
@@ -241,7 +269,7 @@ export function addAdminOrder(order: Omit<AdminOrder, "orderNumber" | "placedAt"
       .map((existing) => Number(existing.orderNumber.replace(/[^0-9]/g, "")) || 0),
   );
   const orderNumber = "#CF-" + (highestNumber + 1);
-  const newOrder: PanelOrderRecord = { ...order, id: orderNumber, orderNumber, placedAt: new Date().toISOString(), status: "Pending" };
+  const newOrder: PanelOrderRecord = { ...order, id: orderNumber, orderNumber, placedAt: new Date().toISOString(), status: "Placed" };
   void store.add(newOrder);
   return newOrder as AdminOrder;
 }

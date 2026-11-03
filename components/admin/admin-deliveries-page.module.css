@@ -197,3 +197,13 @@
   font-weight: 600;
   color: #c0392b;
 }
+
+/* "Transfer to Shivu · waiting" under the agent (one agent asked another to take the stop) */
+.admin-delivery-transfer-note {
+  display: block;
+  margin-top: calc(2 * var(--admin-pixel));
+  font-size: calc(11 * var(--admin-pixel));
+  font-weight: 600;
+  color: #c99a1e;
+  white-space: nowrap;
+}

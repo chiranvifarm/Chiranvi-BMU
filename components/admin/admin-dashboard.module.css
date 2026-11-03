@@ -889,6 +889,351 @@
   color: #1f4d2e;
 }
 
+/* Orders table: a row opens the order's details */
+.admin-orders-row-clickable {
+  cursor: pointer;
+}
+
+.admin-orders-row-clickable:hover td,
+.admin-orders-row-clickable:focus-visible td {
+  background: #f7faf5;
+}
+
+.admin-orders-row-clickable:focus-visible {
+  outline: 2px solid #2f6b3a;
+  outline-offset: -2px;
+}
+
+/* The status pill as a drop-down (staff who may edit orders): a see-through select inside the pill */
+.admin-status-select-pill {
+  position: relative;
+  padding: 0;
+}
+
+.admin-status-select {
+  appearance: none;
+  padding: calc(4 * var(--admin-pixel)) calc(26 * var(--admin-pixel)) calc(4 * var(--admin-pixel)) calc(12 * var(--admin-pixel));
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.admin-status-select:focus-visible {
+  outline: 2px solid #2f6b3a;
+  outline-offset: 1px;
+}
+
+.admin-status-select-arrow {
+  position: absolute;
+  top: 50%;
+  right: calc(9 * var(--admin-pixel));
+  width: calc(12 * var(--admin-pixel));
+  height: calc(12 * var(--admin-pixel));
+  transform: translateY(-50%);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+/* "Assign agent", or the agent's name on light green once assigned (click to change) */
+.admin-order-agent-button {
+  padding: calc(6 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border: 1px solid #2f6b3a;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-family: inherit;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  white-space: nowrap;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.admin-order-agent-button:hover {
+  background: #e6f0e1;
+}
+
+.admin-order-agent-button-assigned {
+  border-color: #e6f0e1;
+  background: #e6f0e1;
+}
+
+.admin-order-agent-button-assigned:hover {
+  border-color: #2f6b3a;
+}
+
+/* An order's details: two columns (stacked on small screens) */
+.admin-order-details-columns {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: calc(22 * var(--admin-pixel));
+}
+
+.admin-order-details-column {
+  display: flex;
+  flex-direction: column;
+  gap: calc(16 * var(--admin-pixel));
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .admin-order-details-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The order's delivery agent (light yellow) and a transfer waiting between agents */
+.admin-order-agent-box,
+.admin-order-transfer-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(4 * var(--admin-pixel));
+  padding: calc(14 * var(--admin-pixel));
+  border-radius: calc(12 * var(--admin-pixel));
+  background: #fbf3e1;
+}
+
+.admin-order-transfer-box {
+  border: 1px solid #c99a1e;
+  background: #ffffff;
+}
+
+.admin-order-box-title {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14 * var(--admin-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+.admin-order-agent-name {
+  font-size: calc(15 * var(--admin-pixel));
+  font-weight: 700;
+  color: #1b2a20;
+}
+
+.admin-order-agent-detail {
+  font-size: calc(12.5 * var(--admin-pixel));
+  color: #5c655e;
+}
+
+.admin-order-agent-detail a {
+  color: #2f6b3a;
+  font-weight: 600;
+}
+
+.admin-order-change-agent-button {
+  margin-top: calc(6 * var(--admin-pixel));
+  padding: calc(6 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border: 1px solid #2f6b3a;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-family: inherit;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.admin-order-change-agent-button:hover {
+  background: #e6f0e1;
+}
+
+/* Red: only for taking a transfer back and cancelling the order */
+.admin-order-danger-link {
+  margin-top: calc(4 * var(--admin-pixel));
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  color: #c0392b;
+  cursor: pointer;
+}
+
+.admin-order-history {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--admin-pixel));
+  margin: calc(8 * var(--admin-pixel)) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: calc(12.5 * var(--admin-pixel));
+  color: #1b2a20;
+}
+
+.admin-order-history li {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(10 * var(--admin-pixel));
+}
+
+.admin-order-cancel-area {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--admin-pixel));
+  padding-top: calc(12 * var(--admin-pixel));
+  border-top: 1px solid #f1f1ec;
+}
+
+.admin-order-cancel-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(8 * var(--admin-pixel));
+}
+
+.admin-order-cancel-button {
+  align-self: flex-start;
+  padding: calc(7 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border: 1px solid #c0392b;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-family: inherit;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  color: #c0392b;
+  cursor: pointer;
+}
+
+.admin-order-cancel-buttons .admin-order-cancel-button,
+.admin-order-cancel-button:hover {
+  background: #c0392b;
+  color: #ffffff;
+}
+
+/* Assign delivery agent: the agents table */
+.admin-assign-agent {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: calc(10 * var(--admin-pixel));
+  min-width: 0;
+}
+
+.admin-assign-agent-transfer-note {
+  padding: calc(10 * var(--admin-pixel)) calc(12 * var(--admin-pixel));
+  border-radius: calc(10 * var(--admin-pixel));
+  background: #fbf3e1;
+  font-size: calc(12.5 * var(--admin-pixel));
+  color: #8a6a1c;
+}
+
+.admin-assign-agent-table td {
+  vertical-align: top;
+}
+
+.admin-assign-agent-row {
+  cursor: pointer;
+}
+
+.admin-assign-agent-row:hover td {
+  background: #f7faf5;
+}
+
+.admin-assign-agent-row-picked td,
+.admin-assign-agent-row-picked:hover td {
+  background: #e6f0e1;
+}
+
+.admin-assign-agent-row-on-leave {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.admin-assign-agent-name {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8 * var(--admin-pixel));
+  font-weight: 700;
+  cursor: inherit;
+}
+
+.admin-assign-agent-name input {
+  accent-color: #2f6b3a;
+}
+
+.admin-assign-agent-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: calc(4 * var(--admin-pixel));
+  margin-left: calc(6 * var(--admin-pixel));
+}
+
+.admin-assign-agent-suggested,
+.admin-assign-agent-current {
+  padding: calc(2 * var(--admin-pixel)) calc(8 * var(--admin-pixel));
+  border-radius: 9999px;
+  font-size: calc(10.5 * var(--admin-pixel));
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-assign-agent-suggested {
+  background: #f5bf2c;
+  color: #1f4d2e;
+}
+
+.admin-assign-agent-current {
+  background: #e6f0e1;
+  color: #1f4d2e;
+  box-shadow: inset 0 0 0 1px #2f6b3a;
+}
+
+.admin-assign-agent-duty {
+  display: inline-block;
+  padding: calc(2 * var(--admin-pixel)) calc(9 * var(--admin-pixel));
+  border-radius: 9999px;
+  font-size: calc(11 * var(--admin-pixel));
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-assign-agent-duty-on {
+  background: #2f6b3a;
+  color: #ffffff;
+}
+
+.admin-assign-agent-duty-off {
+  background: #ecece6;
+  color: #5c655e;
+}
+
+.admin-assign-agent-duty-leave {
+  background: #fbf3e1;
+  color: #8a6a1c;
+}
+
+.admin-assign-agent-areas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(4 * var(--admin-pixel));
+}
+
+.admin-assign-agent-area-chip {
+  padding: calc(2 * var(--admin-pixel)) calc(8 * var(--admin-pixel));
+  border-radius: 9999px;
+  background: #f1f1ec;
+  font-size: calc(11 * var(--admin-pixel));
+  white-space: nowrap;
+  color: #1b2a20;
+}
+
+.admin-assign-agent-area-chip-match {
+  background: #f5bf2c;
+  font-weight: 700;
+}
+
 /* An ordered item's Product ID, small under its name (order details, a customer's order history) */
 .admin-order-item-product-id {
   display: block;

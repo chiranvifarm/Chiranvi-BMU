@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { STARTING_ROUTES, agentPhoneOf, type DeliveryRoute } from "./admin-routes-store";
 import { createPanelRecordStore } from "./panel-records";
 
@@ -12,11 +13,28 @@ import { createPanelRecordStore } from "./panel-records";
     The first time each day, 812 sample deliveries are copied in to match the design: 6 routes, 768 delivered,
     41 still to go (12 out for delivery) and 3 missed on Route 2 (the earlier days' samples are removed then).
   - Earlier days (Custom range) are made up from the date and are read-only: almost all delivered.
+  - An order given to an agent on the Orders page is a delivery too (with its order number). One not finished
+    by the end of the day moves on to the next day. Asking another agent to take a stop (a transfer) and
+    each change of agent are kept on the delivery itself (its history).
   Routes and agents themselves are in store/admin-routes-store.ts.
 */
 
 export type DeliveryStatus = "Delivered" | "Out for delivery" | "Pending" | "Missed";
 export type DeliverySlot = "5–6 AM" | "6–7 AM" | "7–8 AM";
+
+// One agent asking another to take a stop, waiting for an answer
+export type DeliveryTransferRequest = { fromAgent: string; toAgent: string; reason: string; requestedAt: string };
+
+export type DeliveryEventKind =
+  | "assigned"
+  | "reassigned"
+  | "transfer-requested"
+  | "transfer-accepted"
+  | "transfer-declined"
+  | "transfer-cancelled";
+
+// A change of agent on a stop (the order's "Agent history")
+export type DeliveryEvent = { kind: DeliveryEventKind; at: string; fromAgent?: string; toAgent: string; reason?: string };
 
 export type Delivery = {
   id: string;
@@ -29,6 +47,10 @@ export type Delivery = {
   slot: DeliverySlot;
   status: DeliveryStatus;
   deliveredAt?: string; // ISO date and time
+  orderNumber?: string; // "#CF-60084": the order this stop delivers (given to the agent on the Orders page)
+  area?: string; // the order's area ("Kengeri")
+  transferRequest?: DeliveryTransferRequest;
+  history?: DeliveryEvent[];
 };
 
 export const DELIVERY_SLOTS: DeliverySlot[] = ["5–6 AM", "6–7 AM", "7–8 AM"];
@@ -200,8 +222,220 @@ export function addDelivery(delivery: Pick<Delivery, "customerName" | "address" 
   return newDelivery;
 }
 
+// The stop's area: the order's area, else the last part of the address ("#12, Basavanagudi")
+export function areaOfDelivery(delivery: Pick<Delivery, "area" | "address">) {
+  return delivery.area?.trim() || delivery.address.split(",").pop()?.trim() || "";
+}
+
+// Not finished yet (it can still change agent)
+export function isDeliveryOpen(delivery: Delivery) {
+  return delivery.status === "Pending" || delivery.status === "Out for delivery";
+}
+
+function withEvent(delivery: Delivery, event: Omit<DeliveryEvent, "at">): Delivery {
+  return { ...delivery, history: [...(delivery.history ?? []), { ...event, at: new Date().toISOString() }] };
+}
+
+/*
+  An order given to an agent (Orders page): its stop today changes agent (any waiting transfer is dropped),
+  or a new stop is added for it, waiting to go out.
+*/
+export function assignOrderDelivery(details: {
+  orderNumber: string;
+  customerName: string;
+  address: string;
+  phone: string;
+  area: string;
+  routeId: string;
+  agent: string;
+}) {
+  const existing = store.getRecords().find((delivery) => delivery.orderNumber === details.orderNumber);
+  changed();
+  if (existing) {
+    if (existing.agent === details.agent && existing.routeId === details.routeId) return existing;
+    void store.change(
+      existing.id,
+      (delivery) =>
+        withEvent({ ...delivery, agent: details.agent, routeId: details.routeId, transferRequest: undefined }, {
+          kind: "reassigned",
+          fromAgent: delivery.agent,
+          toAgent: details.agent,
+        }),
+      agentPhoneOf(details.agent) ?? null,
+    );
+    return existing;
+  }
+  const date = toDateKey(new Date());
+  const highest = Math.max(0, ...store.getRecords().map((delivery) => Number(delivery.id.slice(-4)) || 0));
+  const newDelivery = withEvent(
+    {
+      ...details,
+      id: `D-${date.replace(/-/g, "")}-${String(highest + 1).padStart(4, "0")}`,
+      date,
+      slot: "6–7 AM",
+      status: "Pending",
+    },
+    { kind: "assigned", toAgent: details.agent },
+  );
+  void store.add(newDelivery, agentPhoneOf(details.agent));
+  return newDelivery;
+}
+
+// The order was cancelled: its stop goes
+export function removeOrderDelivery(orderNumber: string) {
+  const delivery = store.getRecords().find((existing) => existing.orderNumber === orderNumber);
+  if (!delivery) return;
+  changed();
+  void store.remove(delivery.id);
+}
+
+// An agent asks another to take one of their open stops (only one transfer waits at a time)
+export function requestDeliveryTransfer(id: string, toAgent: string, reason: string) {
+  const delivery = store.getRecords().find((existing) => existing.id === id);
+  if (!delivery || !isDeliveryOpen(delivery) || delivery.transferRequest || delivery.agent === toAgent) return false;
+  changed();
+  void store.change(id, (existing) =>
+    withEvent(
+      { ...existing, transferRequest: { fromAgent: existing.agent, toAgent, reason, requestedAt: new Date().toISOString() } },
+      { kind: "transfer-requested", fromAgent: existing.agent, toAgent, reason },
+    ),
+  );
+  return true;
+}
+
+// The other agent's answer: accepted, the stop (and its number) goes to them; declined, it stays
+export function answerDeliveryTransfer(id: string, isAccepted: boolean) {
+  const request = store.getRecords().find((existing) => existing.id === id)?.transferRequest;
+  if (!request) return;
+  changed();
+  void store.change(
+    id,
+    (existing) =>
+      withEvent(
+        { ...existing, agent: isAccepted ? request.toAgent : existing.agent, transferRequest: undefined },
+        { kind: isAccepted ? "transfer-accepted" : "transfer-declined", fromAgent: request.fromAgent, toAgent: request.toAgent },
+      ),
+    isAccepted ? (agentPhoneOf(request.toAgent) ?? null) : undefined,
+  );
+}
+
+// Taken back by the panel
+export function cancelDeliveryTransfer(id: string) {
+  const request = store.getRecords().find((existing) => existing.id === id)?.transferRequest;
+  if (!request) return;
+  changed();
+  void store.change(id, (existing) =>
+    withEvent({ ...existing, transferRequest: undefined }, { kind: "transfer-cancelled", fromAgent: request.fromAgent, toAgent: request.toAgent }),
+  );
+}
+
+// "Somu N asked Shivu M to take it"
+export function describeDeliveryEvent(event: DeliveryEvent) {
+  switch (event.kind) {
+    case "assigned":
+      return `Given to ${event.toAgent}`;
+    case "reassigned":
+      return event.fromAgent ? `Moved from ${event.fromAgent} to ${event.toAgent}` : `Given to ${event.toAgent}`;
+    case "transfer-requested":
+      return `${event.fromAgent} asked ${event.toAgent} to take it${event.reason ? ` (${event.reason})` : ""}`;
+    case "transfer-accepted":
+      return `${event.toAgent} took it from ${event.fromAgent}`;
+    case "transfer-declined":
+      return `${event.toAgent} said no to ${event.fromAgent}`;
+    case "transfer-cancelled":
+      return `Transfer from ${event.fromAgent} to ${event.toAgent} taken back`;
+  }
+}
+
+export type DeliveryTransferNews = { key: string; deliveryId: string; orderNumber?: string; customerName: string; event: DeliveryEvent };
+
+// Transfers asked, accepted or declined today, newest first (the panel's bell)
+export function useDeliveryTransferNews(): DeliveryTransferNews[] {
+  const deliveries = store.useRecords();
+  return useMemo(
+    () =>
+      deliveries
+        .flatMap((delivery) =>
+          (delivery.history ?? [])
+            .filter((event) => event.kind === "transfer-requested" || event.kind === "transfer-accepted" || event.kind === "transfer-declined")
+            .map((event) => ({
+              key: `${delivery.id}-${event.kind}-${event.at}`,
+              deliveryId: delivery.id,
+              orderNumber: delivery.orderNumber,
+              customerName: delivery.customerName,
+              event,
+            })),
+        )
+        .sort((first, second) => second.event.at.localeCompare(first.event.at)),
+    [deliveries],
+  );
+}
+
+/*
+  A new day: order stops not finished on an earlier day move on to today (their date changes; staff who
+  may change deliveries do it, once a day in this browser). Then today's list is read again.
+*/
+let carriedOverOn = "";
+
+async function carryOverOpenOrderDeliveries() {
+  const today = toDateKey(new Date());
+  if (carriedOverOn === today) return;
+  carriedOverOn = today;
+  const supabase = createClient();
+  const { data: login } = await supabase.auth.getSession();
+  if (!login.session) return;
+  const { data, error } = await supabase
+    .from("panel_records")
+    .select("id, data")
+    .eq("module", "deliveries")
+    .lt("data->>date", today)
+    .in("data->>status", ["Pending", "Out for delivery"])
+    .not("data->>orderNumber", "is", null);
+  if (error || !data || data.length === 0) return;
+  let movedAny = false;
+  for (const row of data as { id: string; data: Delivery }[]) {
+    const { error: moveError } = await supabase
+      .from("panel_records")
+      .update({ data: { ...row.data, date: today } })
+      .eq("module", "deliveries")
+      .eq("id", row.id);
+    if (!moveError) movedAny = true;
+  }
+  if (movedAny) void store.reload();
+}
+
+// The panel's Orders and Deliveries pages: unfinished order stops from earlier days come along to today
+export function useCarryOverOrderDeliveries() {
+  useEffect(() => {
+    void carryOverOpenOrderDeliveries();
+  }, []);
+}
+
+// Each agent's day as the Delivery Panel saves it (on / off duty), read only
+type AgentDutyRecord = { id: string; date: string; isOnDuty: boolean };
+
+const agentDayStore = createPanelRecordStore<AgentDutyRecord>({
+  module: "agent-days",
+  filters: () => [["data->>date", toDateKey(new Date())]],
+});
+
+// Whether the agent with this number switched On duty today (false: off duty, or not opened today)
+export function useAgentOnDutyReader() {
+  const days = agentDayStore.useRecords();
+  return useMemo(() => {
+    const today = toDateKey(new Date());
+    const onDuty = new Set(days.filter((day) => day.date === today && day.isOnDuty).map((day) => day.id.split(":")[0]));
+    return (phone: string) => onDuty.has(phone);
+  }, [days]);
+}
+
 export function useTodayDeliveries() {
   return store.useRecords();
+}
+
+// Today's list has been read (a new stop is numbered after the ones already there)
+export function useAreTodayDeliveriesLoaded() {
+  return store.useIsLoaded();
 }
 
 // When today's list last changed (the "Updated 2 minutes ago" line): this browser's last change, or when the page opened

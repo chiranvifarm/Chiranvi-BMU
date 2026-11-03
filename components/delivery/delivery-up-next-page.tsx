@@ -217,7 +217,8 @@ function StopRow({
         </div>
         <p className={styles["up-next-stop-customer"]}>{stop.customerName}</p>
         <p className={styles["up-next-stop-address"]}>
-          {stop.address} · {stop.landmark}
+          {stop.address}
+          {stop.landmark ? ` · ${stop.landmark}` : ""}
         </p>
         <p className={styles["up-next-stop-items"]}>
           {stop.items.map((item) => `${item.name} ${item.packSize} × ${item.quantity}`).join(", ")}

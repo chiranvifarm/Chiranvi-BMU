@@ -155,6 +155,24 @@ export function decideLeave(id: string, status: Exclude<LeaveStatus, "Pending">,
     });
 }
 
+// A team member asks for their own leave (the Delivery Panel's Leaves & attendance); waits as Pending for
+// Roles & permissions. Answers a problem to show, or null when saved.
+export async function askForMyLeave(staffMobile: string, leave: Pick<LeaveRequest, "type" | "from" | "to" | "reason">) {
+  const { error } = await createClient().from("leave_requests").insert({
+    staff_mobile: staffMobile,
+    leave_type: leave.type,
+    from_date: leave.from,
+    to_date: leave.type === "Half day" ? leave.from : leave.to,
+    reason: leave.reason,
+  });
+  await loadLeaveRequests();
+  if (error) {
+    console.error("The database did not accept the leave request", error);
+    return "Couldn't send your leave request. Check the dates and try again.";
+  }
+  return null;
+}
+
 // Number of leave days (a half day counts as half)
 export function getLeaveDays(request: Pick<LeaveRequest, "from" | "to" | "type">) {
   if (request.type === "Half day") return 0.5;

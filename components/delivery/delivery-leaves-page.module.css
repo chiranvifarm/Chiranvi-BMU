@@ -1,0 +1,217 @@
+/*
+  Work → Leaves & attendance. Sizes in --delivery-pixel (set by the Delivery Panel frame).
+  Leave: Waiting yellow, Approved green, Rejected red (serious).
+*/
+
+.delivery-leaves-numbers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: calc(12 * var(--delivery-pixel));
+  margin-bottom: calc(16 * var(--delivery-pixel));
+}
+
+.delivery-leaves-number {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--delivery-pixel));
+  padding: calc(14 * var(--delivery-pixel)) calc(16 * var(--delivery-pixel));
+  border: 1px solid #e7e8e2;
+  border-radius: calc(14 * var(--delivery-pixel));
+  background: #ffffff;
+}
+
+.delivery-leaves-number-value {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(22 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+.delivery-leaves-number-label {
+  font-size: calc(12 * var(--delivery-pixel));
+  color: #6b736c;
+}
+
+.delivery-leaves-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: calc(16 * var(--delivery-pixel));
+}
+
+.delivery-leaves-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(12 * var(--delivery-pixel));
+  padding: calc(18 * var(--delivery-pixel));
+  border: 1px solid #e7e8e2;
+  border-radius: calc(14 * var(--delivery-pixel));
+  background: #ffffff;
+}
+
+.delivery-leaves-card-title {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(16 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #1b2a20;
+}
+
+.delivery-leaves-field {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(5 * var(--delivery-pixel));
+  min-width: 0;
+  font-size: calc(12.5 * var(--delivery-pixel));
+  font-weight: 600;
+  color: #4d5a50;
+}
+
+.delivery-leaves-field select,
+.delivery-leaves-field input,
+.delivery-leaves-field textarea {
+  width: 100%;
+  min-height: calc(42 * var(--delivery-pixel));
+  padding: calc(9 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
+  border: 1px solid #e0e2da;
+  border-radius: calc(10 * var(--delivery-pixel));
+  background: #ffffff;
+  font-family: inherit;
+  /* 16px or more: phones don't zoom in while typing */
+  font-size: max(16px, calc(13.5 * var(--delivery-pixel)));
+  font-weight: 400;
+  color: #1b2a20;
+}
+
+.delivery-leaves-field textarea {
+  resize: vertical;
+}
+
+.delivery-leaves-field select:focus,
+.delivery-leaves-field input:focus,
+.delivery-leaves-field textarea:focus {
+  border-color: #2f6b3a;
+  outline: none;
+}
+
+.delivery-leaves-date-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(10 * var(--delivery-pixel));
+}
+
+.delivery-leaves-days-note {
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #6b736c;
+}
+
+.delivery-leaves-message {
+  padding: calc(9 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
+  border-radius: calc(10 * var(--delivery-pixel));
+  background: #e6f0e1;
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #1f4d2e;
+}
+
+.delivery-leaves-message-error {
+  padding: calc(9 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
+  border-radius: calc(10 * var(--delivery-pixel));
+  background: #fdecea;
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #c0392b;
+}
+
+.delivery-leaves-card button[type="submit"] {
+  align-self: flex-start;
+}
+
+.delivery-leaves-card button[type="submit"]:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.delivery-leaves-empty {
+  font-size: calc(13 * var(--delivery-pixel));
+  color: #6b736c;
+}
+
+.delivery-leaves-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--delivery-pixel));
+  list-style: none;
+}
+
+.delivery-leaves-request {
+  padding: calc(11 * var(--delivery-pixel)) calc(13 * var(--delivery-pixel));
+  border: 1px solid #f1f1ec;
+  border-radius: calc(10 * var(--delivery-pixel));
+}
+
+.delivery-leaves-request-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8 * var(--delivery-pixel));
+}
+
+.delivery-leaves-request-dates {
+  font-size: calc(13.5 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #1b2a20;
+}
+
+.delivery-leaves-request-detail,
+.delivery-leaves-reject-reason {
+  margin-top: calc(3 * var(--delivery-pixel));
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #6b736c;
+  overflow-wrap: anywhere;
+}
+
+.delivery-leaves-reject-reason {
+  color: #c0392b;
+}
+
+.delivery-leaves-status {
+  padding: calc(2 * var(--delivery-pixel)) calc(9 * var(--delivery-pixel));
+  border-radius: 9999px;
+  font-size: calc(11.5 * var(--delivery-pixel));
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.delivery-leaves-status-pending {
+  background: #fbf3e1;
+  color: #8a6a1c;
+}
+
+.delivery-leaves-status-approved {
+  background: #e6f0e1;
+  color: #1f4d2e;
+}
+
+.delivery-leaves-status-rejected {
+  background: #fdecea;
+  color: #c0392b;
+}
+
+@media (max-width: 900px) {
+  .delivery-leaves-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .delivery-leaves-numbers {
+    gap: 8px;
+  }
+
+  .delivery-leaves-number {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .delivery-leaves-numbers {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

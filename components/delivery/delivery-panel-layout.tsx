@@ -364,7 +364,9 @@ export function DeliveryNotice({ title, text, children }: { title: string; text:
 // The notices every Deliveries page shows first: no route yet, or off duty (with the switch)
 export function DeliveryShiftNotices() {
   const { login, stops } = useDeliveryPanel();
-  if (!login.agent || !login.route) {
+  const hasStops = Boolean(stops.ongoing) || stops.upNext.length > 0 || stops.completed.length > 0;
+  // No route and no stops yet (orders given to them on the Orders page are stops too, even without a route)
+  if (!login.agent || (!login.route && !hasStops)) {
     return (
       <DeliveryNotice
         title="No route given to you yet"

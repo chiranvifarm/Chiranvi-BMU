@@ -148,6 +148,25 @@
   margin-top: calc(10 * var(--delivery-pixel));
 }
 
+/* The customer's exact location: whether there is one, and "Save this spot" at the gate */
+.ongoing-location {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(6 * var(--delivery-pixel));
+  margin-top: calc(12 * var(--delivery-pixel));
+}
+
+.ongoing-location-text {
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #4d5a50;
+}
+
+.ongoing-location-saved {
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #2f6b3a;
+}
+
 /* Hand over */
 .ongoing-item-list {
   display: flex;

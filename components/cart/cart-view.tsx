@@ -676,6 +676,10 @@ export default function CartView() {
 
     const plan = planPart(deliverTo, planToExtend ?? undefined);
     const items = itemsPart(deliverTo);
+    // The saved address the orders go to (its map pin reaches the delivery agent); an extended plan keeps its own
+    const addressId = planToExtend ? undefined : chosenAddress?.id;
+    if (plan) plan.checkout.addressId = addressId;
+    if (items) items.checkout.addressId = addressId;
     const started = await startPayment(plan, items, amountToPay);
     if ("error" in started) {
       setIsPlacingOrder(false);

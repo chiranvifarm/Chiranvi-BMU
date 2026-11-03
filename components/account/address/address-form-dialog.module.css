@@ -181,6 +181,58 @@
   color: #e03a3a;
 }
 
+/* "Use my current location": the address's map pin for the delivery agent */
+.address-form-location {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(6 * var(--account-design-pixel));
+  margin-top: calc(16 * var(--account-design-pixel));
+}
+
+.address-form-location-button {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8 * var(--account-design-pixel));
+  height: calc(40 * var(--account-design-pixel));
+  padding: 0 calc(18 * var(--account-design-pixel));
+  border: 1px solid #2f6b3a;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-family: var(--font-poppins), sans-serif;
+  font-size: calc(13 * var(--account-design-pixel));
+  font-weight: 600;
+  color: #2f6b3a;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.address-form-location-button:hover,
+.address-form-location-button:focus-visible {
+  background: #e6f0e1;
+}
+
+.address-form-location-button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.address-form-location-button svg {
+  width: calc(17 * var(--account-design-pixel));
+  height: calc(17 * var(--account-design-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.address-form-location-note {
+  font-size: calc(12 * var(--account-design-pixel));
+  line-height: 1.45;
+  color: #6e7a72;
+}
+
 .address-form-default-option {
   display: flex;
   align-items: center;

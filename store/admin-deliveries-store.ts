@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
+import type { MapPin } from "./address-store";
 import { STARTING_ROUTES, agentPhoneOf, type DeliveryRoute } from "./admin-routes-store";
 import { createPanelRecordStore } from "./panel-records";
 
@@ -54,6 +55,10 @@ export type Delivery = {
   // (the agent can't read the orders themselves)
   items?: { name: string; packSize: string; quantity: number; price: number }[];
   cashToCollect?: number; // rupees
+  // The address's map pin (0027_address_pins.sql): copied from the order, kept up to date by the database when
+  // the customer moves it or the agent saves the spot at the door. None: the agent's Maps uses the address text.
+  latitude?: number;
+  longitude?: number;
   transferRequest?: DeliveryTransferRequest;
   history?: DeliveryEvent[];
 };
@@ -264,7 +269,12 @@ export function assignOrderDelivery(details: {
   agent: string;
   items: NonNullable<Delivery["items"]>;
   cashToCollect: number;
+  pin?: MapPin; // the order's map pin
 }) {
+  const { pin, ...stopDetails } = details;
+  // The order's pin, else the one already on the stop (the agent may have saved it at the door)
+  const pinOf = (delivery?: Delivery) =>
+    pin ? { latitude: pin.latitude, longitude: pin.longitude } : { latitude: delivery?.latitude, longitude: delivery?.longitude };
   const existing = store.getRecords().find((delivery) => delivery.orderNumber === details.orderNumber);
   changed();
   if (existing) {
@@ -272,7 +282,7 @@ export function assignOrderDelivery(details: {
     if (existing.agent === details.agent && existing.routeId === details.routeId) {
       void store.change(
         existing.id,
-        (delivery) => ({ ...delivery, items: details.items, cashToCollect: details.cashToCollect }),
+        (delivery) => ({ ...delivery, items: details.items, cashToCollect: details.cashToCollect, ...pinOf(delivery) }),
         agentPhoneOf(details.agent) ?? null,
       );
       return existing;
@@ -280,7 +290,7 @@ export function assignOrderDelivery(details: {
     void store.change(
       existing.id,
       (delivery) =>
-        withEvent({ ...delivery, agent: details.agent, routeId: details.routeId, transferRequest: undefined, items: details.items, cashToCollect: details.cashToCollect }, {
+        withEvent({ ...delivery, agent: details.agent, routeId: details.routeId, transferRequest: undefined, items: details.items, cashToCollect: details.cashToCollect, ...pinOf(delivery) }, {
           kind: "reassigned",
           fromAgent: delivery.agent,
           toAgent: details.agent,
@@ -293,7 +303,8 @@ export function assignOrderDelivery(details: {
   const highest = Math.max(0, ...store.getRecords().map((delivery) => Number(delivery.id.slice(-4)) || 0));
   const newDelivery = withEvent(
     {
-      ...details,
+      ...stopDetails,
+      ...(pin ? { latitude: pin.latitude, longitude: pin.longitude } : {}),
       id: `D-${date.replace(/-/g, "")}-${String(highest + 1).padStart(4, "0")}`,
       date,
       slot: "6–7 AM",

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import type { CartItem } from "./cart-store";
 import type { OrderPaymentMethod } from "./admin-orders-store";
+import type { MapPin } from "./address-store";
 import { getCustomerProfile } from "./customer-profiles-store";
 
 /*
@@ -54,6 +55,7 @@ export type Order = {
   razorpayPaymentId?: string; // pay_…
   paymentFailureReason?: string; // Razorpay's reason, on a failed payment's receipt
   platformFee?: number; // ₹ (once per checkout)
+  deliveryPin?: MapPin; // the delivery address's map pin (from the customer's saved address, or the agent at the door)
 };
 
 export type OrderPaymentStatus = "not_charged" | "paid" | "failed" | "refunded";
@@ -85,6 +87,7 @@ export type CheckoutDetails = {
   subscription?: OrderSubscription;
   planOrderNumber?: string; // the plan placed just before in the same checkout (these items then get free delivery)
   cartType?: "subscription" | "subscription-and-one-time"; // a plan's order: alone, or with one-time items (which coupon list)
+  addressId?: string; // the saved address it goes to (linked after payment: its map pin reaches the delivery agent)
 };
 
 // The browser's old copy of orders (from before the database): deleted, never read
@@ -132,6 +135,8 @@ type OrderRow = {
   razorpay_payment_id: string | null;
   payment_failure_reason: string | null;
   platform_fee_paise: number | null;
+  delivery_latitude: number | null;
+  delivery_longitude: number | null;
 };
 
 // Read again this often while the page is open: new orders reach the panel, and a customer's tracker
@@ -178,6 +183,10 @@ function toOrder(row: OrderRow): Order {
     razorpayPaymentId: row.razorpay_payment_id ?? undefined,
     paymentFailureReason: row.payment_failure_reason ?? undefined,
     platformFee: row.platform_fee_paise === null ? undefined : row.platform_fee_paise / 100,
+    deliveryPin:
+      row.delivery_latitude !== null && row.delivery_longitude !== null
+        ? { latitude: row.delivery_latitude, longitude: row.delivery_longitude }
+        : undefined,
   };
 }
 
@@ -421,10 +430,24 @@ export async function confirmPayment(
   }
   const planAnswer = reply.orders.find((answer) => answer.kind === "plan");
   const itemsAnswer = reply.orders.find((answer) => answer.kind === "items");
+  // Each paid order is linked to its saved address (the database copies the address's map pin itself)
+  if (plan && planAnswer) void linkOrderToAddress(planAnswer.orderNumber, plan.checkout.addressId);
+  if (items && itemsAnswer) void linkOrderToAddress(itemsAnswer.orderNumber, items.checkout.addressId);
   return {
     planOrder: plan && planAnswer ? rememberPlacedOrder(planAnswer, plan.cartItems, plan.checkout) : null,
     itemsOrder: items && itemsAnswer ? rememberPlacedOrder(itemsAnswer, items.cartItems, items.checkout) : null,
   };
+}
+
+/*
+  The order and the saved address it goes to (0027_address_pins.sql): only the customer's own order and
+  address, once, before it goes out. The address's pin, now or added later, then reaches the delivery agent's
+  stop. Not linked (the page was closed, an extended plan): the agent gets the address text.
+*/
+async function linkOrderToAddress(orderNumber: string, addressId: string | undefined) {
+  if (!addressId) return;
+  const { error } = await createClient().rpc("link_order_address", { p_order_number: orderNumber, p_address_id: addressId });
+  if (error) console.error("Could not link the order to its address", error);
 }
 
 export function reportFailedPayment(razorpayOrderId: string, razorpayPaymentId: string) {

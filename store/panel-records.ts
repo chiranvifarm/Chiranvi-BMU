@@ -22,7 +22,8 @@ export type PanelRecordStore<T extends { id: string }> = {
   getRecords(): T[];
   useIsLoaded(): boolean;
   add(record: T, ownerMobile?: string): Promise<boolean>;
-  change(id: string, makeChange: (record: T) => T): Promise<boolean>;
+  // ownerMobile: hand the record to another agent (deliveries, routes, agent cards)
+  change(id: string, makeChange: (record: T) => T, ownerMobile?: string | null): Promise<boolean>;
   remove(id: string): Promise<boolean>;
   reload(): Promise<void>;
 };
@@ -33,11 +34,15 @@ type StoreOptions<T> = {
   fromData?: (data: T) => T;
   // The page's samples, copied in once (seedKey: once per key, e.g. one day's sample deliveries)
   seed?: {
-    seedKey: string;
+    seedKey: string | (() => string);
     makeSamples: () => T[];
     oldStorageKey?: string; // the page's list as this browser kept it before the database
+    // That old copy as a list, when it wasn't kept as one (e.g. {date, staff: […]}); null: not usable
+    fromOldCopy?: (saved: unknown) => T[] | null;
     ownerMobileOf?: (record: T) => string | undefined;
   };
+  // Only these records, e.g. [["data->>date", today]] for today's deliveries
+  filters?: () => [string, string][];
   refreshEveryMs?: number;
 };
 
@@ -52,14 +57,56 @@ export function forgetBrowserCopy(storageKey: string) {
   }
 }
 
-function readBrowserCopy<T>(storageKey: string | undefined): T[] | null {
+function readBrowserCopy<T>(storageKey: string | undefined, fromOldCopy?: (saved: unknown) => T[] | null): T[] | null {
   if (!storageKey) return null;
   try {
     const saved = JSON.parse(window.localStorage.getItem(storageKey) ?? "null");
+    if (fromOldCopy) return saved === null ? null : fromOldCopy(saved);
     return Array.isArray(saved) ? (saved as T[]) : null;
   } catch {
     return null;
   }
+}
+
+/*
+  Copies of other people's data that earlier versions kept in every browser (and copied between browsers):
+  - always deleted: customers' profiles, orders and addresses, products, coupons, the team (all in the
+    database now);
+  - the panel's lists: a team member's browser hands each list to the database once (the list's store deletes
+    its copy then); anyone else's browser deletes them at once.
+*/
+const OLD_COPIES = [
+  "chiranvi-customer-profiles", "chiranvi-orders", "chiranvi-products", "chiranvi-restock-notices",
+  "chiranvi-product-categories", "chiranvi-product-pages", "chiranvi-hidden-product-pages",
+  "chiranvi-staff-members", "chiranvi-panel-roles", "chiranvi-owner", "chiranvi-coupons", "chiranvi-coupon-redemptions",
+  "chiranvi-notify-me",
+];
+const OLD_PANEL_LISTS = [
+  "chiranvi-admin-customers", "chiranvi-admin-subscriptions", "chiranvi-admin-subscriptions-cancelled",
+  "chiranvi-admin-pause-requests", "chiranvi-admin-leads", "chiranvi-admin-complaints", "chiranvi-admin-orders",
+  "chiranvi-admin-deliveries", "chiranvi-admin-routes", "chiranvi-admin-agents", "chiranvi-admin-staff",
+  "chiranvi-admin-scheduled-reports",
+];
+
+function deleteOldKeys(keys: string[], prefixes: string[]) {
+  try {
+    const all = Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index) ?? "");
+    all.filter((key) => keys.includes(key) || prefixes.some((prefix) => key.startsWith(prefix))).forEach((key) => window.localStorage.removeItem(key));
+  } catch {
+    // Storage blocked: nothing kept to delete.
+  }
+}
+
+let hasCleanedUp = false;
+
+async function forgetOldBrowserCopies() {
+  if (hasCleanedUp || typeof window === "undefined") return;
+  hasCleanedUp = true;
+  deleteOldKeys(OLD_COPIES, ["chiranvi-addresses-"]);
+  const supabase = createClient();
+  const { data: login } = await supabase.auth.getSession();
+  const { data: role } = login.session ? await supabase.rpc("current_staff_role") : { data: null };
+  if (typeof role !== "string" || role === "") deleteOldKeys(OLD_PANEL_LISTS, ["chiranvi-admin-agent-day-"]);
 }
 
 export function createPanelRecordStore<T extends { id: string }>(options: StoreOptions<T>): PanelRecordStore<T> {
@@ -68,7 +115,8 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
   let isLoaded = false;
   let isLoading = false;
   let isFollowing = false;
-  let hasTriedSeeding = false;
+  // The seed key last tried (a new day's sample deliveries have a new one)
+  let triedSeedKey: string | null = null;
   const listeners = new Set<() => void>();
 
   function announce() {
@@ -79,10 +127,9 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
     const supabase = createClient();
     const rows: RecordRow[] = [];
     for (let from = 0; ; from += PAGE_SIZE) {
-      const { data, error } = await supabase
-        .from("panel_records")
-        .select("id, data")
-        .eq("module", options.module)
+      let query = supabase.from("panel_records").select("id, data").eq("module", options.module);
+      for (const [column, value] of options.filters?.() ?? []) query = query.eq(column, value);
+      const { data, error } = await query
         .order("created_at", { ascending: false })
         .order("sort_order")
         .range(from, from + PAGE_SIZE - 1);
@@ -98,14 +145,15 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
   // The page's samples (or this browser's list from before), copied in once by the database
   async function seedOnce() {
     const seed = options.seed;
-    if (!seed || hasTriedSeeding) return false;
-    hasTriedSeeding = true;
+    const seedKey = typeof seed?.seedKey === "function" ? seed.seedKey() : seed?.seedKey;
+    if (!seed || !seedKey || triedSeedKey === seedKey) return false;
+    triedSeedKey = seedKey;
     const samples = seed.makeSamples();
     const sampleIds = new Set(samples.map((sample) => sample.id));
-    const fromBefore = readBrowserCopy<T>(seed.oldStorageKey);
+    const fromBefore = readBrowserCopy<T>(seed.oldStorageKey, seed.fromOldCopy);
     const list = fromBefore && fromBefore.length > 0 ? fromBefore : samples;
     const { data, error } = await createClient().rpc("seed_panel_records", {
-      seed_key: seed.seedKey,
+      seed_key: seedKey,
       module: options.module,
       records: list.map((record) => ({
         id: record.id,
@@ -144,6 +192,7 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
   function startFollowing() {
     if (isFollowing || typeof window === "undefined") return;
     isFollowing = true;
+    void forgetOldBrowserCopies();
     void load();
     window.addEventListener("focus", () => void load());
     window.setInterval(() => {
@@ -151,7 +200,7 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
     }, options.refreshEveryMs ?? 60_000);
     createClient().auth.onAuthStateChange((event) => {
       if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
-        hasTriedSeeding = false;
+        triedSeedKey = null;
         window.setTimeout(() => void load(), 0);
       }
     });
@@ -190,7 +239,7 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
             .from("panel_records")
             .insert({ module: options.module, id: record.id, data: record, owner_mobile: ownerMobile ?? null }, { count: "exact" }),
       ),
-    change: (id, makeChange) => {
+    change: (id, makeChange, ownerMobile) => {
       const existing = records.find((record) => record.id === id);
       if (!existing) return Promise.resolve(false);
       const changed = makeChange(existing);
@@ -199,7 +248,7 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
         () =>
           createClient()
             .from("panel_records")
-            .update({ data: changed }, { count: "exact" })
+            .update(ownerMobile === undefined ? { data: changed } : { data: changed, owner_mobile: ownerMobile }, { count: "exact" })
             .eq("module", options.module)
             .eq("id", id),
       );

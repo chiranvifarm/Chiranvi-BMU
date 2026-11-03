@@ -1,10 +1,14 @@
-import { useSyncExternalStore } from "react";
+import { createPanelRecordStore } from "./panel-records";
 
 /*
   Delivery routes and agents for the Chiranvi Panel (Routes & agents page, and the Deliveries page's
-  route names, colours and agent lists), until the database is connected. Saved in this browser.
+  route names, colours and agent lists). Kept in the database (panel_records, "routes" and "agents";
+  supabase/migrations/0019_… and 0020_…), seen and changed by the staff member's role (Routes & agents).
   - 6 routes from the farm hub, each with its agent; route colours are Chiranvi greens and yellows.
   - 9 agents: one per route, two spare (they take reassigned deliveries), one on leave.
+  Each route and agent card carries its agent's number, so a delivery agent (Delivery Panel) reads only their
+  own card and route. The first time the panel opens Routes & agents, the starting routes and agents (or this
+  browser's lists from before the database) are copied in.
 */
 
 export type DeliveryRoute = {
@@ -21,6 +25,9 @@ export type DeliveryAgent = {
   bike: string; // "KA-05-4120"
   isOnLeave?: boolean;
 };
+
+// An agent card in the database: its id is the agent's name (what routes and deliveries point to)
+type AgentRecord = DeliveryAgent & { id: string };
 
 export const STARTING_ROUTES: DeliveryRoute[] = [
   { id: "R1", name: "Route 1", area: "RR Nagar", agent: "Ramesh K", colour: "#1f4d2e" },
@@ -46,59 +53,46 @@ const STARTING_AGENTS: DeliveryAgent[] = [
   { name: "Basava", phone: "9845044169", bike: "KA-05-4416", isOnLeave: true },
 ];
 
-const ROUTES_KEY = "chiranvi-admin-routes";
-const AGENTS_KEY = "chiranvi-admin-agents";
+const routeStore = createPanelRecordStore<DeliveryRoute>({
+  module: "routes",
+  seed: {
+    seedKey: "routes",
+    makeSamples: () => STARTING_ROUTES,
+    oldStorageKey: "chiranvi-admin-routes",
+    ownerMobileOf: (route) => agentPhoneOf(route.agent),
+  },
+});
 
-function load<T>(key: string, starting: T[]): T[] {
-  if (typeof window === "undefined") return starting;
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(key) ?? "null");
-    return Array.isArray(saved) ? saved : starting;
-  } catch {
-    return starting;
-  }
+const agentStore = createPanelRecordStore<AgentRecord>({
+  module: "agents",
+  seed: {
+    seedKey: "agents",
+    makeSamples: () => STARTING_AGENTS.map((agent) => ({ ...agent, id: agent.name })),
+    oldStorageKey: "chiranvi-admin-agents",
+    fromOldCopy: (saved) => (Array.isArray(saved) ? (saved as DeliveryAgent[]).map((agent) => ({ ...agent, id: agent.name })) : null),
+    ownerMobileOf: (agent) => agent.phone,
+  },
+});
+
+// The agent's login number (their route and stops carry it, so the Delivery Panel shows them only their own)
+export function agentPhoneOf(agentName: string): string | undefined {
+  const phone = (agentStore.getRecords().find((agent) => agent.name === agentName) ?? STARTING_AGENTS.find((agent) => agent.name === agentName))?.phone;
+  return phone && /^d{10}$/.test(phone) ? phone : undefined;
 }
 
-let routes: DeliveryRoute[] | null = null;
-let agents: DeliveryAgent[] | null = null;
-const listeners = new Set<() => void>();
-
-function getRoutes() {
-  if (!routes && typeof window !== "undefined") routes = load(ROUTES_KEY, STARTING_ROUTES);
-  return routes ?? STARTING_ROUTES;
-}
-
-function getAgents() {
-  if (!agents && typeof window !== "undefined") agents = load(AGENTS_KEY, STARTING_AGENTS);
-  return agents ?? STARTING_AGENTS;
-}
-
-function save(newRoutes: DeliveryRoute[], newAgents: DeliveryAgent[]) {
-  routes = newRoutes;
-  agents = newAgents;
-  try {
-    window.localStorage.setItem(ROUTES_KEY, JSON.stringify(newRoutes));
-    window.localStorage.setItem(AGENTS_KEY, JSON.stringify(newAgents));
-  } catch {
-    // Storage blocked: changes last until the page is refreshed.
-  }
-  listeners.forEach((onChange) => onChange());
-}
-
-// Edit routes: new area or agent for each route
+// Edit routes: new area or agent for each route (a route given to another agent goes with that agent's number)
 export function updateRoutes(changes: { id: string; area: string; agent: string }[]) {
-  save(
-    getRoutes().map((route) => {
-      const change = changes.find((existing) => existing.id === route.id);
-      return change ? { ...route, area: change.area, agent: change.agent } : route;
-    }),
-    getAgents(),
-  );
+  for (const change of changes) {
+    const route = routeStore.getRecords().find((existing) => existing.id === change.id);
+    if (!route || (route.area === change.area && route.agent === change.agent)) continue;
+    void routeStore.change(change.id, (existing) => ({ ...existing, area: change.area, agent: change.agent }),
+      route.agent === change.agent ? undefined : (agentPhoneOf(change.agent) ?? null));
+  }
 }
 
 export function addRoute(area: string, agent: string) {
-  const current = getRoutes();
-  const number = Math.max(0, ...current.map((route) => Number(route.id.slice(1)))) + 1;
+  const current = routeStore.getRecords();
+  const number = Math.max(0, ...current.map((route) => Number(route.id.slice(1)) || 0)) + 1;
   const newRoute: DeliveryRoute = {
     id: `R${number}`,
     name: `Route ${number}`,
@@ -106,34 +100,25 @@ export function addRoute(area: string, agent: string) {
     agent,
     colour: MORE_ROUTE_COLOURS[(number - 7 + MORE_ROUTE_COLOURS.length * 10) % MORE_ROUTE_COLOURS.length],
   };
-  save([...current, newRoute], getAgents());
+  void routeStore.add(newRoute, agentPhoneOf(agent));
   return newRoute;
 }
 
 export function addAgent(agent: DeliveryAgent) {
-  save(getRoutes(), [...getAgents(), agent]);
+  void agentStore.add({ ...agent, id: agent.name }, /^d{10}$/.test(agent.phone) ? agent.phone : undefined);
 }
 
 // Set from the Staff page: an agent on leave is not on duty here either
 export function setAgentOnLeave(name: string, isOnLeave: boolean) {
-  if (!getAgents().some((agent) => agent.name === name)) return;
-  save(
-    getRoutes(),
-    getAgents().map((agent) => (agent.name === name ? { ...agent, isOnLeave } : agent)),
-  );
-}
-
-function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  return () => {
-    listeners.delete(onChange);
-  };
+  if (!agentStore.getRecords().some((agent) => agent.name === name)) return;
+  void agentStore.change(name, (agent) => ({ ...agent, isOnLeave }));
 }
 
 export function useDeliveryRoutes() {
-  return useSyncExternalStore(subscribe, getRoutes, () => STARTING_ROUTES);
+  return routeStore.useRecords();
 }
 
-export function useDeliveryAgents() {
-  return useSyncExternalStore(subscribe, getAgents, () => STARTING_AGENTS);
+// The agent cards (each also carries its id, the agent's name)
+export function useDeliveryAgents(): DeliveryAgent[] {
+  return agentStore.useRecords();
 }

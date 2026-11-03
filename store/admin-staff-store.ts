@@ -1,9 +1,10 @@
-import { useSyncExternalStore } from "react";
+import { createPanelRecordStore } from "./panel-records";
 
 /*
-  The farm's team for the Chiranvi Panel's Staff page (and the Staff attendance report), until the
-  database and the staff app are connected: job, phone, shift, today's attendance, days absent this
-  month and salary. Saved in this browser.
+  The farm's team for the Chiranvi Panel's Staff page (and the Staff attendance report): job, phone, shift,
+  today's attendance, days absent this month and salary. Kept in the database (panel_records, "staff";
+  supabase/migrations/0019_…), seen and changed by the staff member's role (Staff); salaries never reach a
+  browser that isn't allowed to see them.
   - The delivery agents are the same people as on Routes & agents (store/admin-routes-store.ts).
   - Each new day everyone starts as present, except people on leave; whoever was absent the day before
     has that day added to their days absent this month (and a new month starts from zero).
@@ -23,6 +24,7 @@ export type StaffPerson = {
   salary: number; // a month
   today: TodayStatus;
   daysAbsentThisMonth: number; // before today
+  statusDate?: string; // YYYY-MM-DD: the day "today" is about (an older one rolls over when read)
 };
 
 export const STAFF_JOBS: { job: string; group: StaffGroup }[] = [
@@ -37,8 +39,6 @@ export const STAFF_JOBS: { job: string; group: StaffGroup }[] = [
 ];
 
 export const STAFF_SHIFTS = ["4 AM – 12 PM", "5 AM – 1 PM", "9 AM – 6 PM", "2 PM – 10 PM"];
-
-const STORAGE_KEY = "chiranvi-admin-staff";
 
 const startingStaff: StaffPerson[] = [
   ["Ramesh K", "Delivery agent", "9741230500", "5 AM – 1 PM", 14000, "Present", 1],
@@ -71,76 +71,61 @@ const startingStaff: StaffPerson[] = [
   daysAbsentThisMonth: daysAbsentThisMonth as number,
 }));
 
-type SavedStaff = { date: string; staff: StaffPerson[] };
-
 function todayKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-let saved: SavedStaff | null = null;
-const listeners = new Set<() => void>();
-const EMPTY: StaffPerson[] = [];
-
-// A new day: yesterday's absences are counted, everyone not on leave starts as present
-function startNewDay(previous: SavedStaff, date: string): SavedStaff {
-  const isNewMonth = previous.date.slice(0, 7) !== date.slice(0, 7);
+// A new day: yesterday's absences are counted, everyone not on leave starts as present (a new month from zero)
+function onToday(person: StaffPerson): StaffPerson {
+  const date = todayKey();
+  const statusDate = person.statusDate ?? date;
+  if (statusDate === date) return { ...person, statusDate };
+  const isNewMonth = statusDate.slice(0, 7) !== date.slice(0, 7);
   return {
-    date,
-    staff: previous.staff.map((person) => ({
-      ...person,
-      daysAbsentThisMonth: isNewMonth ? 0 : person.daysAbsentThisMonth + (person.today === "Present" ? 0 : 1),
-      today: person.today === "On leave" ? "On leave" : "Present",
-    })),
+    ...person,
+    statusDate: date,
+    daysAbsentThisMonth: isNewMonth ? 0 : person.daysAbsentThisMonth + (person.today === "Present" ? 0 : 1),
+    today: person.today === "On leave" ? "On leave" : "Present",
   };
 }
 
-function getSaved() {
-  const date = todayKey();
-  if (saved && saved.date === date) return saved;
-  if (typeof window === "undefined") return null;
-  if (!saved) {
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null");
-      saved = stored && Array.isArray(stored.staff) ? stored : { date, staff: startingStaff };
-    } catch {
-      saved = { date, staff: startingStaff };
-    }
-  }
-  if (saved && saved.date !== date) saved = startNewDay(saved, date);
-  return saved;
-}
+const store = createPanelRecordStore<StaffPerson>({
+  module: "staff",
+  fromData: onToday,
+  seed: {
+    seedKey: "staff",
+    makeSamples: () => startingStaff.map((person) => ({ ...person, statusDate: todayKey() })),
+    oldStorageKey: "chiranvi-admin-staff",
+    // This browser kept {date, staff: […]}
+    fromOldCopy: (saved) => {
+      const old = saved as { date?: string; staff?: StaffPerson[] };
+      return Array.isArray(old.staff) ? old.staff.map((person) => ({ ...person, statusDate: old.date })) : null;
+    },
+  },
+});
 
-function getStaff() {
-  return getSaved()?.staff ?? EMPTY;
-}
-
-function save(staff: StaffPerson[]) {
-  saved = { date: todayKey(), staff };
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
-  } catch {
-    // Storage blocked: changes last until the page is refreshed.
-  }
-  listeners.forEach((onChange) => onChange());
+// Changes are saved with today's roll-over (so yesterday's absence is counted once)
+function changePerson(id: string, change: (person: StaffPerson) => StaffPerson) {
+  void store.change(id, (person) => change(onToday(person)));
 }
 
 export function setTodayStatus(id: string, today: TodayStatus) {
-  save(getStaff().map((person) => (person.id === id ? { ...person, today } : person)));
+  changePerson(id, (person) => ({ ...person, today }));
 }
 
 export function updateStaffPerson(id: string, changes: Partial<Pick<StaffPerson, "job" | "group" | "phone" | "shift" | "salary">>) {
-  save(getStaff().map((person) => (person.id === id ? { ...person, ...changes } : person)));
+  changePerson(id, (person) => ({ ...person, ...changes }));
 }
 
 export function addStaffPerson(person: Pick<StaffPerson, "name" | "job" | "group" | "phone" | "shift" | "salary">) {
-  const highest = Math.max(0, ...getStaff().map((existing) => Number(existing.id.replace(/\D/g, ""))));
-  const newPerson: StaffPerson = { ...person, id: `ST-${highest + 1}`, today: "Present", daysAbsentThisMonth: 0 };
-  save([...getStaff(), newPerson]);
+  const highest = Math.max(0, ...store.getRecords().map((existing) => Number(existing.id.replace(/D/g, "")) || 0));
+  const newPerson: StaffPerson = { ...person, id: `ST-${highest + 1}`, today: "Present", daysAbsentThisMonth: 0, statusDate: todayKey() };
+  void store.add(newPerson);
   return newPerson;
 }
 
 export function removeStaffPerson(id: string) {
-  save(getStaff().filter((person) => person.id !== id));
+  void store.remove(id);
 }
 
 // Days present this month so far, counting today if present
@@ -149,13 +134,6 @@ export function getDaysPresent(person: StaffPerson, date = new Date()) {
   return Math.max(0, daysSoFar - person.daysAbsentThisMonth - (person.today === "Present" ? 0 : 1));
 }
 
-function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  return () => {
-    listeners.delete(onChange);
-  };
-}
-
 export function useStaffList() {
-  return useSyncExternalStore(subscribe, getStaff, () => EMPTY);
+  return store.useRecords();
 }

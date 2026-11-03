@@ -1,5 +1,5 @@
 -- =====================================================================================================
--- 0020 · Remove place_order()
+-- 0023 · Remove place_order()
 --   place_order() saved an order without taking money (from before online payments). 0018 locked it; nothing
 --   calls it any more (no website code, no other database function), so it is removed. Orders are created
 --   only by start_checkout() and become real once Razorpay's payment is confirmed (mark_checkout_paid). Its

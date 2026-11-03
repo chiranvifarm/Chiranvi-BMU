@@ -1,12 +1,16 @@
-import { useSyncExternalStore } from "react";
-import { STARTING_ROUTES, type DeliveryRoute } from "./admin-routes-store";
+import { useState } from "react";
+import { STARTING_ROUTES, agentPhoneOf, type DeliveryRoute } from "./admin-routes-store";
+import { createPanelRecordStore } from "./panel-records";
 
 /*
   Deliveries seen in the Chiranvi Panel (Deliveries page, and the red count of missed deliveries on its
-  sidebar badge), until the database and the agents' app are connected.
-  - Today's deliveries are kept and can be changed (marked delivered / missed, reassigned, added).
-    The first time each day, 812 sample deliveries are made to match the design: 6 routes, 768 delivered,
-    41 still to go (12 out for delivery) and 3 missed on Route 2. Saved in this browser.
+  sidebar badge) and in the Delivery Panel (each agent's own stops). Kept in the database (panel_records,
+  "deliveries"; supabase/migrations/0019_… and 0020_…):
+  - Today's deliveries can be changed in the panel by the staff member's role (marked delivered / missed,
+    reassigned, added). Each carries its agent's number, so an agent sees only their own stops and may only
+    mark them along (Out for delivery, Delivered, Missed).
+    The first time each day, 812 sample deliveries are copied in to match the design: 6 routes, 768 delivered,
+    41 still to go (12 out for delivery) and 3 missed on Route 2 (the earlier days' samples are removed then).
   - Earlier days (Custom range) are made up from the date and are read-only: almost all delivered.
   Routes and agents themselves are in store/admin-routes-store.ts.
 */
@@ -134,99 +138,77 @@ function makePastDay(date: string): Delivery[] {
   return rows;
 }
 
-let today: { date: string; deliveries: Delivery[]; updatedAt: string } | null = null;
-const listeners = new Set<() => void>();
-const EMPTY: Delivery[] = [];
+const store = createPanelRecordStore<Delivery>({
+  module: "deliveries",
+  // Only today's (earlier days are made up from the date)
+  filters: () => [["data->>date", toDateKey(new Date())]],
+  seed: {
+    seedKey: () => `deliveries:${toDateKey(new Date())}`,
+    makeSamples: () => makeToday(toDateKey(new Date())),
+    oldStorageKey: STORAGE_KEY,
+    // The browser's list from before the database, if it is today's
+    fromOldCopy: (saved) => {
+      const old = saved as { date?: string; deliveries?: Delivery[] };
+      return old.date === toDateKey(new Date()) && Array.isArray(old.deliveries) ? old.deliveries : null;
+    },
+    ownerMobileOf: (delivery) => agentPhoneOf(delivery.agent),
+  },
+});
 
-function getToday() {
-  const date = toDateKey(new Date());
-  if (today && today.date === date) return today;
-  if (typeof window === "undefined") return null;
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null");
-    today = saved && saved.date === date && Array.isArray(saved.deliveries) ? saved : null;
-  } catch {
-    today = null;
-  }
-  // A new day: a fresh sample list
-  if (!today) today = { date, deliveries: makeToday(date), updatedAt: new Date(Date.now() - 2 * 60000).toISOString() };
-  return today;
-}
+// When this browser last changed today's list (the "Updated 2 minutes ago" line)
+let lastChangedAt = "";
 
-function getTodayDeliveries() {
-  return getToday()?.deliveries ?? EMPTY;
-}
-
-function save(deliveries: Delivery[]) {
-  today = { date: toDateKey(new Date()), deliveries, updatedAt: new Date().toISOString() };
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(today));
-  } catch {
-    // Storage blocked: changes last until the page is refreshed.
-  }
-  listeners.forEach((onChange) => onChange());
+function changed() {
+  lastChangedAt = new Date().toISOString();
 }
 
 export function setDeliveryStatus(id: string, status: DeliveryStatus) {
-  save(
-    getTodayDeliveries().map((delivery) =>
-      delivery.id === id
-        ? { ...delivery, status, deliveredAt: status === "Delivered" ? new Date().toISOString() : undefined }
-        : delivery,
-    ),
-  );
+  changed();
+  void store.change(id, (delivery) => ({ ...delivery, status, deliveredAt: status === "Delivered" ? new Date().toISOString() : undefined }));
 }
 
-// Missed deliveries given to another agent: out for delivery again
+// Missed deliveries given to another agent: out for delivery again (with that agent's number)
 export function reassignMissed(agent: string) {
-  const missed = getTodayDeliveries().filter((delivery) => delivery.status === "Missed").length;
-  save(
-    getTodayDeliveries().map((delivery) =>
-      delivery.status === "Missed" ? { ...delivery, agent, status: "Out for delivery" } : delivery,
-    ),
-  );
-  return missed;
+  const missed = store.getRecords().filter((delivery) => delivery.status === "Missed");
+  changed();
+  for (const delivery of missed) {
+    void store.change(delivery.id, (existing) => ({ ...existing, agent, status: "Out for delivery" }), agentPhoneOf(agent) ?? null);
+  }
+  return missed.length;
 }
 
 // A route given to another agent: the stops not yet delivered go with it
 export function moveRouteToAgent(routeId: string, agent: string) {
-  save(
-    getTodayDeliveries().map((delivery) =>
-      delivery.routeId === routeId && (delivery.status === "Pending" || delivery.status === "Out for delivery")
-        ? { ...delivery, agent }
-        : delivery,
-    ),
-  );
+  changed();
+  for (const delivery of store.getRecords()) {
+    if (delivery.routeId !== routeId || (delivery.status !== "Pending" && delivery.status !== "Out for delivery")) continue;
+    void store.change(delivery.id, (existing) => ({ ...existing, agent }), agentPhoneOf(agent) ?? null);
+  }
 }
 
 export function addDelivery(delivery: Pick<Delivery, "customerName" | "address" | "phone" | "routeId" | "slot" | "agent">) {
-  const deliveries = getTodayDeliveries();
   const date = toDateKey(new Date());
-  const highest = Math.max(0, ...deliveries.map((existing) => Number(existing.id.slice(-4))));
+  const highest = Math.max(0, ...store.getRecords().map((existing) => Number(existing.id.slice(-4)) || 0));
   const newDelivery: Delivery = {
     ...delivery,
     id: `D-${date.replace(/-/g, "")}-${String(highest + 1).padStart(4, "0")}`,
     date,
     status: "Pending",
   };
-  save([newDelivery, ...deliveries]);
+  changed();
+  void store.add(newDelivery, agentPhoneOf(delivery.agent));
   return newDelivery;
 }
 
-function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  return () => {
-    listeners.delete(onChange);
-  };
-}
-
 export function useTodayDeliveries() {
-  return useSyncExternalStore(subscribe, getTodayDeliveries, () => EMPTY);
+  return store.useRecords();
 }
 
-// When today's list last changed (the "Updated 2 minutes ago" line)
+// When today's list last changed (the "Updated 2 minutes ago" line): this browser's last change, or when the page opened
 export function useDeliveriesUpdatedAt() {
-  return useSyncExternalStore(subscribe, () => getToday()?.updatedAt ?? "", () => "");
+  store.useRecords(); // asked again whenever the list changes
+  const [openedAt] = useState(() => new Date(Date.now() - 2 * 60000).toISOString());
+  return lastChangedAt > openedAt ? lastChangedAt : openedAt;
 }
 
 // Deliveries for the chosen dates: today's live list, earlier days made up, nothing for days ahead

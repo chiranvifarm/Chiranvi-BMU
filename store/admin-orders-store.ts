@@ -8,6 +8,7 @@ import {
 } from "./orders-store";
 import { customerIdForMobile } from "./admin-customers-store";
 import { markPanelPageSeen, usePanelSeenAt } from "./account-state";
+import { createPanelRecordStore } from "./panel-records";
 
 /*
   Orders seen in the Chiranvi Panel (Orders page, and "Recent orders" on the dashboard).
@@ -15,9 +16,9 @@ import { markPanelPageSeen, usePanelSeenAt } from "./account-state";
     read by store/orders-store.ts), with their Customer ID, items, promised delivery and payment method.
     Moving one along (Packed, Out for delivery, Delivered) changes it in the database, so the customer's
     Orders page tracks it.
-  - Still kept in this browser: the 412 sample orders from the last seven days (made the first time,
-    newest first, like the design), orders added in the panel itself, and website orders placed before the
-    database kept them. Status changes to these stay after a refresh.
+  - The panel's own orders, also in the database (panel_records, "orders"; supabase/migrations/0019_…), by the
+    staff member's role: the 412 sample orders from the last seven days (copied in the first time, newest
+    first, like the design) and orders added in the panel itself.
   Both are shown as one list, newest first.
 */
 
@@ -183,56 +184,38 @@ function makeSampleOrders(): AdminOrder[] {
   return orders;
 }
 
-let adminOrders: AdminOrder[] | null = null;
-const listeners = new Set<() => void>();
 const EMPTY: AdminOrder[] = [];
 
-// The orders kept in this browser (samples, panel orders, older website orders)
-function getBrowserOrders() {
-  if (adminOrders) return adminOrders;
-  if (typeof window === "undefined") return EMPTY;
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null");
-    // Orders saved before the wallet was removed show UPI instead
-    adminOrders = Array.isArray(saved)
-      ? saved.map((order: Omit<AdminOrder, "payment"> & { payment: string }) => ({
-          ...order,
-          payment: (order.payment === "Wallet" ? "UPI" : order.payment) as AdminOrder["payment"],
-          // A website order's Customer ID comes from the customer's mobile number (older ones were numbered)
-          customerId: order.customerMobile ? customerIdForMobile(order.customerMobile) : order.customerId,
-        }))
-      : makeSampleOrders();
-  } catch {
-    adminOrders = makeSampleOrders();
-  }
-  return adminOrders as AdminOrder[];
+// A panel order in the database: its id is its order number
+type PanelOrderRecord = AdminOrder & { id: string };
+
+// Orders saved before the wallet was removed show UPI instead; a website order's Customer ID comes from the
+// customer's mobile number (older ones were numbered)
+function asShown(order: PanelOrderRecord): PanelOrderRecord {
+  return {
+    ...order,
+    payment: ((order.payment as string) === "Wallet" ? "UPI" : order.payment) as AdminOrder["payment"],
+    customerId: order.customerMobile ? customerIdForMobile(order.customerMobile) : order.customerId,
+  };
 }
 
-// Saved website orders and the browser's orders, newest first (kept as one list while neither changes)
-let mergedFrom: { saved: Order[]; browser: AdminOrder[] } | null = null;
-let mergedOrders: AdminOrder[] = EMPTY;
+const store = createPanelRecordStore<PanelOrderRecord>({
+  module: "orders",
+  fromData: asShown,
+  seed: {
+    seedKey: "orders",
+    makeSamples: () => makeSampleOrders().map((order) => ({ ...order, id: order.orderNumber })),
+    oldStorageKey: STORAGE_KEY,
+    fromOldCopy: (saved) => (Array.isArray(saved) ? (saved as AdminOrder[]).map((order) => ({ ...order, id: order.orderNumber })) : null),
+  },
+});
 
-function getOrders() {
-  const savedOrders = getSavedOrders();
-  const browserOrders = getBrowserOrders();
-  if (mergedFrom && mergedFrom.saved === savedOrders && mergedFrom.browser === browserOrders) return mergedOrders;
-  const savedNumbers = new Set(savedOrders.map((order) => `#${order.orderId}`));
-  mergedOrders = [
-    ...savedOrders.map(toAdminOrder),
-    ...browserOrders.filter((order) => !savedNumbers.has(order.orderNumber)),
-  ].sort((first, second) => (first.placedAt < second.placedAt ? 1 : first.placedAt > second.placedAt ? -1 : 0));
-  mergedFrom = { saved: savedOrders, browser: browserOrders };
-  return mergedOrders;
-}
-
-function saveOrders(newOrders: AdminOrder[]) {
-  adminOrders = newOrders;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(newOrders));
-  } catch {
-    // Storage blocked: changes last until the page is refreshed.
-  }
-  listeners.forEach((onChange) => onChange());
+// Website orders from the database and the panel's own orders, newest first
+function mergeOrders(savedOrders: Order[], panelOrders: AdminOrder[]) {
+  const savedNumbers = new Set(savedOrders.map((order) => "#" + order.orderId));
+  return [...savedOrders.map(toAdminOrder), ...panelOrders.filter((order) => !savedNumbers.has(order.orderNumber))].sort(
+    (first, second) => (first.placedAt < second.placedAt ? 1 : first.placedAt > second.placedAt ? -1 : 0),
+  );
 }
 
 // Moving an order along; a website order's customer sees the same step on their Orders page
@@ -245,28 +228,22 @@ export function changeAdminOrderStatus(orderNumber: string, status: AdminOrderSt
   }
   // The panel's own (sample or panel-made) orders: no customer on the website to tell
   const now = new Date().toISOString();
-  saveOrders(
-    getBrowserOrders().map((order) =>
-      order.orderNumber === orderNumber ? { ...order, status, statusChangedAt: { ...order.statusChangedAt, [status]: now } } : order,
-    ),
-  );
+  void store.change(orderNumber, (order) => ({ ...order, status, statusChangedAt: { ...order.statusChangedAt, [status]: now } }));
 }
 
 // A new order goes to the top, numbered after the newest one (website orders keep their own IDs)
 export function addAdminOrder(order: Omit<AdminOrder, "orderNumber" | "placedAt" | "status">) {
-  const orders = getBrowserOrders();
   const highestNumber = Math.max(
     0,
-    ...orders.filter((existing) => !existing.websiteOrderId).map((existing) => Number(existing.orderNumber.replace(/\D/g, ""))),
+    ...store
+      .getRecords()
+      .filter((existing) => !existing.websiteOrderId)
+      .map((existing) => Number(existing.orderNumber.replace(/[^0-9]/g, "")) || 0),
   );
-  const newOrder: AdminOrder = {
-    ...order,
-    orderNumber: `#CF-${highestNumber + 1}`,
-    placedAt: new Date().toISOString(),
-    status: "Pending",
-  };
-  saveOrders([newOrder, ...orders]);
-  return newOrder;
+  const orderNumber = "#CF-" + (highestNumber + 1);
+  const newOrder: PanelOrderRecord = { ...order, id: orderNumber, orderNumber, placedAt: new Date().toISOString(), status: "Pending" };
+  void store.add(newOrder);
+  return newOrder as AdminOrder;
 }
 
 // The Orders page was opened: the new orders are now seen (the badge and the bell's list clear). Saved with
@@ -280,27 +257,13 @@ export function markOrdersSeen() {
   markPanelPageSeen("orders");
 }
 
-function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  // A customer's order placed in another tab (the website open next to the panel)
-  function followOtherTabs(event: StorageEvent) {
-    if (event.key === STORAGE_KEY) adminOrders = null;
-    else return;
-    onChange();
-  }
-  window.addEventListener("storage", followOtherTabs);
-  // New website orders and steps changed elsewhere, from the database
-  const stopFollowingSavedOrders = followSavedOrders(onChange);
-  return () => {
-    listeners.delete(onChange);
-    window.removeEventListener("storage", followOtherTabs);
-    stopFollowingSavedOrders();
-  };
+export function useAdminOrders() {
+  const panelOrders = store.useRecords();
+  const savedOrders = useSyncExternalStore(followSavedOrders, getSavedOrders, () => EMPTY_SAVED);
+  return useMemo(() => (panelOrders.length === 0 && savedOrders.length === 0 ? EMPTY : mergeOrders(savedOrders, panelOrders)), [savedOrders, panelOrders]);
 }
 
-export function useAdminOrders() {
-  return useSyncExternalStore(subscribe, getOrders, () => EMPTY);
-}
+const EMPTY_SAVED: Order[] = [];
 
 // Website orders placed since the Orders page was last opened, newest first (sidebar badge and bell);
 // orders added in the panel itself are not counted

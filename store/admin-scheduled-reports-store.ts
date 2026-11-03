@@ -1,9 +1,11 @@
-import { useSyncExternalStore } from "react";
+import { useMemo } from "react";
+import { createPanelRecordStore } from "./panel-records";
 
 /*
   Scheduled reports on the Chiranvi Panel's Reports page: which report goes to whom, how often and in
-  what format. Saved in this browser; actually sending them (WhatsApp / email) needs the backend, so for
-  now this is the list of what will be sent.
+  what format. Kept in the database (panel_records, "reports"; supabase/migrations/0019_…), by the staff
+  member's role (Reports); actually sending them (WhatsApp / email) needs a timed job on the server, so for
+  now this is the list of what will be sent. The first time, the 6 starting reports are copied in.
 */
 
 export type ReportFrequency = "daily" | "monday" | "friday" | "saturday" | "monthly" | "low-stock";
@@ -28,8 +30,6 @@ export const REPORT_FREQUENCIES: { key: ReportFrequency; label: string }[] = [
 ];
 
 export const REPORT_FORMATS: ReportFormat[] = ["PDF", "Excel", "PDF + Excel", "WhatsApp"];
-
-const STORAGE_KEY = "chiranvi-admin-scheduled-reports";
 
 const startingReports: ScheduledReport[] = [
   { id: "SR-1", name: "Daily summary", frequency: "daily", sentTo: "Owner (WhatsApp)", format: "PDF", isPaused: false },
@@ -64,53 +64,32 @@ export function getNextRun(frequency: ReportFrequency, now = new Date()): Date |
   return next;
 }
 
-let reports: ScheduledReport[] | null = null;
-const listeners = new Set<() => void>();
+const store = createPanelRecordStore<ScheduledReport>({
+  module: "reports",
+  seed: { seedKey: "reports", makeSamples: () => startingReports, oldStorageKey: "chiranvi-admin-scheduled-reports" },
+});
 
-function getReports() {
-  if (reports) return reports;
-  if (typeof window === "undefined") return startingReports;
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null");
-    reports = Array.isArray(saved) ? saved : startingReports;
-  } catch {
-    reports = startingReports;
-  }
-  return reports as ScheduledReport[];
-}
-
-function save(newReports: ScheduledReport[]) {
-  reports = newReports;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(newReports));
-  } catch {
-    // Storage blocked: changes last until the page is refreshed.
-  }
-  listeners.forEach((onChange) => onChange());
+// The list as the page shows it: oldest first (new ones go at the end)
+function inAddedOrder(reports: ScheduledReport[]) {
+  return [...reports].sort((first, second) => (Number(first.id.replace(/D/g, "")) || 0) - (Number(second.id.replace(/D/g, "")) || 0));
 }
 
 export function addScheduledReport(report: Omit<ScheduledReport, "id" | "isPaused">) {
-  const highest = Math.max(0, ...getReports().map((existing) => Number(existing.id.replace(/\D/g, ""))));
+  const highest = Math.max(0, ...store.getRecords().map((existing) => Number(existing.id.replace(/D/g, "")) || 0));
   const newReport: ScheduledReport = { ...report, id: `SR-${highest + 1}`, isPaused: false };
-  save([...getReports(), newReport]);
+  void store.add(newReport);
   return newReport;
 }
 
 export function setScheduledReportPaused(id: string, isPaused: boolean) {
-  save(getReports().map((report) => (report.id === id ? { ...report, isPaused } : report)));
+  void store.change(id, (report) => ({ ...report, isPaused }));
 }
 
 export function removeScheduledReport(id: string) {
-  save(getReports().filter((report) => report.id !== id));
-}
-
-function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  return () => {
-    listeners.delete(onChange);
-  };
+  void store.remove(id);
 }
 
 export function useScheduledReports() {
-  return useSyncExternalStore(subscribe, getReports, () => startingReports);
+  const reports = store.useRecords();
+  return useMemo(() => inAddedOrder(reports), [reports]);
 }

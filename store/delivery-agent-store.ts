@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo } from "react";
 import { useIsLoginStatusKnown, useLoggedInMobileNumber } from "@/components/login/login-status";
 import { useIsStaffAccessKnown, useStaffMembers } from "./staff-access-store";
 import { setDeliveryStatus, toDateKey, useTodayDeliveries, type Delivery, type DeliverySlot } from "./admin-deliveries-store";
 import { useDeliveryAgents, useDeliveryRoutes, type DeliveryAgent, type DeliveryRoute } from "./admin-routes-store";
+import { createPanelRecordStore } from "./panel-records";
 
 /*
-  The Delivery Panel (/delivery): one delivery agent's day, until the database and real routes exist.
+  The Delivery Panel (/delivery): one delivery agent's day.
   Who it is for: a number the owner gave the "Delivery agent" role on Roles & permissions (checked by the
   database). The same number on Routes & agents decides which agent they are, and so their stops: today's
   deliveries the Chiranvi Panel gives that agent (store/admin-deliveries-store.ts, sample data).
-  What the agent adds is kept per agent and day in this browser ("chiranvi-admin-agent-day-<number>", so it
-  is shared with the panel the same way as the panel's own data): their stop order, the step each stop is at
+  What the agent adds is kept per agent and day in the database (panel_records, "agent-days", one record per
+  agent and day; only that agent, and staff with Deliveries → View, can read it): their stop order, the step each stop is at
   (Picked up → On the way → Reached), how it ended (Delivered / Left at door / Not delivered) with its proof
   (customer's OTP or a photo), bottles and cash collected, requests raised to the manager, on / off duty and
   notifications. Finishing a stop also marks it on the panel's Deliveries page (Delivered, or Missed), and
@@ -158,11 +159,27 @@ export function useIsDeliveryAgent() {
   return useDeliveryAgentLogin().state === "agent";
 }
 
-// ---------- The agent's day, kept in this browser ----------
+// ---------- The agent's day, kept in the database ----------
 
-const DAY_KEY_PREFIX = "chiranvi-admin-agent-day-";
-const days = new Map<string, AgentDay>();
-const listeners = new Set<() => void>();
+// One record per agent and day: "<number>:<YYYY-MM-DD>"
+type AgentDayRecord = AgentDay & { id: string };
+
+const dayStore = createPanelRecordStore<AgentDayRecord>({ module: "agent-days" });
+
+// The days as earlier versions kept them in this browser: deleted (the database keeps them now)
+const OLD_DAY_KEY_PREFIX = "chiranvi-admin-agent-day-";
+let hasForgottenOldDays = false;
+
+function forgetOldBrowserDays() {
+  if (hasForgottenOldDays || typeof window === "undefined") return;
+  hasForgottenOldDays = true;
+  try {
+    const oldKeys = Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index) ?? "");
+    oldKeys.filter((key) => key.startsWith(OLD_DAY_KEY_PREFIX)).forEach((key) => window.localStorage.removeItem(key));
+  } catch {
+    // Storage blocked: nothing kept to delete.
+  }
+}
 
 function freshDay(date: string): AgentDay {
   return {
@@ -177,58 +194,37 @@ function freshDay(date: string): AgentDay {
   };
 }
 
-function getDay(mobileNumber: string): AgentDay {
-  const date = toDateKey(new Date());
-  const kept = days.get(mobileNumber);
-  if (kept && kept.date === date) return kept;
-  let day = freshDay(date);
-  if (typeof window !== "undefined") {
-    try {
-      const saved = JSON.parse(window.localStorage.getItem(DAY_KEY_PREFIX + mobileNumber) ?? "null");
-      // Yesterday's day starts over (duty off, new stops), as the panel's deliveries do
-      if (saved && saved.date === date) day = { ...day, ...saved };
-    } catch {
-      // Nothing saved, or storage blocked: a fresh day.
-    }
-  }
-  days.set(mobileNumber, day);
-  return day;
+function dayIdOf(mobileNumber: string, date = toDateKey(new Date())) {
+  return `${mobileNumber}:${date}`;
+}
+
+// A day not saved yet: the same object every time (so pages don't redraw for nothing)
+const freshDays = new Map<string, AgentDay>();
+
+// Today's day for this agent (a new day starts over: duty off, new stops), as the panel's deliveries do
+function findDay(records: AgentDayRecord[], mobileNumber: string): AgentDay {
+  const id = dayIdOf(mobileNumber);
+  const saved = records.find((record) => record.id === id);
+  if (saved) return saved;
+  if (!freshDays.has(id)) freshDays.set(id, freshDay(toDateKey(new Date())));
+  return freshDays.get(id) as AgentDay;
 }
 
 function saveDay(mobileNumber: string, change: (day: AgentDay) => AgentDay) {
-  const day = change(getDay(mobileNumber));
-  days.set(mobileNumber, day);
-  try {
-    window.localStorage.setItem(DAY_KEY_PREFIX + mobileNumber, JSON.stringify(day));
-  } catch {
-    // Storage blocked (or full, e.g. too many photos): changes last until the page is refreshed.
-  }
-  listeners.forEach((onChange) => onChange());
-}
-
-function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  // The same agent's day changed in another tab (or on another device, through the shared data)
-  function followOtherTabs(event: StorageEvent) {
-    if (!event.key?.startsWith(DAY_KEY_PREFIX)) return;
-    days.delete(event.key.slice(DAY_KEY_PREFIX.length));
-    onChange();
-  }
-  window.addEventListener("storage", followOtherTabs);
-  return () => {
-    listeners.delete(onChange);
-    window.removeEventListener("storage", followOtherTabs);
-  };
+  forgetOldBrowserDays();
+  const id = dayIdOf(mobileNumber);
+  const existing = dayStore.getRecords().find((record) => record.id === id);
+  const day: AgentDayRecord = { ...change(findDay(dayStore.getRecords(), mobileNumber)), id };
+  if (existing) void dayStore.change(id, () => day);
+  else void dayStore.add(day, mobileNumber);
 }
 
 const NO_DAY = freshDay("");
 
 function useAgentDay(mobileNumber: string | null) {
-  return useSyncExternalStore(
-    subscribe,
-    () => (mobileNumber ? getDay(mobileNumber) : NO_DAY),
-    () => NO_DAY,
-  );
+  const records = dayStore.useRecords();
+  useEffect(forgetOldBrowserDays, []);
+  return useMemo(() => (mobileNumber ? findDay(records, mobileNumber) : NO_DAY), [records, mobileNumber]);
 }
 
 // ---------- Sample details for each stop (the same every time for the same delivery) ----------

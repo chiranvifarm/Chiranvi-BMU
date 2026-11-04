@@ -13,7 +13,12 @@ import { ensureCustomerRowId, loadCustomerProfile, saveCustomerProfile, useCusto
   updates those two. Addresses they add, edit or remove here are kept with them. Logged out: no addresses.
   The page shows a change at once and then sends it; if the database refuses it, the book is read again.
   A book saved earlier only in this browser (before the database) is moved into the database once.
+  An address can have a map pin (0027_address_pins.sql): the spot from the phone's GPS, so the delivery agent's
+  Google Maps goes to the gate. The database notes who saved it (the customer, or the agent at the door).
 */
+
+// The exact spot of the address (from the phone's GPS, never typed)
+export type MapPin = { latitude: number; longitude: number };
 
 export type SavedAddress = {
   id: string;
@@ -24,6 +29,8 @@ export type SavedAddress = {
   area: string;
   city: string;
   pincode: string;
+  pin?: MapPin | null; // null: no pin; left out on a change: the pin stays as it is
+  pinSavedBy?: "customer" | "agent" | null;
 };
 
 export type AddressDetails = Omit<SavedAddress, "id">;
@@ -42,6 +49,9 @@ type AddressRow = {
   pincode: string;
   is_default: boolean;
   profile_slot: "primary" | "secondary" | null;
+  latitude: number | null;
+  longitude: number | null;
+  pin_saved_by: "customer" | "agent" | null;
 };
 
 const EMPTY_ADDRESS_BOOK: AddressBook = { addresses: [], defaultAddressId: "" };
@@ -74,9 +84,12 @@ function toAddress(row: AddressRow): SavedAddress {
     area: row.area,
     city: row.city,
     pincode: row.pincode,
+    pin: row.latitude !== null && row.longitude !== null ? { latitude: row.latitude, longitude: row.longitude } : null,
+    pinSavedBy: row.pin_saved_by,
   };
 }
 
+// Who saved the pin is written by the database, never sent from here
 function toRow(details: AddressDetails) {
   return {
     label: details.label,
@@ -86,6 +99,7 @@ function toRow(details: AddressDetails) {
     area: details.area.trim(),
     city: details.city || "Bengaluru",
     pincode: details.pincode.trim(),
+    ...(details.pin === undefined ? {} : { latitude: details.pin?.latitude ?? null, longitude: details.pin?.longitude ?? null }),
   };
 }
 
@@ -129,7 +143,7 @@ async function loadAddressBook(mobileNumber: string, refresh = false) {
   const readRows = async () => {
     const { data, error } = await supabase
       .from("addresses")
-      .select("id, label, name, mobile_number, house_and_street, area, city, pincode, is_default, profile_slot, customers!inner(mobile_number)")
+      .select("id, label, name, mobile_number, house_and_street, area, city, pincode, is_default, profile_slot, latitude, longitude, pin_saved_by, customers!inner(mobile_number)")
       .eq("customers.mobile_number", mobileNumber)
       .order("created_at");
     if (error) console.error("Could not read the addresses", error);
@@ -320,7 +334,10 @@ export function updateAddress(addressId: string, details: AddressDetails, should
     mobileNumber,
     {
       addresses: book.addresses.map((address) =>
-        address.id === addressId ? { ...details, mobileNumber: formatMobileNumber(details.mobileNumber), id: addressId } : address,
+        // (a change without a pin keeps the address's pin)
+        address.id === addressId
+          ? { ...address, ...details, pin: details.pin === undefined ? address.pin : details.pin, mobileNumber: formatMobileNumber(details.mobileNumber), id: addressId }
+          : address,
       ),
       defaultAddressId: shouldBeDefault ? addressId : book.defaultAddressId,
     },

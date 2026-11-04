@@ -1,9 +1,18 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { useIsLoginStatusKnown, useLoggedInMobileNumber } from "@/components/login/login-status";
 import { useIsStaffAccessKnown, useStaffMembers } from "./staff-access-store";
-import { setDeliveryStatus, toDateKey, useTodayDeliveries, type Delivery, type DeliverySlot } from "./admin-deliveries-store";
+import {
+  reloadTodayDeliveries,
+  setDeliveryStatus,
+  toDateKey,
+  useTodayDeliveries,
+  type Delivery,
+  type DeliverySlot,
+  type DeliveryTransferRequest,
+} from "./admin-deliveries-store";
 import { useDeliveryAgents, useDeliveryRoutes, type DeliveryAgent, type DeliveryRoute } from "./admin-routes-store";
 import { createPanelRecordStore } from "./panel-records";
+import { createClient } from "@/lib/supabase/client";
 
 /*
   The Delivery Panel (/delivery): one delivery agent's day.
@@ -18,7 +27,9 @@ import { createPanelRecordStore } from "./panel-records";
   starting one marks it Out for delivery.
   The stops' products, bottles to collect, landmark, gate code, notes, cash to collect and map position are
   sample details made from the delivery's ID, so they stay the same every time, until orders and addresses
-  come from the database.
+  come from the database. A stop with a map pin (the customer's address pin, or the spot the agent saved at
+  the gate; 0027_address_pins.sql) uses it: Google Maps goes to that exact spot. Without one, Maps searches
+  the address text.
   Stops: Ongoing is the first unfinished stop in the agent's order, Up next the other unfinished ones, and
   Completed the finished ones (including those the panel already shows as Delivered or Missed).
 */
@@ -94,6 +105,7 @@ export type AgentStop = {
   changedByDispatch: boolean; // the panel added this stop today or moved it to this agent
   latitude: number;
   longitude: number;
+  hasExactPin: boolean; // latitude / longitude are the address's real pin (else made up near the area's centre)
   // The agent's progress
   step?: StopStep;
   outcome?: StopOutcome;
@@ -103,6 +115,7 @@ export type AgentStop = {
   bottlesCollected?: number;
   cashCollected?: number;
   requests: AgentRequest[];
+  transferRequest?: DeliveryTransferRequest; // asked another agent to take it, waiting for their answer
 };
 
 type StopProgress = {
@@ -214,9 +227,29 @@ function saveDay(mobileNumber: string, change: (day: AgentDay) => AgentDay) {
   forgetOldBrowserDays();
   const id = dayIdOf(mobileNumber);
   const existing = dayStore.getRecords().find((record) => record.id === id);
-  const day: AgentDayRecord = { ...change(findDay(dayStore.getRecords(), mobileNumber)), id };
-  if (existing) void dayStore.change(id, () => day);
-  else void dayStore.add(day, mobileNumber);
+  if (existing) {
+    void dayStore.change(id, () => ({ ...change(existing), id }));
+    return;
+  }
+  void saveDayNotReadYet(mobileNumber, id, change);
+}
+
+// Today's day isn't in this browser's list (e.g. the list was read before midnight): the database may already
+// have it, so it is changed there instead of added a second time
+async function saveDayNotReadYet(mobileNumber: string, id: string, change: (day: AgentDay) => AgentDay) {
+  const supabase = createClient();
+  const { data: saved } = await supabase.from("panel_records").select("data").eq("module", "agent-days").eq("id", id).maybeSingle();
+  if (!saved) {
+    void dayStore.add({ ...change(findDay(dayStore.getRecords(), mobileNumber)), id }, mobileNumber);
+    return;
+  }
+  const { error } = await supabase
+    .from("panel_records")
+    .update({ data: { ...change(saved.data as AgentDay), id } })
+    .eq("module", "agent-days")
+    .eq("id", id);
+  if (error) console.error("The database did not accept the change to the agent's day", error);
+  await dayStore.reload();
 }
 
 const NO_DAY = freshDay("");
@@ -295,6 +328,29 @@ function sampleDetails(delivery: Delivery, route: DeliveryRoute | undefined, isT
   // One stop in nine pays cash (an order taken in the panel); website orders are paid online
   const cashToCollect = seed % 9 === 4 ? items.reduce((sum, item) => sum + item.price * item.quantity, 0) : 0;
   const [baseLatitude, baseLongitude] = AREA_POSITIONS[area] ?? AREA_POSITIONS[route?.area ?? ""] ?? BENGALURU_CENTRE;
+  // The stop's real map pin, when its address has one
+  const exactPin =
+    typeof delivery.latitude === "number" && typeof delivery.longitude === "number"
+      ? { latitude: delivery.latitude, longitude: delivery.longitude, hasExactPin: true }
+      : null;
+  // A real order given to the agent (Orders page): its own items and cash only, nothing made up
+  if (delivery.orderNumber) {
+    return {
+      area: delivery.area || area,
+      items: delivery.items ?? [],
+      bottlesToCollect: 0,
+      cashToCollect: delivery.cashToCollect ?? 0,
+      landmark: "",
+      gateCode: undefined,
+      note: undefined,
+      changedByDispatch: false,
+      // On the map: the address's pin, else around the area's centre
+      latitude: baseLatitude + (((seed * 7919) % 1000) / 1000 - 0.5) * 0.028,
+      longitude: baseLongitude + (((seed * 104729) % 1000) / 1000 - 0.5) * 0.028,
+      hasExactPin: false,
+      ...exactPin,
+    };
+  }
   return {
     area,
     items,
@@ -305,9 +361,11 @@ function sampleDetails(delivery: Delivery, route: DeliveryRoute | undefined, isT
     note: seed % 5 === 3 ? NOTES[seed % NOTES.length] : undefined,
     // Added in the panel today, or moved here from another route's agent
     changedByDispatch: !isTheirRouteAgent || seed > 812,
-    // Up to about 1.5 km around the area's centre
+    // Up to about 1.5 km around the area's centre (or the spot the agent saved at the gate)
     latitude: baseLatitude + (((seed * 7919) % 1000) / 1000 - 0.5) * 0.028,
     longitude: baseLongitude + (((seed * 104729) % 1000) / 1000 - 0.5) * 0.028,
+    hasExactPin: false,
+    ...exactPin,
   };
 }
 
@@ -384,6 +442,7 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
         ...details,
         ...progress,
         requests: day.requests.filter((request) => request.deliveryId === delivery.id),
+        transferRequest: delivery.transferRequest ?? undefined,
       };
     });
   }, [agentName, deliveries, routes, day]);
@@ -451,7 +510,143 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
   }, [stops, day]);
 }
 
+// ---------- Handing a stop to another agent (delivery exchange) ----------
+/*
+  Checked by the database (supabase/migrations/0026_agent_stop_exchange.sql): the agent asks someone on duty
+  today to deliver one of their open stops; it stays theirs until that agent accepts. Declined, or no
+  answer: they deliver it themselves. Requests to me and how mine ended are read every 30 seconds (and when
+  the window comes back into focus).
+*/
+
+export type AgentToAsk = { name: string; stopsToGo: number };
+export type IncomingStopExchange = {
+  stopId: string;
+  customerName: string;
+  address: string;
+  slot: string;
+  orderNumber: string | null;
+  items: StopItem[];
+  fromAgent: string;
+  reason: string;
+  requestedAt: string;
+};
+export type SentStopExchange = {
+  stopId: string;
+  customerName: string;
+  orderNumber: string | null;
+  toAgent: string;
+  outcome: "waiting" | "accepted" | "declined" | "cancelled";
+  at: string;
+};
+
+type StopExchanges = { incoming: IncomingStopExchange[]; sent: SentStopExchange[] };
+
+const NO_EXCHANGES: StopExchanges = { incoming: [], sent: [] };
+let exchanges = NO_EXCHANGES;
+let isFollowingExchanges = false;
+const exchangeListeners = new Set<() => void>();
+
+async function loadStopExchanges() {
+  const supabase = createClient();
+  const { data: login } = await supabase.auth.getSession();
+  if (!login.session) return;
+  const [incoming, sent] = await Promise.all([supabase.rpc("my_stop_exchange_requests"), supabase.rpc("my_sent_stop_exchanges")]);
+  // Not a delivery agent: nothing to show
+  if (incoming.error || sent.error) return;
+  const before = exchangeKeyOf(exchanges);
+  exchanges = {
+    incoming: (incoming.data as Record<string, unknown>[]).map((row) => ({
+      stopId: String(row.stop_id),
+      customerName: String(row.customer_name ?? ""),
+      address: String(row.address ?? ""),
+      slot: String(row.slot ?? ""),
+      orderNumber: (row.order_number as string | null) ?? null,
+      items: (row.items as StopItem[]) ?? [],
+      fromAgent: String(row.from_agent ?? ""),
+      reason: String(row.reason ?? ""),
+      requestedAt: String(row.requested_at ?? ""),
+    })),
+    sent: (sent.data as Record<string, unknown>[]).map((row) => ({
+      stopId: String(row.stop_id),
+      customerName: String(row.customer_name ?? ""),
+      orderNumber: (row.order_number as string | null) ?? null,
+      toAgent: String(row.to_agent ?? ""),
+      outcome: row.outcome as SentStopExchange["outcome"],
+      at: String(row.at ?? ""),
+    })),
+  };
+  // Something new (a request, or an answer to mine): my stops may have changed too
+  if (exchangeKeyOf(exchanges) === before) return;
+  void reloadTodayDeliveries();
+  exchangeListeners.forEach((onChange) => onChange());
+}
+
+function exchangeKeyOf(list: StopExchanges) {
+  return [...list.incoming.map((request) => request.stopId), ...list.sent.map((sentOne) => `${sentOne.stopId}:${sentOne.outcome}`)].join();
+}
+
+function subscribeToExchanges(onChange: () => void) {
+  exchangeListeners.add(onChange);
+  if (!isFollowingExchanges && typeof window !== "undefined") {
+    isFollowingExchanges = true;
+    void loadStopExchanges();
+    window.addEventListener("focus", () => void loadStopExchanges());
+    window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadStopExchanges();
+    }, 30_000);
+  }
+  return () => {
+    exchangeListeners.delete(onChange);
+  };
+}
+
+// Requests waiting for me, and the stops I asked someone to take today (with how it ended)
+export function useStopExchanges() {
+  return useSyncExternalStore(subscribeToExchanges, () => exchanges, () => NO_EXCHANGES);
+}
+
+// The other agents on duty today (or a problem to show)
+export async function fetchAgentsToAsk(): Promise<AgentToAsk[] | string> {
+  const { data, error } = await createClient().rpc("delivery_agents_to_ask");
+  if (error) return "Couldn't read the agents on duty. Try again.";
+  return ((data ?? []) as { agent_name: string; stops_to_go: number }[]).map((row) => ({ name: row.agent_name, stopsToGo: row.stops_to_go }));
+}
+
+// Asks another agent to deliver the stop; answers a problem to show, or null when asked
+export async function askAgentToTakeStop(stopId: string, agentName: string, reason: string) {
+  const { error } = await createClient().rpc("ask_agent_to_take_stop", { stop_id: stopId, to_agent: agentName, reason });
+  await reloadTodayDeliveries();
+  await loadStopExchanges();
+  if (error) return error.message || "Couldn't send the request. Try again.";
+  return null;
+}
+
+// Accept (the stop is mine) or decline (it stays with the agent who asked)
+export async function answerStopExchange(stopId: string, accept: boolean) {
+  const { data, error } = await createClient().rpc("answer_stop_exchange", { stop_id: stopId, accept });
+  await reloadTodayDeliveries();
+  await loadStopExchanges();
+  if (error) return { problem: error.message || "Couldn't answer. Try again." };
+  return { outcome: data as "accepted" | "declined" | "finished" };
+}
+
 // ---------- What the agent does ----------
+
+/*
+  "Save this spot as the customer's location" at the gate (0027_address_pins.sql): the database checks it is
+  the agent's own stop today and changes only the pin: on the stop, its order and the customer's saved
+  address (so every later delivery there is exact). Answers a problem to show, or null when saved.
+*/
+export async function saveStopLocation(stopId: string, pin: { latitude: number; longitude: number }) {
+  const { error } = await createClient().rpc("save_stop_location", {
+    stop_id: stopId,
+    pin_latitude: pin.latitude,
+    pin_longitude: pin.longitude,
+  });
+  await reloadTodayDeliveries();
+  if (error) return error.message || "Couldn't save the location. Try again.";
+  return null;
+}
 
 export function setOnDuty(mobileNumber: string, isOnDuty: boolean) {
   saveDay(mobileNumber, (day) => ({ ...day, isOnDuty }));
@@ -559,8 +754,10 @@ export function messageLink(phone: string) {
   return `sms:+91${phone}`;
 }
 
+// Where Google Maps goes: the exact pin ("12.9081,77.4826"), else the address text for Maps to search
 function placeQuery(stop: AgentStop) {
-  return `${stop.address}, ${stop.landmark}, Bengaluru`;
+  if (stop.hasExactPin) return `${stop.latitude},${stop.longitude}`;
+  return [stop.address, stop.landmark, "Bengaluru"].filter(Boolean).join(", ");
 }
 
 // Google Maps directions to one stop

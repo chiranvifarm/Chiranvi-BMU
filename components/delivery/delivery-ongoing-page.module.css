@@ -148,6 +148,25 @@
   margin-top: calc(10 * var(--delivery-pixel));
 }
 
+/* The customer's exact location: whether there is one, and "Save this spot" at the gate */
+.ongoing-location {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(6 * var(--delivery-pixel));
+  margin-top: calc(12 * var(--delivery-pixel));
+}
+
+.ongoing-location-text {
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #4d5a50;
+}
+
+.ongoing-location-saved {
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #2f6b3a;
+}
+
 /* Hand over */
 .ongoing-item-list {
   display: flex;
@@ -510,5 +529,103 @@
 
   .ongoing-request-row button {
     width: 100%;
+  }
+}
+
+/* "Ask another agent to deliver" next to "Raise a request to the manager" */
+.ongoing-request-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(8 * var(--delivery-pixel));
+}
+
+/* Asked another agent: waiting for their answer (light yellow) */
+.ongoing-exchange-waiting {
+  margin-top: calc(10 * var(--delivery-pixel));
+  padding: calc(10 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
+  border-radius: calc(10 * var(--delivery-pixel));
+  background: #fbf3e1;
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #8a6a1c;
+}
+
+/* At the top: requests from other agents, and how this agent's requests ended */
+.ongoing-exchanges {
+  display: flex;
+  flex-direction: column;
+  gap: calc(10 * var(--delivery-pixel));
+  margin-bottom: calc(16 * var(--delivery-pixel));
+}
+
+.ongoing-exchange-request {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--delivery-pixel));
+  padding: calc(14 * var(--delivery-pixel)) calc(16 * var(--delivery-pixel));
+  border: 1.5px solid #c99a1e;
+  border-radius: calc(14 * var(--delivery-pixel));
+  background: #ffffff;
+}
+
+.ongoing-exchange-title {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(15 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+.ongoing-exchange-detail {
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #4d5a50;
+  overflow-wrap: anywhere;
+}
+
+.ongoing-exchange-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(8 * var(--delivery-pixel));
+  margin-top: calc(6 * var(--delivery-pixel));
+}
+
+.ongoing-exchange-done,
+.ongoing-exchange-not-done {
+  padding: calc(10 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
+  border-radius: calc(10 * var(--delivery-pixel));
+  font-size: calc(12.5 * var(--delivery-pixel));
+}
+
+.ongoing-exchange-done {
+  background: #e6f0e1;
+  color: #1f4d2e;
+}
+
+.ongoing-exchange-not-done {
+  background: #fbf3e1;
+  color: #8a6a1c;
+}
+
+.ongoing-exchange-agents {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--delivery-pixel));
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.ongoing-exchange-agent-name {
+  flex: 1;
+}
+
+.ongoing-exchange-agent-stops {
+  font-size: calc(12 * var(--delivery-pixel));
+  font-weight: 400;
+  color: #6b736c;
+}
+
+@media (max-width: 900px) {
+  .ongoing-request-buttons {
+    width: 100%;
+    flex-direction: column;
   }
 }

@@ -1,21 +1,27 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import {
   AGENT_REQUEST_KINDS,
   NOT_DELIVERED_REASONS,
   STOP_STEPS,
+  answerStopExchange,
+  askAgentToTakeStop,
   callLink,
+  fetchAgentsToAsk,
   finishStop,
   formatTime,
   messageLink,
   navigationLink,
   raiseRequest,
   rupees,
+  saveStopLocation,
   setStopStep,
   shrinkPhoto,
+  useStopExchanges,
   whatsAppLink,
+  type AgentToAsk,
   type AgentRequestKind,
   type AgentStop,
   type StopOutcome,
@@ -33,17 +39,92 @@ import styles from "./delivery-ongoing-page.module.css";
 
 /*
   Deliveries → Ongoing (/delivery): the stop the agent is on now.
-  - The customer: name, phone, address, landmark, gate code; Call, WhatsApp and Message; Navigate (Google Maps).
+  - The customer: name, phone, address, landmark, gate code; Call, WhatsApp and Message; Navigate (Google Maps:
+    the address's exact pin when it has one, else the address text); "Save this spot as the customer's
+    location" at the gate.
   - What to hand over (products and quantities), empty bottles to collect, cash to collect, the customer's note.
   - Steps: Picked up → On the way → Reached → Delivered (one button for the next step).
   - Finish: Delivered (proof: the customer's OTP or a photo), Left at door (photo), Not delivered (reason).
     The stop then moves to Completed and the next stop becomes Ongoing.
   - Raise a request to the manager (customer unavailable, wrong address, damaged product, missing item,
     reschedule, other); the stop's requests are listed with their status.
+  - Ask another agent to deliver the stop (agents on duty today). It stays the agent's own until the other
+    agent accepts; declined or no answer, they deliver it themselves. At the top: requests from other agents
+    (Accept / Decline) and how the agent's own requests ended today.
   Off duty: everything shows, but nothing can be changed until the agent goes on duty.
 */
 
-type OpenSheet = { kind: "finish"; outcome: StopOutcome } | { kind: "request" } | null;
+type OpenSheet = { kind: "finish"; outcome: StopOutcome } | { kind: "request" } | { kind: "exchange" } | null;
+
+// Further than this from the spot (the phone's own estimate): not saved, the agent tries again
+const ROUGH_SPOT_METRES = 50;
+
+type SpotState = { step: "idle" } | { step: "finding" } | { step: "saved" } | { step: "failed"; message: string };
+
+/*
+  At the gate: the agent's GPS becomes the customer's location. The database changes only the pin (on the
+  stop, its order and the customer's address), so the next delivery here, by anyone, goes straight to the gate.
+*/
+function SaveStopSpot({ stop, canWork }: { stop: AgentStop; canWork: boolean }) {
+  const [spotState, setSpotState] = useState<SpotState>({ step: "idle" });
+
+  function saveSpot() {
+    if (!("geolocation" in navigator)) {
+      setSpotState({ step: "failed", message: "This phone can't share its location." });
+      return;
+    }
+    setSpotState({ step: "finding" });
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        if (position.coords.accuracy > ROUGH_SPOT_METRES) {
+          setSpotState({
+            step: "failed",
+            message: `Not exact enough yet (about ${Math.round(position.coords.accuracy)} m). Wait a few seconds in the open and try again.`,
+          });
+          return;
+        }
+        const problem = await saveStopLocation(stop.id, { latitude: position.coords.latitude, longitude: position.coords.longitude });
+        setSpotState(problem ? { step: "failed", message: problem } : { step: "saved" });
+      },
+      (problem) => {
+        setSpotState({
+          step: "failed",
+          message:
+            problem.code === problem.PERMISSION_DENIED
+              ? "Location is blocked. Allow location for this website in your phone's settings."
+              : "Couldn't find your location. Try again in the open.",
+        });
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  }
+
+  return (
+    <div className={styles["ongoing-location"]}>
+      <p className={styles["ongoing-location-text"]}>
+        {stop.hasExactPin ? "Exact location saved: Maps goes to the gate." : "No exact location yet: Maps searches the address."}
+      </p>
+      <button
+        type="button"
+        className={`${deliveryButtonStyles.outlined} ${deliveryButtonStyles.small}`}
+        disabled={!canWork || spotState.step === "finding"}
+        onClick={saveSpot}
+      >
+        {spotState.step === "finding" ? "Finding your location…" : "Save this spot as the customer's location"}
+      </button>
+      {spotState.step === "saved" && (
+        <p role="status" className={styles["ongoing-location-saved"]}>
+          Saved. The next delivery here goes straight to this spot.
+        </p>
+      )}
+      {spotState.step === "failed" && (
+        <p role="alert" className={styles["ongoing-form-error"]}>
+          {spotState.message}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function DeliveryOngoingPage() {
   const { login, stops } = useDeliveryPanel();
@@ -59,6 +140,7 @@ export default function DeliveryOngoingPage() {
         description="The stop you're on now. Finish it to move on: the next stop comes here by itself."
       />
       <DeliveryShiftNotices />
+      <StopExchangeNotices canWork={canWork} />
 
       {login.route && !stop && (
         <DeliveryNotice title="All stops done for today" text="Well done! Every stop on your list is finished.">
@@ -87,12 +169,14 @@ export default function DeliveryOngoingPage() {
             <dl className={styles["ongoing-address-list"]}>
               <div>
                 <dt>Address</dt>
-                <dd>{stop.address}, Bengaluru</dd>
+                <dd>{/bengaluru/i.test(stop.address) ? stop.address : `${stop.address}, Bengaluru`}</dd>
               </div>
-              <div>
-                <dt>Landmark</dt>
-                <dd>{stop.landmark}</dd>
-              </div>
+              {stop.landmark && (
+                <div>
+                  <dt>Landmark</dt>
+                  <dd>{stop.landmark}</dd>
+                </div>
+              )}
               {stop.gateCode && (
                 <div>
                   <dt>Gate code</dt>
@@ -128,6 +212,8 @@ export default function DeliveryOngoingPage() {
               </svg>
               Navigate in Google Maps
             </a>
+            {/* A new stop starts the location box again */}
+            <SaveStopSpot key={stop.id} stop={stop} canWork={canWork} />
           </section>
 
           {/* What to hand over and collect */}
@@ -146,10 +232,12 @@ export default function DeliveryOngoingPage() {
                 </li>
               ))}
             </ul>
-            <div className={styles["ongoing-collect-row"]}>
-              <span className={styles["ongoing-collect-label"]}>Empty bottles to collect</span>
-              <span className={styles["ongoing-collect-value"]}>{stop.bottlesToCollect}</span>
-            </div>
+            {stop.bottlesToCollect > 0 && (
+              <div className={styles["ongoing-collect-row"]}>
+                <span className={styles["ongoing-collect-label"]}>Empty bottles to collect</span>
+                <span className={styles["ongoing-collect-value"]}>{stop.bottlesToCollect}</span>
+              </div>
+            )}
             {stop.cashToCollect > 0 && (
               <div className={styles["ongoing-collect-row"]}>
                 <span className={styles["ongoing-collect-label"]}>Cash to collect</span>
@@ -201,15 +289,32 @@ export default function DeliveryOngoingPage() {
 
             <div className={styles["ongoing-request-row"]}>
               <p className={styles["ongoing-request-text"]}>A problem at this stop?</p>
-              <button
-                type="button"
-                className={`${deliveryButtonStyles.outlined} ${deliveryButtonStyles.small}`}
-                disabled={!canWork}
-                onClick={() => setOpenSheet({ kind: "request" })}
-              >
-                Raise a request to the manager
-              </button>
+              <div className={styles["ongoing-request-buttons"]}>
+                <button
+                  type="button"
+                  className={`${deliveryButtonStyles.outlined} ${deliveryButtonStyles.small}`}
+                  disabled={!canWork || Boolean(stop.transferRequest)}
+                  onClick={() => setOpenSheet({ kind: "exchange" })}
+                >
+                  Ask another agent to deliver
+                </button>
+                <button
+                  type="button"
+                  className={`${deliveryButtonStyles.outlined} ${deliveryButtonStyles.small}`}
+                  disabled={!canWork}
+                  onClick={() => setOpenSheet({ kind: "request" })}
+                >
+                  Raise a request to the manager
+                </button>
+              </div>
             </div>
+            {/* Asked another agent: still this agent's stop until they accept */}
+            {stop.transferRequest && (
+              <p className={styles["ongoing-exchange-waiting"]}>
+                Waiting for {stop.transferRequest.toAgent} to accept (asked at {formatTime(stop.transferRequest.requestedAt)}). Until they do, deliver
+                it yourself.
+              </p>
+            )}
             {stop.requests.length > 0 && (
               <ul className={styles["ongoing-request-list"]}>
                 {stop.requests.map((request) => (
@@ -239,6 +344,7 @@ export default function DeliveryOngoingPage() {
       {stop && openSheet?.kind === "request" && (
         <RequestSheet stop={stop} mobileNumber={login.mobileNumber} onClose={() => setOpenSheet(null)} />
       )}
+      {stop && openSheet?.kind === "exchange" && <ExchangeSheet stop={stop} onClose={() => setOpenSheet(null)} />}
     </>
   );
 }
@@ -388,8 +494,9 @@ function FinishStopSheet({
                 </div>
               </fieldset>
             )}
+            {/* Two different boxes (keys), so switching OTP ↔ photo doesn't reuse one input for the other */}
             {proofKind === "otp" && outcome === "delivered" ? (
-              <label className={styles["ongoing-field"]}>
+              <label key="proof-otp" className={styles["ongoing-field"]}>
                 <span className={styles["ongoing-field-label"]}>OTP from the customer</span>
                 <input
                   className={styles["ongoing-input"]}
@@ -402,7 +509,7 @@ function FinishStopSheet({
                 />
               </label>
             ) : (
-              <label className={styles["ongoing-field"]}>
+              <label key="proof-photo" className={styles["ongoing-field"]}>
                 <span className={styles["ongoing-field-label"]}>
                   {outcome === "left-at-door" ? "Photo of what you left at the door" : "Photo of the delivery"}
                 </span>
@@ -491,6 +598,166 @@ function RequestSheet({ stop, mobileNumber, onClose }: { stop: AgentStop; mobile
         <button type="submit" className={deliveryButtonStyles.filled}>
           Send to the manager
         </button>
+      </form>
+    </DeliverySheet>
+  );
+}
+
+/*
+  At the top of Ongoing: other agents asking this agent to deliver one of their stops (Accept / Decline), and
+  how this agent's own requests ended today (taken by the other agent, declined, or taken back by the panel).
+*/
+function StopExchangeNotices({ canWork }: { canWork: boolean }) {
+  const { incoming, sent } = useStopExchanges();
+  const [answering, setAnswering] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null);
+  const answered = sent.filter((sentOne) => sentOne.outcome !== "waiting");
+  if (incoming.length === 0 && answered.length === 0 && !message) return null;
+
+  async function answer(stopId: string, accept: boolean, customerName: string) {
+    setAnswering(stopId);
+    const result = await answerStopExchange(stopId, accept);
+    setAnswering(null);
+    if ("problem" in result) setMessage({ text: result.problem ?? "", isError: true });
+    else if (result.outcome === "finished") setMessage({ text: `${customerName}'s stop was already finished.`, isError: false });
+    else setMessage({ text: accept ? `${customerName}'s stop is now yours. It's in your list.` : `You declined ${customerName}'s stop.`, isError: false });
+  }
+
+  return (
+    <div className={styles["ongoing-exchanges"]}>
+      {incoming.map((request) => (
+        <section key={request.stopId} className={styles["ongoing-exchange-request"]} aria-label={`Request from ${request.fromAgent}`}>
+          <p className={styles["ongoing-exchange-title"]}>{request.fromAgent} asks you to deliver a stop</p>
+          <p className={styles["ongoing-exchange-detail"]}>
+            {request.customerName} · {request.address}
+            {request.slot ? ` · ${request.slot}` : ""}
+            {request.orderNumber ? ` · ${request.orderNumber}` : ""}
+          </p>
+          {request.items.length > 0 && (
+            <p className={styles["ongoing-exchange-detail"]}>
+              {request.items.map((item) => `${item.name}${item.packSize ? ` ${item.packSize}` : ""} × ${item.quantity}`).join(", ")}
+            </p>
+          )}
+          {request.reason && <p className={styles["ongoing-exchange-detail"]}>Reason: {request.reason}</p>}
+          <div className={styles["ongoing-exchange-buttons"]}>
+            <button
+              type="button"
+              className={`${deliveryButtonStyles.filled} ${deliveryButtonStyles.small}`}
+              disabled={!canWork || answering === request.stopId}
+              onClick={() => void answer(request.stopId, true, request.customerName)}
+            >
+              Accept
+            </button>
+            <button
+              type="button"
+              className={`${deliveryButtonStyles.outlined} ${deliveryButtonStyles.small}`}
+              disabled={answering === request.stopId}
+              onClick={() => void answer(request.stopId, false, request.customerName)}
+            >
+              Decline
+            </button>
+          </div>
+        </section>
+      ))}
+      {answered.map((sentOne) => (
+        <p
+          key={`${sentOne.stopId}-${sentOne.at}`}
+          className={sentOne.outcome === "accepted" ? styles["ongoing-exchange-done"] : styles["ongoing-exchange-not-done"]}
+        >
+          {sentOne.outcome === "accepted"
+            ? `Delivery exchange successful: ${sentOne.toAgent} will deliver ${sentOne.customerName}${sentOne.orderNumber ? ` (${sentOne.orderNumber})` : ""}.`
+            : sentOne.outcome === "declined"
+              ? `${sentOne.toAgent} declined ${sentOne.customerName}'s stop. Please deliver it yourself.`
+              : `Your request to ${sentOne.toAgent} for ${sentOne.customerName}'s stop was taken back by the panel. Please deliver it yourself.`}
+          {sentOne.at ? ` · ${formatTime(sentOne.at)}` : ""}
+        </p>
+      ))}
+      {message && <p className={message.isError ? styles["ongoing-form-error"] : styles["ongoing-exchange-done"]}>{message.text}</p>}
+    </div>
+  );
+}
+
+// "Ask another agent to deliver": the agents on duty today, then a reason
+function ExchangeSheet({ stop, onClose }: { stop: AgentStop; onClose: () => void }) {
+  const [agents, setAgents] = useState<AgentToAsk[] | null>(null);
+  const [problem, setProblem] = useState("");
+  const [picked, setPicked] = useState("");
+  const [reason, setReason] = useState("");
+  const [isSending, setIsSending] = useState(false);
+
+  useEffect(() => {
+    let isOpen = true;
+    void fetchAgentsToAsk().then((answer) => {
+      if (!isOpen) return;
+      if (typeof answer === "string") setProblem(answer);
+      else setAgents(answer);
+    });
+    return () => {
+      isOpen = false;
+    };
+  }, []);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!picked) {
+      setProblem("Choose an agent.");
+      return;
+    }
+    setIsSending(true);
+    const sendProblem = await askAgentToTakeStop(stop.id, picked, reason.trim());
+    setIsSending(false);
+    if (sendProblem) {
+      setProblem(sendProblem);
+      return;
+    }
+    onClose();
+  }
+
+  return (
+    <DeliverySheet title="Ask another agent to deliver" onClose={onClose}>
+      <form onSubmit={submit} className={styles["ongoing-form"]}>
+        <p className={styles["ongoing-form-stop"]}>
+          {stop.customerName} · {stop.address}
+        </p>
+        {agents === null && !problem && <p className={styles["ongoing-exchange-detail"]}>Finding agents on duty…</p>}
+        {agents?.length === 0 && (
+          <p className={styles["ongoing-exchange-detail"]}>No other agent is on duty right now. Please deliver it yourself, or raise a request to the manager.</p>
+        )}
+        {agents && agents.length > 0 && (
+          <fieldset className={styles["ongoing-exchange-agents"]}>
+            <legend className={styles["ongoing-field-label"]}>Agents on duty</legend>
+            {agents.map((agent) => (
+              <label
+                key={agent.name}
+                className={`${styles["ongoing-proof-option"]} ${picked === agent.name ? styles["ongoing-proof-option-chosen"] : ""}`}
+              >
+                <input type="radio" name="exchange-agent" checked={picked === agent.name} onChange={() => setPicked(agent.name)} />
+                <span className={styles["ongoing-exchange-agent-name"]}>{agent.name}</span>
+                <span className={styles["ongoing-exchange-agent-stops"]}>
+                  {agent.stopsToGo} stop{agent.stopsToGo === 1 ? "" : "s"} to go
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+        {agents && agents.length > 0 && (
+          <label className={styles["ongoing-field"]}>
+            <span className={styles["ongoing-field-label"]}>Why (optional)</span>
+            <textarea
+              className={styles["ongoing-textarea"]}
+              rows={2}
+              placeholder="E.g. bike puncture, you're nearer"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </label>
+        )}
+        {problem && <p className={styles["ongoing-form-error"]}>{problem}</p>}
+        {agents && agents.length > 0 && (
+          <button type="submit" className={deliveryButtonStyles.filled} disabled={isSending}>
+            {isSending ? "Sending…" : "Send request"}
+          </button>
+        )}
       </form>
     </DeliverySheet>
   );

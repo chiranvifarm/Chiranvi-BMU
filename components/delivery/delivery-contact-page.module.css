@@ -1,0 +1,35 @@
+/*
+  Work → Contact farm. Sizes in --delivery-pixel (set by the Delivery Panel frame).
+*/
+
+.delivery-contact-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(4 * var(--delivery-pixel));
+  max-width: calc(460 * var(--delivery-pixel));
+  padding: calc(18 * var(--delivery-pixel));
+  border: 1px solid #e7e8e2;
+  border-radius: calc(14 * var(--delivery-pixel));
+  background: #ffffff;
+}
+
+.delivery-contact-name {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(18 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+.delivery-contact-number {
+  font-size: calc(15 * var(--delivery-pixel));
+  font-weight: 600;
+  color: #1b2a20;
+}
+
+.delivery-contact-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(8 * var(--delivery-pixel));
+  margin-top: calc(10 * var(--delivery-pixel));
+}

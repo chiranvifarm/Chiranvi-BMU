@@ -9,7 +9,7 @@ import type { ProductPage } from "@/components/product/product-page-data";
     whose products have different charges pays: the highest one, all of them added up, or a fixed charge;
   - each product's own setting: free delivery, its own charge, or an offer (a lower charge, or free when
     that product's total reaches an amount). No setting: the overall charge;
-  - the platform fee, once per checkout.
+  - the platform fee: only with a milk plan, once per checkout (one-time items alone pay none).
   quoteDelivery() shows the cart what it charges. The order itself is charged by the database (start_checkout)
   with the same rules, so a charge changed in a browser never reaches an order. A milk plan in the cart
   always means free delivery.
@@ -30,7 +30,7 @@ export type DeliverySettings = {
   combineRule: DeliveryCombineRule;
   mixedFee: number; // ₹ with the fixed rule, when the products' charges differ
   products: Record<string, ProductDeliverySetting>; // by product id (page slug / product card id)
-  platformFee: number; // ₹ once per checkout
+  platformFee: number; // ₹ once per checkout with a milk plan
 };
 
 // Until the database answers: the rules the shop started with

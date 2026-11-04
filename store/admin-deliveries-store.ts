@@ -51,6 +51,7 @@ export type Delivery = {
   deliveredAt?: string; // ISO date and time
   orderNumber?: string; // "#CF-60084": the order this stop delivers (given to the agent on the Orders page)
   area?: string; // the order's area ("Kengeri")
+  isSubscription?: boolean; // the order is a milk plan (the agent's Ongoing shows it under Subscriptions)
   // An order's stop: what to hand over and the cash to collect (only for a cash order), copied from the order
   // (the agent can't read the orders themselves)
   items?: { name: string; packSize: string; quantity: number; price: number }[];
@@ -271,6 +272,7 @@ export function assignOrderDelivery(details: {
   agent: string;
   items: NonNullable<Delivery["items"]>;
   cashToCollect: number;
+  isSubscription: boolean;
   pin?: MapPin; // the order's map pin
 }) {
   const { pin, ...stopDetails } = details;
@@ -284,7 +286,7 @@ export function assignOrderDelivery(details: {
     if (existing.agent === details.agent && existing.routeId === details.routeId) {
       void store.change(
         existing.id,
-        (delivery) => ({ ...delivery, items: details.items, cashToCollect: details.cashToCollect, ...pinOf(delivery) }),
+        (delivery) => ({ ...delivery, items: details.items, cashToCollect: details.cashToCollect, isSubscription: details.isSubscription, ...pinOf(delivery) }),
         agentPhoneOf(details.agent) ?? null,
       );
       return existing;
@@ -292,7 +294,7 @@ export function assignOrderDelivery(details: {
     void store.change(
       existing.id,
       (delivery) =>
-        withEvent({ ...delivery, agent: details.agent, routeId: details.routeId, transferRequest: undefined, items: details.items, cashToCollect: details.cashToCollect, ...pinOf(delivery) }, {
+        withEvent({ ...delivery, agent: details.agent, routeId: details.routeId, transferRequest: undefined, items: details.items, cashToCollect: details.cashToCollect, isSubscription: details.isSubscription, ...pinOf(delivery) }, {
           kind: "reassigned",
           fromAgent: delivery.agent,
           toAgent: details.agent,

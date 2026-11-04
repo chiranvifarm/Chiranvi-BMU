@@ -24,7 +24,7 @@ export default function DeliveryProfilePage() {
   const { login, stops } = useDeliveryPanel();
   // The agent's own row (the database shows a team member only their own)
   const me = useStaffList().find((person) => person.phone === login.mobileNumber);
-  const totalStops = stops.completed.length + stops.upNext.length + (stops.ongoing ? 1 : 0);
+  const totalStops = stops.completed.length + stops.upNext.length + stops.ongoing.length;
   const formattedMobile = `${login.mobileNumber.slice(0, 5)} ${login.mobileNumber.slice(5)}`;
 
   const details: { label: string; value: string }[] = [

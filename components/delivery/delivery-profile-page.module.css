@@ -4,7 +4,7 @@
 */
 
 .delivery-profile-card {
-  padding: calc(18 * var(--delivery-pixel));
+  padding: calc(18 * var(--delivery-pixel)) calc(22 * var(--delivery-pixel));
   border: 1px solid #e7e8e2;
   border-radius: calc(14 * var(--delivery-pixel));
   background: #ffffff;
@@ -113,6 +113,10 @@
 }
 
 @media (max-width: 900px) {
+  .delivery-profile-card {
+    padding: 18px;
+  }
+
   .delivery-profile-details {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

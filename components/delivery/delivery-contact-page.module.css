@@ -7,8 +7,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: calc(4 * var(--delivery-pixel));
-  max-width: calc(460 * var(--delivery-pixel));
-  padding: calc(18 * var(--delivery-pixel));
+  padding: calc(18 * var(--delivery-pixel)) calc(22 * var(--delivery-pixel));
   border: 1px solid #e7e8e2;
   border-radius: calc(14 * var(--delivery-pixel));
   background: #ffffff;

@@ -11,6 +11,7 @@ import {
   PROFILE_REMINDER_DONE_EVENT,
 } from "@/components/bulk-order/bulk-order-popup";
 import { useCustomerProfile, useIsCustomerProfileKnown } from "@/store/customer-profiles-store";
+import { useOrderUpdates, type OrderStatus, type OrderUpdate } from "@/store/orders-store";
 import styles from "./profile-reminder-toast.module.css";
 
 /*
@@ -42,6 +43,71 @@ const REMINDER_WORDS: Record<Reminder, { title: string; text: string; button: st
     button: "Complete profile",
   },
 };
+
+/*
+  "Your order is out for delivery": the same kind of card, higher up, on any customer page (mounted once in
+  app/layout.tsx) when one of the logged-in customer's orders changes status. It shows the newest change once
+  per visit and slides out by itself after 8 seconds. Not on My Orders (the tracker is right there) or inside
+  the panels.
+*/
+const ORDER_UPDATE_WORDS: Partial<Record<OrderStatus, string>> = {
+  packed: "is packed",
+  "out-for-delivery": "is out for delivery",
+  delivered: "was delivered",
+  cancelled: "was cancelled",
+};
+
+const shownOrderUpdates = new Set<string>();
+
+export function OrderUpdateToast() {
+  const pathname = usePathname();
+  const newestUpdate = useOrderUpdates()[0];
+  const [shownUpdate, setShownUpdate] = useState<OrderUpdate | null>(null);
+  const isHiddenPage = pathname === "/account/orders" || pathname.startsWith("/admin") || pathname.startsWith("/delivery");
+
+  useEffect(() => {
+    if (!newestUpdate || isHiddenPage) return;
+    const updateKey = `${newestUpdate.orderId}-${newestUpdate.status}`;
+    if (shownOrderUpdates.has(updateKey)) return;
+    shownOrderUpdates.add(updateKey);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a new update arrived from the database
+    setShownUpdate(newestUpdate);
+  }, [newestUpdate, isHiddenPage]);
+
+  useEffect(() => {
+    if (!shownUpdate) return;
+    const timer = window.setTimeout(() => setShownUpdate(null), SHOWN_FOR_MS);
+    return () => window.clearTimeout(timer);
+  }, [shownUpdate]);
+
+  if (!shownUpdate || isHiddenPage) return null;
+
+  return (
+    <aside className={`${styles["profile-reminder-toast"]} ${styles["order-update-toast"]}`} role="status" aria-labelledby="order-update-title">
+      <span className={styles["profile-reminder-icon"]} aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M2.5 6.5h11v9.5h-11z" />
+          <path d="M13.5 9.5h4l3.5 3.5v3h-7.5" />
+          <circle cx="6.5" cy="17" r="2" />
+          <circle cx="17" cy="17" r="2" />
+        </svg>
+      </span>
+      <div className={styles["profile-reminder-words"]}>
+        <p id="order-update-title" className={styles["profile-reminder-title"]}>
+          Order {shownUpdate.orderId} {ORDER_UPDATE_WORDS[shownUpdate.status]}
+        </p>
+        <Link href="/account/orders" className={styles["profile-reminder-link"]} onClick={() => setShownUpdate(null)}>
+          View order
+        </Link>
+      </div>
+      <button type="button" className={styles["profile-reminder-close-button"]} aria-label="Close" onClick={() => setShownUpdate(null)}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </aside>
+  );
+}
 
 export default function ProfileReminderToast() {
   const pathname = usePathname();

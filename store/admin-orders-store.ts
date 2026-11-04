@@ -61,6 +61,7 @@ export type AdminOrder = {
   promisedAt?: string; // ISO: when Chiranvi promised to deliver it (next day by 7 AM)
   statusChangedAt?: Partial<Record<AdminOrderStatus, string>>; // ISO time each step was reached
   deliveryPin?: MapPin; // the delivery address's map pin (website orders whose address has one)
+  bottlesPerDay?: number; // a milk plan's order: what is handed over each day (its items count the whole plan)
 };
 
 const TO_CUSTOMER_STATUS: Record<AdminOrderStatus, OrderStatus> = {
@@ -120,6 +121,7 @@ function toAdminOrder(order: Order): AdminOrder {
     promisedAt: order.promisedAt ? new Date(order.promisedAt).toISOString() : undefined,
     statusChangedAt,
     deliveryPin: order.deliveryPin,
+    bottlesPerDay: order.subscription?.bottlesPerDay,
   };
 }
 
@@ -258,9 +260,11 @@ export function assignAdminOrderAgent(order: AdminOrder, agent: string, routeId:
     area: order.area,
     routeId,
     agent,
-    // What to hand over: the order's items (an order made in the panel only has its items as one line)
+    isSubscription: order.bottlesPerDay !== undefined,
+    // What to hand over: the order's items (an order made in the panel only has its items as one line); a milk
+    // plan's stop is one day's bottles, not the whole plan
     items: order.itemList?.length
-      ? order.itemList.map((item) => ({ name: item.name, packSize: item.packSize, quantity: item.quantity, price: item.price }))
+      ? order.itemList.map((item) => ({ name: item.name, packSize: item.packSize, quantity: order.bottlesPerDay ?? item.quantity, price: item.price }))
       : [{ name: order.items, packSize: "", quantity: 1, price: order.amount }],
     // Website orders are paid online; only a cash order taken in the panel is collected at the door
     cashToCollect: order.payment === "Cash" ? order.amount : 0,

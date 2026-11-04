@@ -1361,11 +1361,15 @@
   stroke-linecap: round;
 }
 
-.admin-assign-agent-reassign {
+.admin-assign-agent-request {
   font-size: calc(12.5 * var(--admin-pixel));
   font-weight: 600;
-  white-space: nowrap;
   color: #1f4d2e;
+}
+
+.admin-assign-agent-request-line {
+  display: block;
+  color: #8a6a1c;
 }
 
 .admin-assign-agent-confirm-text {

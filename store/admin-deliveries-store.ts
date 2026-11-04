@@ -368,8 +368,17 @@ export function useAreOrderStopsCarriedOver() {
   );
 }
 
-// Each agent's day as the Delivery Panel saves it (on / off duty), read only
-type AgentDutyRecord = { id: string; date: string; isOnDuty: boolean };
+// Each agent's day as the Delivery Panel saves it (on / off duty, their requests to the manager), read only
+export type AgentDayRequest = {
+  id: string;
+  deliveryId: string;
+  customerName: string;
+  kind: string; // "Customer unavailable", "Wrong address", ...
+  note: string;
+  raisedAt: string; // ISO
+  status: "Pending" | "Resolved";
+};
+type AgentDutyRecord = { id: string; date: string; isOnDuty: boolean; requests?: AgentDayRequest[] };
 
 const agentDayStore = createPanelRecordStore<AgentDutyRecord>({
   module: "agent-days",
@@ -384,6 +393,18 @@ export function useAgentOnDutyReader() {
     const onDuty = new Set(days.filter((day) => day.date === today && day.isOnDuty).map((day) => day.id.split(":")[0]));
     return (phone: string) => onDuty.has(phone);
   }, [days]);
+}
+
+// What the agents asked the manager for today, newest first (agentMobile: who raised it)
+export function useAgentRequestsToday() {
+  const days = agentDayStore.useRecords();
+  return useMemo(
+    () =>
+      days
+        .flatMap((day) => (day.requests ?? []).map((request) => ({ ...request, agentMobile: day.id.split(":")[0] })))
+        .sort((first, second) => second.raisedAt.localeCompare(first.raisedAt)),
+    [days],
+  );
 }
 
 export function useTodayDeliveries() {

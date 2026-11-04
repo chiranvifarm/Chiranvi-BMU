@@ -254,6 +254,64 @@
   font-size: calc(13 * var(--admin-pixel));
 }
 
+/* Agent requests: what they need on the left, Waiting / Resolved on the right */
+.admin-agent-request-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--admin-pixel));
+  margin: calc(10 * var(--admin-pixel)) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-agent-request {
+  padding: calc(10 * var(--admin-pixel)) calc(12 * var(--admin-pixel));
+  border: 1px solid #ecece6;
+  border-radius: calc(10 * var(--admin-pixel));
+}
+
+.admin-agent-request-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8 * var(--admin-pixel));
+}
+
+.admin-agent-request-kind {
+  font-size: calc(13.5 * var(--admin-pixel));
+  font-weight: 700;
+  color: #1b2a20;
+}
+
+.admin-agent-request-status {
+  padding: calc(2 * var(--admin-pixel)) calc(9 * var(--admin-pixel));
+  border-radius: 9999px;
+  background: #fbf3e1;
+  font-size: calc(11 * var(--admin-pixel));
+  font-weight: 600;
+  white-space: nowrap;
+  color: #8a6a1c;
+}
+
+.admin-agent-request-status-resolved {
+  background: #e6f0e1;
+  color: #1f4d2e;
+}
+
+.admin-agent-request-detail {
+  margin-top: calc(3 * var(--admin-pixel));
+  font-size: calc(12 * var(--admin-pixel));
+  color: #5c655e;
+  overflow-wrap: anywhere;
+}
+
+.admin-agent-request-note {
+  margin-top: calc(5 * var(--admin-pixel));
+  font-size: calc(12.5 * var(--admin-pixel));
+  color: #1b2a20;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1100px) {
   .admin-routes-columns {
     grid-template-columns: 1fr;

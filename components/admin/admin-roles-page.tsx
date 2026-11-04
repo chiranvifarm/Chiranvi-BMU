@@ -16,6 +16,7 @@ import {
   checkOwnerResetCode,
   saveOwnerName,
   saveOwnPassword,
+  saveManagerPermissions,
   saveRolePermissions,
   saveStaffMember,
   sendOwnerResetCode,
@@ -56,6 +57,8 @@ import styles from "./admin-roles-page.module.css";
     right      the chosen role's permissions: for every panel page, View / Create / Edit / Delete /
                Export. View opens the page; Create shows its New / Add button, Export its Export button,
                Edit and Delete the changes in its row menus and delete buttons. Reset / Save.
+               Manager: "Responsibilities for" chooses one manager, who gets their own ticks ("Use default"
+               puts them back on the Manager role's); the role's own ticks are for managers without any.
                The owner can always do everything; delivery agents only use the delivery app.
                Staff (chosen on the left): the whole team instead (everyone but the owner, from the
                database): name, number, leave (Approve / Reject), delete request (the tag opens Accept /
@@ -122,7 +125,9 @@ function RolesPage() {
   const isOwner = useIsPanelOwner();
   const [searchText, setSearchText] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState("manager");
-  // Unsaved ticks, per role, until Save or Reset
+  // The manager whose own responsibilities are shown (empty: the Manager role's defaults)
+  const [chosenManagerMobile, setChosenManagerMobile] = useState("");
+  // Unsaved ticks, per role or manager, until Save or Reset
   const [drafts, setDrafts] = useState<Record<string, RolePermissions>>({});
   const [isAddRoleOpen, setIsAddRoleOpen] = useState(false);
   const [roleName, setRoleName] = useState("");
@@ -150,8 +155,13 @@ function RolesPage() {
   const allRoles = [OWNER_ROLE, ...roles];
   const selectedRole = allRoles.find((role) => role.id === selectedRoleId) ?? allRoles[0];
   const isLocked = !isOwner || selectedRole.id === "owner" || !selectedRole.hasPanelAccess;
-  const shownPermissions = drafts[selectedRole.id] ?? selectedRole.permissions;
-  const hasUnsavedChanges = Boolean(drafts[selectedRole.id]) && !samePermissions(drafts[selectedRole.id], selectedRole.permissions);
+  const managers = team.filter((member) => member.roleId === "manager");
+  const chosenManager = selectedRole.id === "manager" ? managers.find((member) => member.mobileNumber === chosenManagerMobile) : undefined;
+  const draftKey = chosenManager ? `manager:${chosenManager.mobileNumber}` : selectedRole.id;
+  const savedPermissions = chosenManager?.permissions ?? selectedRole.permissions;
+  const shownPermissions = drafts[draftKey] ?? savedPermissions;
+  const hasUnsavedChanges = Boolean(drafts[draftKey]) && !samePermissions(drafts[draftKey], savedPermissions);
+  const gridName = chosenManager?.name ?? selectedRole.name;
 
   // The Staff card counts everyone on the staff list (managers and delivery agents too); the others their own
   const peopleIn = (role: PanelRole) =>
@@ -186,7 +196,7 @@ function RolesPage() {
       action === "view" && !isOn
         ? { view: false, create: false, edit: false, delete: false, export: false }
         : { ...current, [action]: isOn, view: current.view || isOn };
-    setDrafts({ ...drafts, [selectedRole.id]: { ...shownPermissions, [module]: next } });
+    setDrafts({ ...drafts, [draftKey]: { ...shownPermissions, [module]: next } });
   }
 
   function toggleColumn(action: PermissionAction) {
@@ -203,19 +213,39 @@ function RolesPage() {
         ];
       }),
     ) as RolePermissions;
-    setDrafts({ ...drafts, [selectedRole.id]: next });
+    setDrafts({ ...drafts, [draftKey]: next });
   }
 
   function resetDraft() {
     const rest = { ...drafts };
-    delete rest[selectedRole.id];
+    delete rest[draftKey];
     setDrafts(rest);
   }
 
-  function savePermissions() {
-    saveRolePermissions(selectedRole.id, shownPermissions);
+  async function savePermissions() {
+    if (chosenManager) {
+      const problem = await saveManagerPermissions(chosenManager.mobileNumber, shownPermissions);
+      if (problem) {
+        showToast(problem);
+        return;
+      }
+    } else {
+      saveRolePermissions(selectedRole.id, shownPermissions);
+    }
     resetDraft();
-    showToast(`${selectedRole.name} permissions saved`);
+    showToast(`${gridName} permissions saved`);
+  }
+
+  // The chosen manager follows the Manager role again
+  async function followManagerDefaults() {
+    if (!chosenManager) return;
+    const problem = await saveManagerPermissions(chosenManager.mobileNumber, null);
+    if (problem) {
+      showToast(problem);
+      return;
+    }
+    resetDraft();
+    showToast(`${chosenManager.name} now follows the Manager defaults`);
   }
 
   function saveNewRole() {
@@ -464,8 +494,21 @@ function RolesPage() {
                   <span className={styles["admin-person-detail"]}>
                     {words || selectedRole.id === "staff" ? `${person.roleName} · ` : ""}
                     {person.detail}
+                    {person.roleId === "manager" ? (person.member?.permissions ? " · Own responsibilities" : " · Default") : ""}
                   </span>
                 </span>
+                {isOwner && person.roleId === "manager" && (
+                  <button
+                    type="button"
+                    className={styles["admin-roles-text-button"]}
+                    onClick={() => {
+                      setSelectedRoleId("manager");
+                      setChosenManagerMobile(person.key);
+                    }}
+                  >
+                    Set
+                  </button>
+                )}
                 {isOwner && person.isOwnerRow && (
                   <button type="button" className={styles["admin-roles-text-button"]} onClick={() => setIsOwnerPanelOpen(true)}>
                     Edit
@@ -612,11 +655,17 @@ function RolesPage() {
           <div className={dashboardStyles["admin-card-heading-row"]}>
             <div>
               <h2 id="admin-permissions-heading" className={dashboardStyles["admin-card-title"]}>
-                {selectedRole.name} permissions
+                {chosenManager ? `${chosenManager.name}'s responsibilities` : `${selectedRole.name} permissions`}
                 {hasUnsavedChanges && <span className={styles["admin-permissions-unsaved"]}>Not saved</span>}
               </h2>
               <p className={dashboardStyles["admin-card-subtitle"]}>
-                {selectedRole.id === "owner"
+                {chosenManager
+                  ? chosenManager.permissions
+                    ? `What ${chosenManager.name} can see and change`
+                    : `${chosenManager.name} follows the Manager defaults. Change the ticks and save to give them their own`
+                  : selectedRole.id === "manager"
+                    ? "The defaults, for managers without their own responsibilities"
+                  : selectedRole.id === "owner"
                   ? "The owner can always see and change everything"
                   : !selectedRole.hasPanelAccess
                     ? "Delivery agents can't open the panel"
@@ -641,15 +690,34 @@ function RolesPage() {
                     </button>
                   </>
                 )}
+                {chosenManager?.permissions && (
+                  <button type="button" className={styles["admin-roles-text-button"]} onClick={() => void followManagerDefaults()}>
+                    Use default
+                  </button>
+                )}
                 <button type="button" className={styles["admin-permissions-reset"]} disabled={!hasUnsavedChanges} onClick={resetDraft}>
                   Reset
                 </button>
-                <button type="button" className={styles["admin-permissions-save"]} disabled={!hasUnsavedChanges} onClick={savePermissions}>
+                <button type="button" className={styles["admin-permissions-save"]} disabled={!hasUnsavedChanges} onClick={() => void savePermissions()}>
                   Save
                 </button>
               </div>
             )}
           </div>
+
+          {selectedRole.id === "manager" && managers.length > 0 && (
+            <label className={styles["admin-permissions-person"]}>
+              <span>Responsibilities for</span>
+              <select className={adminInputClassName} value={chosenManager?.mobileNumber ?? ""} onChange={(changeEvent) => setChosenManagerMobile(changeEvent.target.value)}>
+                <option value="">Manager defaults</option>
+                {managers.map((manager) => (
+                  <option key={manager.mobileNumber} value={manager.mobileNumber}>
+                    {manager.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <div className={dashboardStyles["admin-table-scroll"]}>
             <table className={`${dashboardStyles["admin-orders-table"]} ${styles["admin-permissions-table"]}`}>
@@ -686,7 +754,7 @@ function RolesPage() {
                             type="button"
                             role="checkbox"
                             aria-checked={isOn}
-                            aria-label={`${selectedRole.name}: ${action.label} ${module.label}`}
+                            aria-label={`${gridName}: ${action.label} ${module.label}`}
                             disabled={isLocked}
                             className={`${styles["admin-permission-box"]} ${isOn ? styles["admin-permission-box-on"] : ""}`}
                             onClick={() => toggle(module.key, action.key)}

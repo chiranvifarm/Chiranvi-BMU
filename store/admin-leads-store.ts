@@ -15,7 +15,7 @@ import { createPanelRecordStore } from "./panel-records";
   Customer leads are made when staff open the Leads page (useCustomerLeads): someone logged in without a
   completed profile (panel_logins_without_profile() in the database), then a completed profile with no order.
   They are one lead per login number: it follows the person, and their first order moves it to Converted.
-  The first time the panel opens the page, 37 sample leads are copied in.
+  The first time the panel opens the page, 37 sample leads are copied in; the Leads page and Reports leave them out.
 */
 
 export type LeadStage = "new" | "contacted" | "trial" | "converted" | "lost";
@@ -140,14 +140,12 @@ export function getLeadKind(lead: AdminLead): LeadKind | undefined {
   return lead.note === "Location request" ? "location" : undefined;
 }
 
-// Moving a lead sets the note that stage shows on its card (its kind is kept)
+// Moving a lead keeps its note and kind; a free trial runs for three days
 export function moveLead(id: string, stage: LeadStage) {
-  const notes: Partial<Record<LeadStage, string>> = { contacted: "Call back 5 PM", converted: "Daily Milk", lost: "Price" };
   void store.change(id, (lead) => ({
     ...lead,
     kind: getLeadKind(lead),
     stage,
-    note: notes[stage],
     trialEndsAt: stage === "trial" ? new Date(Date.now() + 3 * 86400000).toISOString() : undefined,
   }));
 }
@@ -195,12 +193,7 @@ export function removeLead(id: string) {
   else void store.remove(id);
 }
 
-export function useAdminLeads() {
-  const leads = store.useRecords();
-  return useMemo(() => leads.filter((lead) => !lead.isDismissed), [leads]);
-}
-
-// Without the sample leads (Reports)
+// Real leads only: no samples, and none taken off the board (Leads page, Reports)
 export function useRealAdminLeads() {
   const leads = store.useRealRecords();
   return useMemo(() => leads.filter((lead) => !lead.isDismissed), [leads]);

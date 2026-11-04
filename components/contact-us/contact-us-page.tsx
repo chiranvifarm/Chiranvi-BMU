@@ -14,7 +14,7 @@ import styles from "./contact-us-page.module.css";
 */
 
 const contactPhoneNumber = "+91 9902881718";
-const contactEmail = "chiranvifarm@gmail.com";
+const contactEmail = "support@chiranvifarm.com";
 
 export default function ContactUsPage() {
   return (
@@ -92,7 +92,7 @@ export default function ContactUsPage() {
             </li>
             <li>
               <a
-                href="https://www.google.com/maps/search/?api=1&query=Thagachakere%2C+Ramanagara%2C+Karnataka+562160"
+                href="https://www.google.com/maps/search/?api=1&query=Chiranvi+Farm%2C+Channapattana%2C+Bengaluru+South+district%2C+Karnataka+562160"
                 target="_blank"
                 rel="noopener noreferrer"
                 className={styles["contact-us-card"]}
@@ -104,9 +104,9 @@ export default function ContactUsPage() {
                   </svg>
                 </span>
                 <span className={styles["contact-us-card-address"]}>
-                  Chiranvi Farm, Ramanagara,
+                  Chiranvi Farm, Channapattana,
                   <br />
-                  Thagachakere, Karnataka 562160
+                  Bengaluru South district, Karnataka-562160
                 </span>
               </a>
             </li>

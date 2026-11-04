@@ -1,5 +1,6 @@
 /*
-  The Delivery Panel's notifications: the card over the page, and the rows also used in the bell's list.
+  The Delivery Panel's notifications: white cards dropping in at the top centre (like the website's "Complete your
+  profile" card), and the rows also used in the bell's list.
   Sizes in --delivery-pixel. Chiranvi colours by kind: green stops, yellow skips and messages, gold changes,
   grey pauses.
 */
@@ -7,41 +8,57 @@
 .delivery-alerts {
   position: fixed;
   z-index: 55;
-  top: calc(78 * var(--delivery-pixel));
-  right: calc(28 * var(--delivery-pixel));
+  top: calc(14 * var(--delivery-pixel));
+  left: 50%;
   display: flex;
   flex-direction: column;
-  width: min(calc(400 * var(--delivery-pixel)), calc(100vw - 24px));
-  max-height: min(70svh, calc(560 * var(--delivery-pixel)));
-  overflow: hidden;
-  border-radius: calc(16 * var(--delivery-pixel));
-  background: #ffffff;
-  box-shadow: 0 18px 44px rgba(19, 37, 27, 0.28);
-}
-
-.delivery-alerts-heading {
-  display: flex;
-  flex: none;
   align-items: center;
-  justify-content: space-between;
-  gap: calc(10 * var(--delivery-pixel));
-  padding: calc(12 * var(--delivery-pixel)) calc(16 * var(--delivery-pixel));
-  background: #1f4d2e;
+  gap: calc(8 * var(--delivery-pixel));
+  width: min(calc(420 * var(--delivery-pixel)), calc(100vw - 24px));
+  transform: translateX(-50%);
 }
 
-.delivery-alerts-title {
-  font-family: var(--font-ubuntu), sans-serif;
-  font-size: calc(15 * var(--delivery-pixel));
-  font-weight: 700;
-  color: #ffffff;
+.delivery-alerts-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--delivery-pixel));
+  width: 100%;
+  max-height: min(70svh, calc(520 * var(--delivery-pixel)));
+  margin: 0;
+  /* Room for the cards' shadow */
+  padding: 0 calc(10 * var(--delivery-pixel)) calc(16 * var(--delivery-pixel));
+  overflow-y: auto;
+  list-style: none;
+}
+
+.delivery-alerts-list li {
+  animation: delivery-alert-drop-in 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes delivery-alert-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-40 * var(--delivery-pixel)));
+  }
+}
+
+/* In the pop-up: a white card, with Mark as read under the words */
+.delivery-alerts .delivery-alert-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  border-top: 1px solid #e6f0e1;
+  border-right: 1px solid #e6f0e1;
+  border-bottom: 1px solid #e6f0e1;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(31, 77, 46, 0.18);
 }
 
 .delivery-alerts-read-all {
   flex: none;
-  padding: calc(5 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
+  padding: calc(6 * var(--delivery-pixel)) calc(14 * var(--delivery-pixel));
   border: none;
   border-radius: 9999px;
   background: #f5bf2c;
+  box-shadow: 0 6px 16px rgba(31, 77, 46, 0.22);
   font-family: inherit;
   font-size: calc(12 * var(--delivery-pixel));
   font-weight: 600;
@@ -49,17 +66,7 @@
   cursor: pointer;
 }
 
-.delivery-alerts-list {
-  display: flex;
-  flex-direction: column;
-  gap: calc(8 * var(--delivery-pixel));
-  margin: 0;
-  padding: calc(10 * var(--delivery-pixel));
-  overflow-y: auto;
-  list-style: none;
-}
-
-/* One notification: icon, words, then OK */
+/* One notification: icon and words */
 .delivery-alert-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -151,10 +158,12 @@
   color: #6b736c;
 }
 
-.delivery-alert-ok {
+.delivery-alert-mark-read {
+  grid-column: 2;
+  justify-self: start;
   padding: calc(5 * var(--delivery-pixel)) calc(14 * var(--delivery-pixel));
   border: none;
-  border-radius: 9999px;
+  border-radius: calc(8 * var(--delivery-pixel));
   background: #1f4d2e;
   font-family: inherit;
   font-size: calc(12.5 * var(--delivery-pixel));
@@ -163,9 +172,19 @@
   cursor: pointer;
 }
 
+.delivery-alert-mark-read:hover,
+.delivery-alert-mark-read:focus-visible {
+  background: #285c3a;
+}
+
 @media (max-width: 900px) {
   .delivery-alerts {
-    top: 72px;
-    right: 12px;
+    top: 68px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .delivery-alerts-list li {
+    animation: none;
   }
 }

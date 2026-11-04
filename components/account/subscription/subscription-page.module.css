@@ -407,10 +407,16 @@
   line-height: 1.2;
 }
 
-/* Delivered (past days): light green */
+/* Delivered: light green */
 .delivery-calendar-day-delivered {
   background: #e3eedc;
   color: #2f6b3f;
+}
+
+/* An earlier day with no delivery: faded */
+.delivery-calendar-day-past {
+  background: #f7f7f3;
+  color: #a4aaa5;
 }
 
 /* Today: pale yellow, red text */

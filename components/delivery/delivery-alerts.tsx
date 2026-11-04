@@ -13,9 +13,11 @@ import styles from "./delivery-alerts.module.css";
 
 /*
   The Delivery Panel's notifications on the dashboard: a manager gave a stop, a route changed, a skip or pause was
-  approved. They stay on the screen, on every page, until the agent presses OK (one) or Mark all as read; then
-  they are in the bell's list. Each kind has its own colour and icon. Read ones are kept in the agent's day
+  approved. They drop in at the top centre, on every page, and stay until the agent presses Mark as read (one) or
+  Mark all as read; then they are in the bell's list. Each kind has its own colour and icon. Read ones are kept in the agent's day
   (the database). Skips and pauses come from the plans given to this agent (my_assigned_plans()).
+  A paused plan's restart (the day before and the day itself) is an alarm: it beeps and vibrates every 30 seconds
+  until the agent presses Mark as read. It works while the panel is open; a browser may keep it silent until the first tap.
 */
 
 type Tone = "green" | "yellow" | "grey" | "gold";
@@ -28,7 +30,30 @@ const LOOK_OF_KIND: Record<AgentNotification["kind"], { tone: Tone; iconPaths: s
   "manager-message": { tone: "yellow", iconPaths: ["M4 5h16v11H8l-4 4V5Z"] },
   skip: { tone: "yellow", iconPaths: ["M5 5l8 7-8 7V5Z", "M18 5v14"] },
   pause: { tone: "grey", iconPaths: ["M9 5v14", "M15 5v14"] },
+  "delivery-restart": { tone: "yellow", iconPaths: ["M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16Z", "M10 20.5a2 2 0 0 0 4 0"] },
 };
+
+const ALARM_REPEAT_MS = 30_000;
+
+// Three short beeps and a buzz on phones
+function playAlarm() {
+  try {
+    const audio = new AudioContext();
+    [0, 0.35, 0.7].forEach((startAfter) => {
+      const tone = audio.createOscillator();
+      const volume = audio.createGain();
+      tone.frequency.value = 880;
+      volume.gain.value = 0.2;
+      tone.connect(volume).connect(audio.destination);
+      tone.start(audio.currentTime + startAfter);
+      tone.stop(audio.currentTime + startAfter + 0.2);
+    });
+    window.setTimeout(() => void audio.close(), 1500);
+    navigator.vibrate?.([200, 100, 200, 100, 200]);
+  } catch {
+    // No sound here: the pop-up still stays until it is read
+  }
+}
 
 // "New stop: Suresh Gowda, Kengeri" → title and details
 function splitText(text: string) {
@@ -36,7 +61,7 @@ function splitText(text: string) {
   return colon < 0 ? { title: text, detail: "" } : { title: text.slice(0, colon), detail: text.slice(colon + 2) };
 }
 
-// One notification: coloured icon, title, details and time (the pop-up adds OK; the bell's list shows it as it is)
+// One notification: coloured icon, title, details and time (the pop-up adds Mark as read; the bell's list shows it as it is)
 export function NotificationRow({ notification, children }: { notification: AgentNotification; children?: React.ReactNode }) {
   const look = LOOK_OF_KIND[notification.kind];
   const { title, detail } = splitText(notification.text);
@@ -68,31 +93,39 @@ export default function DeliveryAlerts({ mobileNumber, stops }: { mobileNumber: 
   }, [mobileNumber, plans, stops.isLoaded, stops.knownPlanEvents]);
 
   const unread = stops.unreadNotifications;
+  const isAlarmOn = unread.some((notification) => notification.kind === "delivery-restart");
+
+  useEffect(() => {
+    if (!isAlarmOn) return;
+    playAlarm();
+    const timer = window.setInterval(playAlarm, ALARM_REPEAT_MS);
+    return () => window.clearInterval(timer);
+  }, [isAlarmOn]);
+
   if (unread.length === 0) return null;
 
   return (
     <aside className={styles["delivery-alerts"]} aria-label="New notifications" data-lenis-prevent>
-      <div className={styles["delivery-alerts-heading"]}>
-        <span className={styles["delivery-alerts-title"]}>New for you ({unread.length})</span>
-        <button
-          type="button"
-          className={styles["delivery-alerts-read-all"]}
-          onClick={() => markNotificationsRead(mobileNumber, unread.map((notification) => notification.id))}
-        >
-          Mark all as read
-        </button>
-      </div>
       <ul className={styles["delivery-alerts-list"]}>
         {unread.map((notification) => (
           <li key={notification.id}>
             <NotificationRow notification={notification}>
-              <button type="button" className={styles["delivery-alert-ok"]} onClick={() => markNotificationsRead(mobileNumber, [notification.id])}>
-                OK
+              <button type="button" className={styles["delivery-alert-mark-read"]} onClick={() => markNotificationsRead(mobileNumber, [notification.id])}>
+                Mark as read
               </button>
             </NotificationRow>
           </li>
         ))}
       </ul>
+      {unread.length > 1 && (
+        <button
+          type="button"
+          className={styles["delivery-alerts-read-all"]}
+          onClick={() => markNotificationsRead(mobileNumber, unread.map((notification) => notification.id))}
+        >
+          Mark all as read ({unread.length})
+        </button>
+      )}
     </aside>
   );
 }

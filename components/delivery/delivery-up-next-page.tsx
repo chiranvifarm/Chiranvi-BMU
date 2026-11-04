@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { RouteMap } from "@/components/admin/admin-routes-page";
+import { useDeliveryRoutes } from "@/store/admin-routes-store";
 import {
   distanceBetween,
   formatTime,
@@ -24,8 +26,8 @@ import styles from "./delivery-up-next-page.module.css";
   Deliveries → Up next (/delivery/up-next): the stops after the ongoing ones, in route order.
   - Totals: stops left, distance left and the estimated finish time (riding plus a few minutes per stop).
   - Optimise route (nearest stop next, each time slot kept together) and Open route in Google Maps.
-  - Route map: the ongoing stops and the stops left as numbered points, joined in order (positions are
-    sample map positions until real addresses exist).
+  - Route map: the same map as Routes & agents on the panel, with only this agent's routes. A route changed on
+    the panel changes here.
   - Load check: the products needed for the stops still to go (the ongoing ones too), bottles to collect and
     cash to collect.
   - Each stop: number, time slot, distance from the stop before, customer, address, items, and tags for a
@@ -35,6 +37,9 @@ import styles from "./delivery-up-next-page.module.css";
 export default function DeliveryUpNextPage() {
   const { login, stops } = useDeliveryPanel();
   const { ongoing, upNext } = stops;
+  const routes = useDeliveryRoutes();
+  const myRouteIds = routes.filter((route) => route.agent === login.agent?.name).map((route) => route.id);
+  const [highlightedRoute, setHighlightedRoute] = useState<string | null>(null);
   // The ongoing stops and everything after them, in order
   const stopsLeft = useMemo(() => [...ongoing, ...upNext], [ongoing, upNext]);
 
@@ -126,11 +131,10 @@ export default function DeliveryUpNextPage() {
               <h2 id="up-next-map-title" className={styles["up-next-card-title"]}>
                 Route map
               </h2>
-              <RouteMap stops={stopsLeft} ongoingCount={ongoing.length} />
-              <p className={styles["up-next-map-key"]}>
-                <span className={styles["up-next-map-key-now"]} aria-hidden="true" /> Now
-                <span className={styles["up-next-map-key-next"]} aria-hidden="true" /> Up next
+              <p className={styles["up-next-card-text"]}>
+                Farm hub → {myRouteIds.length} delivery route{myRouteIds.length === 1 ? "" : "s"}
               </p>
+              <RouteMap routes={routes} shownRouteIds={myRouteIds} highlightedRoute={highlightedRoute} onHighlight={setHighlightedRoute} />
             </section>
 
             <section className={styles["up-next-card"]} aria-labelledby="up-next-load-title">
@@ -251,44 +255,5 @@ function StopRow({
         </div>
       )}
     </li>
-  );
-}
-
-// The stops as numbered points on a plain map, joined in riding order (north up)
-function RouteMap({ stops, ongoingCount }: { stops: AgentStop[]; ongoingCount: number }) {
-  const width = 320;
-  const height = 220;
-  const padding = 22;
-  const latitudes = stops.map((stop) => stop.latitude);
-  const longitudes = stops.map((stop) => stop.longitude);
-  const minLatitude = Math.min(...latitudes);
-  const maxLatitude = Math.max(...latitudes);
-  const minLongitude = Math.min(...longitudes);
-  const maxLongitude = Math.max(...longitudes);
-  const latitudeRange = maxLatitude - minLatitude || 0.001;
-  const longitudeRange = maxLongitude - minLongitude || 0.001;
-  const points = stops.map((stop) => ({
-    id: stop.id,
-    x: padding + ((stop.longitude - minLongitude) / longitudeRange) * (width - 2 * padding),
-    y: padding + ((maxLatitude - stop.latitude) / latitudeRange) * (height - 2 * padding),
-  }));
-  // Many stops: number only every few, so the map stays readable
-  const labelEvery = stops.length > 30 ? 5 : stops.length > 15 ? 2 : 1;
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className={styles["up-next-map"]} role="img" aria-label={`Route map of ${stops.length} stops`}>
-      <rect x="0" y="0" width={width} height={height} rx="12" className={styles["up-next-map-ground"]} />
-      <polyline points={points.map((point) => `${point.x},${point.y}`).join(" ")} className={styles["up-next-map-line"]} />
-      {points.map((point, index) => (
-        <g key={point.id}>
-          <circle cx={point.x} cy={point.y} r={index < ongoingCount ? 8 : 6} className={index < ongoingCount ? styles["up-next-map-point-now"] : styles["up-next-map-point"]} />
-          {(index === 0 || index % labelEvery === 0 || index === points.length - 1) && (
-            <text x={point.x} y={point.y - 10} className={styles["up-next-map-label"]}>
-              {index + 1}
-            </text>
-          )}
-        </g>
-      ))}
-    </svg>
   );
 }

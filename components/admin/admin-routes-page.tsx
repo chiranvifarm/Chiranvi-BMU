@@ -615,19 +615,23 @@ function RoutesPage() {
 /*
   The route map: a light street grid, the farm hub in the middle and each route's stops joined by a line
   in its colour, with its tag (R1, R2, ...) at the far end. Hovering a route (or its table row) brings it
-  forward and fades the others.
+  forward and fades the others. The Delivery Panel's Up next page shows this same map with only the agent's own
+  routes (shownRouteIds), each in the same place as here.
 */
-function RouteMap({
+export function RouteMap({
   routes,
   highlightedRoute,
   onHighlight,
+  shownRouteIds,
 }: {
   routes: DeliveryRoute[];
   highlightedRoute: string | null;
   onHighlight: (routeId: string | null) => void;
+  shownRouteIds?: string[];
 }) {
+  const shownCount = shownRouteIds?.length ?? routes.length;
   return (
-    <svg viewBox={`${MAP_LEFT} 0 ${MAP_WIDTH} 224`} className={styles["admin-route-map"]} role="img" aria-label={`Map of ${routes.length} routes from the farm hub`}>
+    <svg viewBox={`${MAP_LEFT} 0 ${MAP_WIDTH} 224`} className={styles["admin-route-map"]} role="img" aria-label={`Map of ${shownCount} routes from the farm hub`}>
       <rect x={MAP_LEFT} y="0" width={MAP_WIDTH} height="224" rx="10" className={styles["admin-route-map-ground"]} />
       {/* Blocks between the streets */}
       {Array.from({ length: 9 }, (_, column) => column).map((column) =>
@@ -645,7 +649,9 @@ function RouteMap({
       )}
 
       {routes.map((route, index) => {
-        const points = [[HUB.x, HUB.y] as [number, number], ...routeShape(index)];
+        if (shownRouteIds && !shownRouteIds.includes(route.id)) return null;
+        // By its number (R4 is the fourth), so a route is in the same place on the panel and for its agent
+        const points = [[HUB.x, HUB.y] as [number, number], ...routeShape((Number(route.id.slice(1)) || index + 1) - 1)];
         const [endX, endY] = points[points.length - 1];
         const isFaded = highlightedRoute !== null && highlightedRoute !== route.id;
         return (

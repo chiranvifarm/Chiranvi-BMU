@@ -5,7 +5,7 @@ import styles from "./site-footer.module.css";
 
 /*
   Site footer, shared by every page: the "Refer a Friend" banner on top (one light grey panel
-  with the footer), then logo, short description and copyright on the left; Product, Company and
+  with the footer), then logo, the farm's address and contact details, and copyright on the left; Product, Company and
   Subscription link columns; "Get in touch" with social media icons.
   Used on the landing page and Join Community, so a change here shows on both.
   Links that have no page yet point to "#".
@@ -61,11 +61,11 @@ export default function SiteFooter() {
               />
             </Link>
             <p className={styles["site-footer-description"]}>
-              {/* Line breaks as in the design (desktop only) */}
-              Chiranvi Farm brings you fresh, natural dairy <br className={styles["site-footer-description-break"]} />
-              products straight from the farm. Enjoy wholesome{" "}
-              <br className={styles["site-footer-description-break"]} />
-              goodness and quality you can trust every day.
+              Chiranvi Farm, Channapattana, Bengaluru South district, Karnataka-562160
+              <br />
+              Mobile number: <a href="tel:+919902881718">+91 9902881718</a>
+              <br />
+              Email: <a href="mailto:support@chiranvifarm.com">support@chiranvifarm.com</a>
             </p>
             <p className={styles["site-footer-copyright"]}>© 2026 Chiranvi Farm. All rights reserved.</p>
           </div>

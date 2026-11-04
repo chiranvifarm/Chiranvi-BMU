@@ -3,11 +3,9 @@
 import { useMemo, useState } from "react";
 import {
   PAYMENT_METHODS,
-  recordPayment,
   refundPayment,
   useAdminPayments,
   type AdminPayment,
-  type PaymentMethod,
   type PaymentType,
 } from "@/store/admin-payments-store";
 import { useAdminOrders } from "@/store/admin-orders-store";
@@ -15,12 +13,10 @@ import { useCurrentStaffAccess } from "@/store/staff-access-store";
 import { AdminFeatureGate } from "./admin-panel-layout";
 import {
   AdminDialog,
-  AdminDialogField,
   AdminFilterTabs,
   AdminPageTop,
   AdminPagination,
   AdminStatCards,
-  adminInputClassName,
   downloadCsv,
   formatDateRange,
   toDateFileName,
@@ -35,7 +31,7 @@ import styles from "./admin-payments-page.module.css";
 /*
   Payments (/admin/payments), from the design 07-payments-wallet, without the wallet (Chiranvi does
   not use one): money in for orders and subscription plans, refunds, and failed payments.
-    top        search (customer, area or transaction), Record payment (pop-up form), Custom range, Export
+    top        search (customer, area or transaction), Custom range, Export
     numbers    collected in the chosen dates, collected today, refunded, failed payments (red: money to
                recover)
     table      All / Success / Failed tabs; 14 a page; "Refund" in the row (an online payment through
@@ -74,8 +70,6 @@ function shortRupees(amount: number) {
   return amount >= 1000 ? `₹${(amount / 1000).toFixed(1)}k` : rupees(amount);
 }
 
-const EMPTY_NEW_PAYMENT = { customerName: "", area: "", type: "Order" as PaymentType, method: "Cash" as PaymentMethod, amount: "" };
-
 export default function AdminPaymentsPage() {
   return (
     <AdminFeatureGate feature="payments">
@@ -93,8 +87,6 @@ function PaymentsPage() {
   const [searchText, setSearchText] = useState("");
   const [tab, setTab] = useState<PaymentTab>("all");
   const [page, setPage] = useState(1);
-  const [isRecordOpen, setIsRecordOpen] = useState(false);
-  const [newPayment, setNewPayment] = useState(EMPTY_NEW_PAYMENT);
   const { showToast, toast } = useAdminToast();
   // Sensitive actions only the owner can do (Roles & permissions)
   const isOwner = useIsPanelOwner();
@@ -176,34 +168,6 @@ function PaymentsPage() {
     setRefundOf(null);
   }
 
-  async function saveNewPayment() {
-    const amount = Number(newPayment.amount);
-    if (!newPayment.customerName.trim() || !(amount > 0)) {
-      showToast("Enter the customer and the amount");
-      return;
-    }
-    const added = await recordPayment(
-      {
-        customerName: newPayment.customerName.trim(),
-        area: newPayment.area.trim() || "—",
-        type: newPayment.type,
-        method: newPayment.method,
-        amount: newPayment.type === "Refund" ? -amount : amount,
-      },
-      recordedBy,
-    );
-    if ("error" in added) {
-      showToast(added.error);
-      return;
-    }
-    setRangeTo(today);
-    setIsRecordOpen(false);
-    setNewPayment(EMPTY_NEW_PAYMENT);
-    setTab("all");
-    setPage(1);
-    showToast(`${added.id} recorded for ${added.customerName}`);
-  }
-
   return (
     <div className={dashboardStyles["admin-dashboard"]}>
       <AdminPageTop
@@ -215,8 +179,6 @@ function PaymentsPage() {
           setPage(1);
         }}
         searchPlaceholder="Search customer or transaction..."
-        actionLabel="Record payment"
-        onAction={() => setIsRecordOpen(true)}
         today={today}
         rangeFrom={rangeFrom}
         rangeTo={rangeTo}
@@ -462,56 +424,6 @@ function PaymentsPage() {
               ? `Razorpay sends the money back to the customer's account (in a few days), and order ${refundOf.websiteOrderId ?? ""} is cancelled. This can't be undone.`
               : "This records a refund given by hand (cash or bank transfer)."}
           </p>
-        </AdminDialog>
-      )}
-
-      {isRecordOpen && (
-        <AdminDialog title="Record payment" submitLabel="Record" onClose={() => setIsRecordOpen(false)} onSubmit={saveNewPayment}>
-          <AdminDialogField label="Customer name">
-            <input
-              className={adminInputClassName}
-              value={newPayment.customerName}
-              onChange={(changeEvent) => setNewPayment({ ...newPayment, customerName: changeEvent.target.value })}
-              autoFocus
-            />
-          </AdminDialogField>
-          <AdminDialogField label="Area">
-            <input
-              className={adminInputClassName}
-              value={newPayment.area}
-              onChange={(changeEvent) => setNewPayment({ ...newPayment, area: changeEvent.target.value })}
-            />
-          </AdminDialogField>
-          <AdminDialogField label="For">
-            <select
-              className={adminInputClassName}
-              value={newPayment.type}
-              onChange={(changeEvent) => setNewPayment({ ...newPayment, type: changeEvent.target.value as PaymentType })}
-            >
-              <option>Order</option>
-              <option>Subscription</option>
-              <option>Refund</option>
-            </select>
-          </AdminDialogField>
-          <AdminDialogField label="Method">
-            <select
-              className={adminInputClassName}
-              value={newPayment.method}
-              onChange={(changeEvent) => setNewPayment({ ...newPayment, method: changeEvent.target.value as PaymentMethod })}
-            >
-              {PAYMENT_METHODS.map((method) => (
-                <option key={method}>{method}</option>
-              ))}
-            </select>
-          </AdminDialogField>
-          <AdminDialogField label="Amount (₹)" isWide>
-            <input
-              className={adminInputClassName}
-              inputMode="numeric"
-              value={newPayment.amount}
-              onChange={(changeEvent) => setNewPayment({ ...newPayment, amount: changeEvent.target.value.replace(/\D/g, "") })}
-            />
-          </AdminDialogField>
         </AdminDialog>
       )}
 

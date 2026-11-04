@@ -1,18 +1,46 @@
+import { useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useAreAdminCustomersLoaded, useRealAdminCustomers, type AdminCustomer } from "./admin-customers-store";
 import { createPanelRecordStore } from "./panel-records";
 
 /*
-  Leads: people who asked about Chiranvi from Instagram, the website, referrals, Google or a walk-in.
+  Leads: people who asked about Chiranvi from social media, the website, referrals, Google or a walk-in, and
+  people who logged in on the website but haven't bought anything yet.
   Kept in the database (panel_records, "leads"; supabase/migrations/0019_…), seen on the Chiranvi Panel's
   Leads page by the staff member's role. Each lead is in one stage: New, Contacted, Free trial, Converted or Lost.
   New leads — from the panel, and from the website's bulk order and "Request delivery" forms, also by visitors
   who aren't logged in — go through the database's submit_lead(), which checks them and limits how many one
-  number can send; visitors can never read leads.
+  number can send; visitors can never read leads. A website form's lead keeps the social media or Google link
+  the visitor came from (sourceOfThisVisit).
+  Customer leads are made when staff open the Leads page (useCustomerLeads): someone logged in without a
+  completed profile (panel_logins_without_profile() in the database), then a completed profile with no order.
+  They are one lead per login number: it follows the person, and their first order moves it to Converted.
   The first time the panel opens the page, 37 sample leads are copied in.
 */
 
 export type LeadStage = "new" | "contacted" | "trial" | "converted" | "lost";
-export type LeadSource = "Instagram" | "Website" | "Referral" | "Google" | "Walk-in";
+export type LeadSource =
+  | "Instagram"
+  | "Facebook"
+  | "WhatsApp"
+  | "YouTube"
+  | "X"
+  | "LinkedIn"
+  | "Other social"
+  | "Website"
+  | "Referral"
+  | "Google"
+  | "Walk-in";
+
+// Why someone is a lead, besides simply asking
+export type LeadKind = "profile-incomplete" | "no-order" | "location" | "bulk";
+
+export const LEAD_KIND_LABELS: Record<LeadKind, string> = {
+  "profile-incomplete": "Profile not completed",
+  "no-order": "No order yet",
+  location: "Location request",
+  bulk: "Bulk order",
+};
 
 export const LEAD_STAGES: { key: LeadStage; label: string }[] = [
   { key: "new", label: "New" },
@@ -22,7 +50,8 @@ export const LEAD_STAGES: { key: LeadStage; label: string }[] = [
   { key: "lost", label: "Lost" },
 ];
 
-export const LEAD_SOURCES: LeadSource[] = ["Instagram", "Website", "Referral", "Google", "Walk-in"];
+export const SOCIAL_SOURCES: LeadSource[] = ["Instagram", "Facebook", "WhatsApp", "YouTube", "X", "LinkedIn", "Other social"];
+export const LEAD_SOURCES: LeadSource[] = [...SOCIAL_SOURCES, "Website", "Referral", "Google", "Walk-in"];
 
 export type AdminLead = {
   id: string;
@@ -38,6 +67,9 @@ export type AdminLead = {
   address?: string;
   email?: string;
   bulkOrderItems?: BulkOrderItem[];
+  kind?: LeadKind;
+  customerMobile?: string; // a customer lead: their login number, 10 digits
+  isDismissed?: boolean; // a customer lead taken off the board (kept, so it isn't made again)
 };
 
 export type BulkOrderItem = { productName: string; packLabel: string; quantity: number };
@@ -101,15 +133,41 @@ const store = createPanelRecordStore<AdminLead>({
   seed: { seedKey: "leads", makeSamples: makeSampleLeads, oldStorageKey: "chiranvi-admin-leads" },
 });
 
-// Moving a lead sets the note that stage shows on its card
+// Leads from before kinds were saved are known by what the website's forms send
+export function getLeadKind(lead: AdminLead): LeadKind | undefined {
+  if (lead.kind) return lead.kind;
+  if (lead.bulkOrderItems?.length) return "bulk";
+  return lead.note === "Location request" ? "location" : undefined;
+}
+
+// Moving a lead sets the note that stage shows on its card (its kind is kept)
 export function moveLead(id: string, stage: LeadStage) {
   const notes: Partial<Record<LeadStage, string>> = { contacted: "Call back 5 PM", converted: "Daily Milk", lost: "Price" };
   void store.change(id, (lead) => ({
     ...lead,
+    kind: getLeadKind(lead),
     stage,
     note: notes[stage],
     trialEndsAt: stage === "trial" ? new Date(Date.now() + 3 * 86400000).toISOString() : undefined,
   }));
+}
+
+// What gives away a link's social media: its utm_source ("?utm_source=instagram") or the site it came from
+const SOURCE_SIGNS: [RegExp, LeadSource][] = [
+  [/instagram|\big\b/, "Instagram"],
+  [/facebook|\bfb\b/, "Facebook"],
+  [/whatsapp|\bwa\.me\b/, "WhatsApp"],
+  [/youtube|\byoutu\.be\b/, "YouTube"],
+  [/twitter|\bx\.com\b|\bt\.co\b/, "X"],
+  [/linkedin|\blnkd\.in\b/, "LinkedIn"],
+  [/telegram|\bt\.me\b|snapchat|pinterest|threads|reddit|sharechat/, "Other social"],
+  [/google/, "Google"],
+];
+
+function sourceOfThisVisit(): LeadSource {
+  if (typeof window === "undefined") return "Website";
+  const signs = `${new URLSearchParams(window.location.search).get("utm_source") ?? ""} ${document.referrer}`.toLowerCase();
+  return SOURCE_SIGNS.find(([sign]) => sign.test(signs))?.[1] ?? "Website";
 }
 
 /*
@@ -118,9 +176,11 @@ export function moveLead(id: string, stage: LeadStage) {
   shows it with its number once the database has it).
 */
 export function addLead(lead: Pick<AdminLead, "name" | "phone" | "source"> & Partial<Pick<AdminLead, "note" | "address" | "email" | "bulkOrderItems">>) {
-  const sentLead: AdminLead = { ...lead, id: "", stage: "new", createdAt: new Date().toISOString() };
+  // "Website" from a form: the link the visitor came from, if it shows one
+  const withSource = { ...lead, source: lead.source === "Website" ? sourceOfThisVisit() : lead.source };
+  const sentLead: AdminLead = { ...withSource, id: "", stage: "new", createdAt: new Date().toISOString() };
   void createClient()
-    .rpc("submit_lead", { lead })
+    .rpc("submit_lead", { lead: withSource })
     .then(({ error }) => {
       if (error) console.error("The database did not take the lead", error);
       void store.reload();
@@ -128,15 +188,102 @@ export function addLead(lead: Pick<AdminLead, "name" | "phone" | "source"> & Par
   return sentLead;
 }
 
+// A customer lead is only hidden: removed, the next visit would make it again
 export function removeLead(id: string) {
-  void store.remove(id);
+  const lead = store.getRecords().find((existing) => existing.id === id);
+  if (lead?.customerMobile) void store.change(id, (existing) => ({ ...existing, isDismissed: true }));
+  else void store.remove(id);
 }
 
 export function useAdminLeads() {
-  return store.useRecords();
+  const leads = store.useRecords();
+  return useMemo(() => leads.filter((lead) => !lead.isDismissed), [leads]);
 }
 
 // Without the sample leads (Reports)
 export function useRealAdminLeads() {
-  return store.useRealRecords();
+  const leads = store.useRealRecords();
+  return useMemo(() => leads.filter((lead) => !lead.isDismissed), [leads]);
+}
+
+type LoginWithoutProfile = { mobile: string; logged_in_at: string };
+
+// Who logged in without completing a profile (the database's login list; staff only)
+async function readLoginsWithoutProfile() {
+  const { data, error } = await createClient().rpc("panel_logins_without_profile");
+  if (error) {
+    console.error("Could not read the logins without a profile", error);
+    return [];
+  }
+  return (data ?? []) as LoginWithoutProfile[];
+}
+
+function shownPhone(mobile: string) {
+  return `${mobile.slice(0, 5)} ${mobile.slice(5, 7)} ${mobile.slice(7)}`;
+}
+
+// One lead per login number: made once, then it follows the person
+function updateCustomerLeads(customers: AdminCustomer[], logins: LoginWithoutProfile[]) {
+  const leadOf = new Map(store.getRecords().flatMap((lead) => (lead.customerMobile ? [[lead.customerMobile, lead] as const] : [])));
+  const makeLead = (lead: Omit<AdminLead, "id" | "stage" | "source"> & { customerMobile: string }) =>
+    void store.add({ ...lead, id: `LD-M-${lead.customerMobile}`, stage: "new", source: "Website" });
+
+  for (const customer of customers) {
+    const mobile = customer.phone.replace(/\D/g, "").slice(-10);
+    if (mobile.length !== 10) continue;
+    const lead = leadOf.get(mobile);
+    if (customer.orderCount > 0) {
+      // Their first order: the lead has turned into a customer
+      if (lead && lead.stage !== "converted" && lead.stage !== "lost") {
+        void store.change(lead.id, (existing) => ({ ...existing, stage: "converted", note: customer.plan, trialEndsAt: undefined }));
+      }
+    } else if (!lead) {
+      makeLead({
+        customerMobile: mobile,
+        name: customer.name,
+        phone: shownPhone(mobile),
+        createdAt: customer.registeredAt ?? new Date().toISOString(),
+        kind: "no-order",
+        address: customer.profile?.primaryAddress || undefined,
+        email: customer.profile?.email || undefined,
+      });
+    } else if (lead.kind === "profile-incomplete") {
+      // They completed their profile
+      void store.change(lead.id, (existing) => ({
+        ...existing,
+        kind: "no-order",
+        name: customer.name,
+        address: customer.profile?.primaryAddress || undefined,
+        email: customer.profile?.email || undefined,
+      }));
+    }
+  }
+
+  for (const login of logins) {
+    if (leadOf.has(login.mobile)) continue;
+    makeLead({
+      customerMobile: login.mobile,
+      name: "Name not given",
+      phone: shownPhone(login.mobile),
+      createdAt: login.logged_in_at,
+      kind: "profile-incomplete",
+    });
+  }
+}
+
+// The Leads page: brings the customer leads up to date (only for staff who may add leads)
+export function useCustomerLeads(canAddLeads: boolean) {
+  const customers = useRealAdminCustomers();
+  const areCustomersLoaded = useAreAdminCustomersLoaded();
+  const areLeadsLoaded = store.useIsLoaded();
+  useEffect(() => {
+    if (!canAddLeads || !areCustomersLoaded || !areLeadsLoaded) return;
+    let isStillWanted = true;
+    void readLoginsWithoutProfile().then((logins) => {
+      if (isStillWanted) updateCustomerLeads(customers, logins);
+    });
+    return () => {
+      isStillWanted = false;
+    };
+  }, [canAddLeads, customers, areCustomersLoaded, areLeadsLoaded]);
 }

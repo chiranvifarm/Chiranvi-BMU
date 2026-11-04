@@ -9,6 +9,7 @@ import {
   isAvailableToOrder,
   markRestocked,
   removeProduct,
+  saveStockCounts,
   updateProduct,
   useProductCategories,
   useHaveProductsLoaded,
@@ -259,6 +260,13 @@ function toForm(product: ShopProduct): ProductForm {
 }
 
 const onlyDigits = (text: string) => text.replace(/\D/g, "");
+
+// The pack sizes with a stock count, by the id the cart uses (the database checks the same list)
+function stockSizesOf(product: ShopProduct, page?: ProductPage) {
+  if (!page) return [{ key: product.productId, label: product.packSize || "Stock" }];
+  if ("packs" in page) return page.packs.map((pack) => ({ key: `${page.slug}-${pack.packId}`, label: pack.label }));
+  return [{ key: page.slug, label: "1 L" }, ...(page.hasHalfLitreBottle ? [{ key: `${page.slug}-half-litre`, label: "500 ml" }] : [])];
+}
 
 // "21 Oct, 9:40 am"
 function formatWhen(isoDate: string) {
@@ -758,6 +766,13 @@ function ProductPopup({
   const isOwner = useIsPanelOwner();
   const canDelete = useAdminCan("delete");
   const isOutOfStock = product?.stock === "out";
+  // The stock boxes, one per pack size (empty: not counted, the label is set by hand)
+  const stockSizes = product ? stockSizesOf(product, page) : [];
+  const savedCounts = product?.stockCounts ?? {};
+  const [countTexts, setCountTexts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(savedCounts).map(([key, count]) => [key, String(count)])),
+  );
+  const hasCounts = stockSizes.some((size) => countTexts[size.key]);
   const startingPhoto = product ? getStartingPhoto(product.productId) : null;
   const waitingCount = product?.waitingCustomers?.length ?? 0;
   const [isDeleteAsked, setIsDeleteAsked] = useState(false);
@@ -893,7 +908,22 @@ function ProductPopup({
       return;
     }
 
-    if (isOutOfStock && form.isRestocked) {
+    // Only the boxes that changed are sent (a sale meanwhile isn't undone for the others)
+    const changedCounts: Record<string, number | null> = {};
+    for (const size of stockSizes) {
+      const text = countTexts[size.key] ?? "";
+      if (text !== (size.key in savedCounts ? String(savedCounts[size.key]) : "")) changedCounts[size.key] = text === "" ? null : Number(text);
+    }
+    const saveCounts = () => {
+      if (Object.keys(changedCounts).length === 0) return;
+      void saveStockCounts(product.productId, changedCounts).then((problem) => {
+        if (problem) showToast(problem);
+      });
+    };
+
+    // Out of stock and a new count entered: that is a restock (the manager and waiting customers are told)
+    const isRestockedByCount = isOutOfStock && Object.values(changedCounts).some((count) => count !== null && count > 0);
+    if (isOutOfStock && (form.isRestocked || isRestockedByCount)) {
       const managers = team.filter((member) => member.roleId === "manager").map((member) => member.name);
       const notice = markRestocked(product.productId, changedBy, managers);
       updateProduct(product.productId, { ...details, stock: form.stock === "out" ? "in" : form.stock }, changedBy);
@@ -901,13 +931,16 @@ function ProductPopup({
         `Restocked. ${notice?.sentTo.join(", ")} notified${notice?.customersNotified ? ` · ${notice.customersNotified} waiting customers told` : ""}`,
       );
     } else {
+      // With counts the database sets the label, so the buttons' choice isn't used
+      const stock = hasCounts ? product.stock : form.stock;
       updateProduct(
         product.productId,
-        { ...details, stock: form.stock, isVisible: form.stock === "out" ? false : form.isVisible },
+        { ...details, stock, isVisible: !hasCounts && stock === "out" ? false : form.isVisible },
         changedBy,
       );
       showToast(`${details.name} · ${details.packSize} saved`);
     }
+    saveCounts();
     onClose();
   }
 
@@ -1027,8 +1060,8 @@ function ProductPopup({
           </div>
 
           <div className={styles["admin-product-popup-fields"]}>
-            {/* Restock: only for out-of-stock products */}
-            {isOutOfStock && (
+            {/* Restock: only for out-of-stock products (a counted one is restocked by entering a new count) */}
+            {isOutOfStock && !hasCounts && (
               <div className={styles["admin-product-restock-row"]}>
                 <span>
                   <span className={styles["admin-product-option-title"]}>Restocked</span>
@@ -1111,6 +1144,7 @@ function ProductPopup({
                     key={stock}
                     type="button"
                     aria-pressed={stockShown === stock}
+                    disabled={hasCounts}
                     className={`${styles["admin-product-stock-button"]} ${stockShown === stock ? styles[`admin-product-stock-button-${stock}`] : ""}`}
                     onClick={() => setForm({ ...form, stock, isRestocked: isOutOfStock ? stock !== "out" : false })}
                   >
@@ -1118,8 +1152,29 @@ function ProductPopup({
                   </button>
                 ))}
               </div>
-              {!isOutOfStock && form.stock === "out" && product && (
+              {!isOutOfStock && form.stock === "out" && product && !hasCounts && (
                 <p className={styles["admin-product-stock-warning"]}>Saving marks it out of stock: the website shows it as Sold out.</p>
+              )}
+              {/* How many are in stock, per pack size */}
+              {product && (
+                <>
+                  <div className={`${styles["admin-product-field-grid"]} ${styles["admin-product-stock-count-grid"]}`}>
+                    {stockSizes.map((size) => (
+                      <PopupField key={size.key} label={`${size.label} in stock`}>
+                        <input
+                          className={adminInputClassName}
+                          inputMode="numeric"
+                          placeholder="Not counted"
+                          value={countTexts[size.key] ?? ""}
+                          onChange={(changeEvent) => setCountTexts({ ...countTexts, [size.key]: onlyDigits(changeEvent.target.value) })}
+                        />
+                      </PopupField>
+                    ))}
+                  </div>
+                  <p className={styles["admin-product-stock-count-note"]}>
+                    With a number, paid orders lower it and the stock label above follows it (Low at 5 or less). Leave it empty to set the label by hand.
+                  </p>
+                </>
               )}
             </fieldset>
 

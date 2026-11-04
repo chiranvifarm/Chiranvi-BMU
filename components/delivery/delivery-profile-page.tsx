@@ -27,7 +27,7 @@ export default function DeliveryProfilePage() {
   const me = useStaffList().find((person) => person.phone === login.mobileNumber);
   // Every route given to them on Routes & agents
   const myRoutes = useDeliveryRoutes().filter((route) => route.agent === login.agent?.name);
-  const totalStops = stops.completed.length + stops.upNext.length + (stops.ongoing ? 1 : 0);
+  const totalStops = stops.completed.length + stops.upNext.length + stops.ongoing.length;
   const formattedMobile = `${login.mobileNumber.slice(0, 5)} ${login.mobileNumber.slice(5)}`;
 
   const details: { label: string; value: string }[] = [

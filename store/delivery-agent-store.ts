@@ -29,8 +29,9 @@ import { createClient } from "@/lib/supabase/client";
   A stop shows only what is real: an order's items and cash to collect. A stop with a map pin (the customer's address pin, or the spot the agent saved at
   the gate; 0027_address_pins.sql) uses it: Google Maps goes to that exact spot. Without one, Maps searches
   the address text.
-  Stops: Ongoing is the first unfinished stop in the agent's order, Up next the other unfinished ones, and
-  Completed the finished ones (including those the panel already shows as Delivered or Missed).
+  Stops: Ongoing is the first unfinished one-time order and the first unfinished subscription in the agent's
+  order, Up next the other unfinished ones, and Completed the finished ones (including those the panel already
+  shows as Delivered or Missed).
 */
 
 export type StopStep = "picked-up";
@@ -99,6 +100,7 @@ export type AgentStop = {
   note?: string;
   cashToCollect: number; // rupees; 0 for prepaid orders
   changedByDispatch: boolean; // the panel added this stop today or moved it to this agent
+  isSubscription: boolean; // a daily milk delivery (else a one-time order)
   latitude: number;
   longitude: number;
   hasExactPin: boolean; // latitude / longitude are the address's real pin (else made up near the area's centre)
@@ -363,7 +365,7 @@ export function minutesFor(distanceKm: number, stops: number) {
 // ---------- The agent's stops ----------
 
 export type AgentStops = {
-  ongoing: AgentStop | null;
+  ongoing: AgentStop[]; // at most two, in the agent's order: one one-time order, one subscription
   upNext: AgentStop[];
   completed: AgentStop[]; // newest first
   isOnDuty: boolean;
@@ -399,6 +401,8 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
         phone: delivery.phone,
         address: delivery.address,
         slot: delivery.slot,
+        // The route's own stops, with no order behind them, are the daily milk round
+        isSubscription: delivery.orderNumber ? Boolean(delivery.isSubscription) : true,
         ...details,
         ...progress,
         requests: day.requests.filter((request) => request.deliveryId === delivery.id),
@@ -467,9 +471,10 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
       return SLOT_ORDER.indexOf(first.slot) - SLOT_ORDER.indexOf(second.slot) || first.id.localeCompare(second.id);
     });
     finished.sort((first, second) => (second.finishedAt ?? "").localeCompare(first.finishedAt ?? ""));
+    const firstOfEachKind = [unfinished.find((stop) => !stop.isSubscription), unfinished.find((stop) => stop.isSubscription)];
     return {
-      ongoing: unfinished[0] ?? null,
-      upNext: unfinished.slice(1),
+      ongoing: unfinished.filter((stop) => firstOfEachKind.includes(stop)),
+      upNext: unfinished.filter((stop) => !firstOfEachKind.includes(stop)),
       completed: finished,
       isOnDuty: day.isOnDuty,
       isLoaded,
@@ -540,24 +545,23 @@ export function setStopOrder(mobileNumber: string, stopIds: string[]) {
   saveDay(mobileNumber, (day) => ({ ...day, order: stopIds }));
 }
 
-// Moves a stop one place up or down among the stops still to go (the ongoing one stays first)
-export function moveStop(mobileNumber: string, unfinishedIds: string[], stopId: string, direction: -1 | 1) {
+// Moves a stop one place up or down among the stops still to go (the ongoing ones stay first)
+export function moveStop(mobileNumber: string, unfinishedIds: string[], ongoingCount: number, stopId: string, direction: -1 | 1) {
   const index = unfinishedIds.indexOf(stopId);
   const target = index + direction;
-  // Index 0 is the ongoing stop
-  if (index < 1 || target < 1 || target >= unfinishedIds.length) return;
+  if (index < ongoingCount || target < ongoingCount || target >= unfinishedIds.length) return;
   const newOrder = [...unfinishedIds];
   [newOrder[index], newOrder[target]] = [newOrder[target], newOrder[index]];
   setStopOrder(mobileNumber, newOrder);
 }
 
 /*
-  Optimise route: from the ongoing stop, always ride to the nearest stop left (keeps each time slot
+  Optimise route: from the last ongoing stop, always ride to the nearest stop left (keeps each time slot
   together, so earlier slots are still served first).
 */
-export function optimiseRoute(mobileNumber: string, ongoing: AgentStop | null, upNext: AgentStop[]) {
+export function optimiseRoute(mobileNumber: string, ongoing: AgentStop[], upNext: AgentStop[]) {
   const ordered: AgentStop[] = [];
-  let current: AgentStop | null = ongoing;
+  let current: AgentStop | null = ongoing[ongoing.length - 1] ?? null;
   for (const slot of SLOT_ORDER) {
     const left = upNext.filter((stop) => stop.slot === slot);
     while (left.length > 0) {
@@ -572,7 +576,7 @@ export function optimiseRoute(mobileNumber: string, ongoing: AgentStop | null, u
   }
   // Stops in a slot not listed above keep their place at the end
   const rest = upNext.filter((stop) => !SLOT_ORDER.includes(stop.slot));
-  setStopOrder(mobileNumber, [...(ongoing ? [ongoing.id] : []), ...ordered.map((stop) => stop.id), ...rest.map((stop) => stop.id)]);
+  setStopOrder(mobileNumber, [...ongoing, ...ordered, ...rest].map((stop) => stop.id));
 }
 
 export function raiseRequest(mobileNumber: string, stop: AgentStop, kind: AgentRequestKind, note: string) {

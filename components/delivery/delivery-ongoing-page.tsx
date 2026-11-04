@@ -33,7 +33,8 @@ import {
 import styles from "./delivery-ongoing-page.module.css";
 
 /*
-  Deliveries → Ongoing (/delivery): the stop the agent is on now.
+  Deliveries → Ongoing (/delivery): the stops the agent is on now, one-time orders on the left and
+  subscriptions (daily milk) on the right. Each column has its own stop:
   - The customer: name, phone, address, landmark, gate code; Call and Message; Navigate (Google Maps:
     the address's exact pin when it has one, else the address text); "Save this spot as the customer's
     location" at the gate.
@@ -41,7 +42,7 @@ import styles from "./delivery-ongoing-page.module.css";
   - Steps: Picked up → Delivered (a button for Picked up; the Finish buttons do the rest).
   - Finish: Delivered (proof: the customer's OTP or a photo), Left at door (photo), Not delivered (reason).
     The photo comes from the live camera or an upload (ProofCamera).
-    The stop then moves to Completed and the next stop becomes Ongoing.
+    The stop then moves to Completed and the next stop of that kind comes into its column.
   - Raise a request to the manager (customer unavailable, wrong address, damaged product, missing item,
     reschedule, other); the stop's requests are listed with their status.
   Off duty: everything shows, but nothing can be changed until the agent goes on duty.
@@ -121,20 +122,16 @@ function SaveStopSpot({ stop, canWork }: { stop: AgentStop; canWork: boolean }) 
 
 export default function DeliveryOngoingPage() {
   const { login, stops } = useDeliveryPanel();
-  const [openSheet, setOpenSheet] = useState<OpenSheet>(null);
-  const stop = stops.ongoing;
-  const totalStops = stops.completed.length + stops.upNext.length + (stop ? 1 : 0);
-  const canWork = stops.isOnDuty;
 
   return (
     <>
       <DeliveryPageHeading
         title="Ongoing"
-        description="The stop you're on now. Finish it to move on: the next stop comes here by itself."
+        description="The stops you're on now. Finish one to move on: the next one comes here by itself."
       />
       <DeliveryShiftNotices />
 
-      {login.route && !stop && (
+      {login.route && stops.ongoing.length === 0 && (
         <DeliveryNotice title="All stops done for today" text="Well done! Every stop on your list is finished.">
           <Link href="/delivery/completed" className={deliveryButtonStyles.filled}>
             See completed stops
@@ -142,20 +139,54 @@ export default function DeliveryOngoingPage() {
         </DeliveryNotice>
       )}
 
-      {stop && (
+      {stops.ongoing.length > 0 && (
         <div className={styles["ongoing-columns"]}>
+          <OngoingColumn columnId="one-time" title="One-time orders" emptyText="No one-time orders left today." isSubscription={false} />
+          <OngoingColumn columnId="subscription" title="Subscriptions" emptyText="No subscription deliveries left today." isSubscription />
+        </div>
+      )}
+    </>
+  );
+}
+
+// One kind of stop: its ongoing stop's customer, what to hand over and status
+function OngoingColumn({
+  columnId,
+  title,
+  emptyText,
+  isSubscription,
+}: {
+  columnId: string;
+  title: string;
+  emptyText: string;
+  isSubscription: boolean;
+}) {
+  const { login, stops } = useDeliveryPanel();
+  const [openSheet, setOpenSheet] = useState<OpenSheet>(null);
+  const stop = stops.ongoing.find((ongoingStop) => ongoingStop.isSubscription === isSubscription);
+  const finishedHere = stops.completed.filter((finished) => finished.isSubscription === isSubscription).length;
+  const totalHere = finishedHere + stops.upNext.filter((next) => next.isSubscription === isSubscription).length + (stop ? 1 : 0);
+  const canWork = stops.isOnDuty;
+
+  return (
+    <div className={styles["ongoing-column"]}>
+      <h2 className={styles["ongoing-column-title"]}>{title}</h2>
+      {!stop && <p className={`${styles["ongoing-card"]} ${styles["ongoing-column-empty"]}`}>{emptyText}</p>}
+
+      {stop && (
+        <>
           {/* The customer and how to reach them */}
-          <section className={`${styles["ongoing-card"]} ${styles["ongoing-card-customer"]}`} aria-labelledby="ongoing-customer-name">
+          <section className={styles["ongoing-card"]} aria-labelledby={`${columnId}-customer-name`}>
             <div className={styles["ongoing-stop-tags"]}>
               <span className={styles["ongoing-stop-number"]}>
-                Stop {stops.completed.length + 1} of {totalStops}
+                Stop {finishedHere + 1} of {totalHere}
               </span>
               <span className={styles["ongoing-slot"]}>{stop.slot}</span>
               {stop.changedByDispatch && <span className={styles["ongoing-dispatch-tag"]}>Changed by dispatch</span>}
             </div>
-            <h2 id="ongoing-customer-name" className={styles["ongoing-customer-name"]}>
+            <h3 id={`${columnId}-customer-name`} className={styles["ongoing-customer-name"]}>
               {stop.customerName}
-            </h2>
+            </h3>
             <p className={styles["ongoing-customer-phone"]}>+91 {stop.phone}</p>
 
             <dl className={styles["ongoing-address-list"]}>
@@ -203,8 +234,8 @@ export default function DeliveryOngoingPage() {
           </section>
 
           {/* What to hand over and collect */}
-          <section className={styles["ongoing-card"]} aria-labelledby="ongoing-items-title">
-            <h3 id="ongoing-items-title" className={styles["ongoing-card-title"]}>
+          <section className={styles["ongoing-card"]} aria-labelledby={`${columnId}-items-title`}>
+            <h3 id={`${columnId}-items-title`} className={styles["ongoing-card-title"]}>
               Hand over
             </h3>
             <ul className={styles["ongoing-item-list"]}>
@@ -239,8 +270,8 @@ export default function DeliveryOngoingPage() {
           </section>
 
           {/* Steps and finishing the stop */}
-          <section className={`${styles["ongoing-card"]} ${styles["ongoing-card-status"]}`} aria-labelledby="ongoing-status-title">
-            <h3 id="ongoing-status-title" className={styles["ongoing-card-title"]}>
+          <section className={`${styles["ongoing-card"]} ${styles["ongoing-card-status"]}`} aria-labelledby={`${columnId}-status-title`}>
+            <h3 id={`${columnId}-status-title`} className={styles["ongoing-card-title"]}>
               Status
             </h3>
             <StatusSteps stop={stop} />
@@ -306,7 +337,7 @@ export default function DeliveryOngoingPage() {
               </ul>
             )}
           </section>
-        </div>
+        </>
       )}
 
       {stop && openSheet?.kind === "finish" && (
@@ -315,7 +346,7 @@ export default function DeliveryOngoingPage() {
       {stop && openSheet?.kind === "request" && (
         <RequestSheet stop={stop} mobileNumber={login.mobileNumber} onClose={() => setOpenSheet(null)} />
       )}
-    </>
+    </div>
   );
 }
 

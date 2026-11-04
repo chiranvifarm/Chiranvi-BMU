@@ -60,7 +60,7 @@ const panelPageGroups: { title: string; pages: PanelPage[] }[] = [
       {
         href: "/delivery",
         label: "Ongoing",
-        count: (stops) => (stops.ongoing ? 1 : 0),
+        count: (stops) => stops.ongoing.length,
         iconPaths: ["M2.5 6.5h11v9.5h-11z", "M13.5 9.5h4l3.5 3.5v3h-7.5", "M6.5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M17 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"],
       },
       {
@@ -365,7 +365,7 @@ export function DeliveryNotice({ title, text, children }: { title: string; text:
 // The notices every Deliveries page shows first: no route yet, or off duty (with the switch)
 export function DeliveryShiftNotices() {
   const { login, stops } = useDeliveryPanel();
-  const hasStops = Boolean(stops.ongoing) || stops.upNext.length > 0 || stops.completed.length > 0;
+  const hasStops = stops.ongoing.length > 0 || stops.upNext.length > 0 || stops.completed.length > 0;
   // No route and no stops yet (orders given to them on the Orders page are stops too, even without a route)
   if (!login.agent || (!login.route && !hasStops)) {
     return (

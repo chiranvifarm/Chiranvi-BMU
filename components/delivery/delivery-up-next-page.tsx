@@ -21,12 +21,12 @@ import {
 import styles from "./delivery-up-next-page.module.css";
 
 /*
-  Deliveries → Up next (/delivery/up-next): the stops after the ongoing one, in route order.
+  Deliveries → Up next (/delivery/up-next): the stops after the ongoing ones, in route order.
   - Totals: stops left, distance left and the estimated finish time (riding plus a few minutes per stop).
   - Optimise route (nearest stop next, each time slot kept together) and Open route in Google Maps.
-  - Route map: the ongoing stop and the stops left as numbered points, joined in order (positions are
+  - Route map: the ongoing stops and the stops left as numbered points, joined in order (positions are
     sample map positions until real addresses exist).
-  - Load check: the products needed for the stops still to go (the ongoing one too), bottles to collect and
+  - Load check: the products needed for the stops still to go (the ongoing ones too), bottles to collect and
     cash to collect.
   - Each stop: number, time slot, distance from the stop before, customer, address, items, and tags for a
     customer note, a change from dispatch and bottles to collect. Up / Down move a stop in the order.
@@ -35,8 +35,8 @@ import styles from "./delivery-up-next-page.module.css";
 export default function DeliveryUpNextPage() {
   const { login, stops } = useDeliveryPanel();
   const { ongoing, upNext } = stops;
-  // The ongoing stop and everything after it, in order
-  const stopsLeft = useMemo(() => (ongoing ? [ongoing, ...upNext] : upNext), [ongoing, upNext]);
+  // The ongoing stops and everything after them, in order
+  const stopsLeft = useMemo(() => [...ongoing, ...upNext], [ongoing, upNext]);
 
   // Distance from the stop before (the first one has none: the agent is there or going there)
   const legs = useMemo(
@@ -75,7 +75,7 @@ export default function DeliveryUpNextPage() {
     <>
       <DeliveryPageHeading
         title="Up next"
-        description="Your stops after the current one, in the order you'll ride them."
+        description="Your stops after the current ones, in the order you'll ride them."
       >
         {upNext.length > 1 && (
           <button
@@ -126,7 +126,7 @@ export default function DeliveryUpNextPage() {
               <h2 id="up-next-map-title" className={styles["up-next-card-title"]}>
                 Route map
               </h2>
-              <RouteMap stops={stopsLeft} />
+              <RouteMap stops={stopsLeft} ongoingCount={ongoing.length} />
               <p className={styles["up-next-map-key"]}>
                 <span className={styles["up-next-map-key-now"]} aria-hidden="true" /> Now
                 <span className={styles["up-next-map-key-next"]} aria-hidden="true" /> Up next
@@ -169,11 +169,11 @@ export default function DeliveryUpNextPage() {
                 key={stop.id}
                 stop={stop}
                 number={index + 1}
-                isOngoing={index === 0 && Boolean(ongoing)}
+                isOngoing={index < ongoing.length}
                 distanceFromBefore={legs[index]}
-                canMoveUp={index > 1}
-                canMoveDown={index > 0 && index < stopsLeft.length - 1}
-                onMove={(direction) => moveStop(login.mobileNumber, unfinishedIds, stop.id, direction)}
+                canMoveUp={index > ongoing.length}
+                canMoveDown={index >= ongoing.length && index < stopsLeft.length - 1}
+                onMove={(direction) => moveStop(login.mobileNumber, unfinishedIds, ongoing.length, stop.id, direction)}
               />
             ))}
           </ol>
@@ -255,7 +255,7 @@ function StopRow({
 }
 
 // The stops as numbered points on a plain map, joined in riding order (north up)
-function RouteMap({ stops }: { stops: AgentStop[] }) {
+function RouteMap({ stops, ongoingCount }: { stops: AgentStop[]; ongoingCount: number }) {
   const width = 320;
   const height = 220;
   const padding = 22;
@@ -281,7 +281,7 @@ function RouteMap({ stops }: { stops: AgentStop[] }) {
       <polyline points={points.map((point) => `${point.x},${point.y}`).join(" ")} className={styles["up-next-map-line"]} />
       {points.map((point, index) => (
         <g key={point.id}>
-          <circle cx={point.x} cy={point.y} r={index === 0 ? 8 : 6} className={index === 0 ? styles["up-next-map-point-now"] : styles["up-next-map-point"]} />
+          <circle cx={point.x} cy={point.y} r={index < ongoingCount ? 8 : 6} className={index < ongoingCount ? styles["up-next-map-point-now"] : styles["up-next-map-point"]} />
           {(index === 0 || index % labelEvery === 0 || index === points.length - 1) && (
             <text x={point.x} y={point.y - 10} className={styles["up-next-map-label"]}>
               {index + 1}

@@ -12,6 +12,8 @@ import { PANEL_FEATURES, type PanelFeature } from "./panel-features";
     Manager, Delivery agent (delivery app only, no panel), and any role the owner adds. (There is no
     Admin role: removed in supabase/migrations/0004_roles_owner_manager_agent.sql.) Each role has, for every
     panel page (module): View, Create, Edit, Delete, Export. View decides whether the page opens at all.
+    Each manager can have their own (table staff_permissions, only the owner writes it); a manager without
+    their own follows the Manager role's.
   - People: a mobile number with a role. They log in with their OTP and find "Chiranvi Panel" in their
     account.
   The team is read after login (and again when the window comes back into focus). The database's rules
@@ -64,6 +66,7 @@ export type StaffMember = {
   name: string;
   roleId: string | null; // null: on the Staff section without a login role (a farm worker …)
   title?: string; // "Hub manager"
+  permissions?: RolePermissions; // a manager's own responsibilities (none: the Manager role's)
   deleteRequestedAt?: string; // they asked the admin to delete their account (Profile → Delete account → Request)
   profileChange?: ProfileChangeRequest; // asking to change their Profile (supabase/migrations/0032_one_profile_request.sql)
 };
@@ -126,6 +129,7 @@ function completePermissions(permissions: Partial<RolePermissions> | undefined):
 
 // The rows as the database keeps them
 type RoleRow = { id: string; name: string; is_built_in: boolean; has_panel_access: boolean; permissions: Partial<RolePermissions> };
+type StaffPermissionsRow = { staff_mobile: string; permissions: Partial<RolePermissions> };
 type StaffRow = {
   mobile_number: string;
   name: string;
@@ -164,15 +168,18 @@ async function loadTeam(mobileNumber: string | null) {
     ownerDetails = NO_OWNER;
   } else {
     const supabase = createClient();
-    const [roleAnswer, staffAnswer] = await Promise.all([
+    // staff_permissions is read on its own: if it can't be read, people simply follow their role
+    const [roleAnswer, staffAnswer, ownPermissionsAnswer] = await Promise.all([
       supabase.from("panel_roles").select("id, name, is_built_in, has_panel_access, permissions").order("created_at"),
       supabase.from("staff_members").select("mobile_number, name, role_id, title, is_active, password_kind, delete_requested_at, profile_change").order("created_at"),
+      supabase.from("staff_permissions").select("staff_mobile, permissions"),
     ]);
     // A newer login started meanwhile: its own read wins
     if (loadingForMobile !== mobileNumber) return;
     if (roleAnswer.error || staffAnswer.error) console.error("Could not read the team", roleAnswer.error ?? staffAnswer.error);
     const roleRows = (roleAnswer.data ?? []) as RoleRow[];
     const staffRows = ((staffAnswer.data ?? []) as StaffRow[]).filter((row) => row.is_active);
+    const ownPermissions = new Map(((ownPermissionsAnswer.data ?? []) as StaffPermissionsRow[]).map((row) => [row.staff_mobile, row.permissions]));
     // Built-in roles from highest to lowest (Owner, Manager, Staff, Delivery agent), then roles the owner added
     const builtInOrder = ["owner", "manager", "staff", "delivery-agent"];
     const rank = (id: string) => (builtInOrder.includes(id) ? builtInOrder.indexOf(id) : builtInOrder.length);
@@ -189,6 +196,7 @@ async function loadTeam(mobileNumber: string | null) {
         name: row.name,
         roleId: row.role_id,
         title: row.title ?? undefined,
+        permissions: ownPermissions.has(row.mobile_number) ? completePermissions(ownPermissions.get(row.mobile_number)) : undefined,
         deleteRequestedAt: row.delete_requested_at ?? undefined,
         profileChange: row.profile_change ?? undefined,
       }));
@@ -251,6 +259,21 @@ export function saveRolePermissions(roleId: string, permissions: RolePermissions
     },
     () => createClient().from("panel_roles").update({ permissions }).eq("id", roleId),
   );
+}
+
+// A manager's own responsibilities, or null to follow the Manager role again. Answers a problem to show, or null.
+export async function saveManagerPermissions(mobileNumber: string, permissions: RolePermissions | null): Promise<string | null> {
+  const table = createClient().from("staff_permissions");
+  const { error } = permissions
+    ? await table.upsert({ staff_mobile: mobileNumber, permissions }, { onConflict: "staff_mobile" })
+    : await table.delete().eq("staff_mobile", mobileNumber);
+  if (error) {
+    console.error("The database did not accept the manager's responsibilities", error);
+    return "Couldn't save. Only the owner can change this, and the database step must be done first.";
+  }
+  staffMembers = staffMembers.map((member) => (member.mobileNumber === mobileNumber ? { ...member, permissions: permissions ?? undefined } : member));
+  announceTeamChange();
+  return null;
 }
 
 // A new role starts with nothing ticked except the dashboard
@@ -538,8 +561,10 @@ export function getStaffAccess(
   const member = team.find((existing) => existing.mobileNumber === mobileNumber);
   const role = member && allRoles.find((existing) => existing.id === member.roleId);
   if (!member || !role || !role.hasPanelAccess) return null;
+  // Only a manager has their own (someone moved to another role follows that role)
+  const permissions = (role.id === "manager" && member.permissions) || role.permissions;
   const can = (module: PanelModule, action: PermissionAction) => {
-    const allowed = role.permissions[module];
+    const allowed = permissions[module];
     // Any action needs View first
     return Boolean(allowed?.view && allowed[action]);
   };

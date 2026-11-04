@@ -306,6 +306,23 @@
   gap: calc(10 * var(--admin-pixel));
 }
 
+/* Manager: whose responsibilities the grid shows */
+.admin-permissions-person {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(10 * var(--admin-pixel));
+  max-width: calc(420 * var(--admin-pixel));
+  margin-top: calc(12 * var(--admin-pixel));
+  font-size: calc(13 * var(--admin-pixel));
+  font-weight: 600;
+}
+
+.admin-permissions-person select {
+  flex: 1;
+  min-width: calc(180 * var(--admin-pixel));
+}
+
 .admin-permissions-reset,
 .admin-permissions-save {
   padding: calc(7 * var(--admin-pixel)) calc(18 * var(--admin-pixel));

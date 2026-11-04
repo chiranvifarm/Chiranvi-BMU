@@ -11,8 +11,8 @@ import {
   getLeadKind,
   moveLead,
   removeLead,
-  useAdminLeads,
   useCustomerLeads,
+  useRealAdminLeads,
   type AdminLead,
   type LeadKind,
   type LeadSource,
@@ -45,7 +45,7 @@ import styles from "./admin-leads-page.module.css";
     board      each column shows 6 cards and "+ N more" to open the rest; drag a card to another
                column to move it, or use its "..." menu (also removes a lead)
   Source tags use only Chiranvi colours (greens and yellows), each with its name written on it.
-  Leads come from store/admin-leads-store.ts (the database).
+  Leads come from store/admin-leads-store.ts (the database): real leads only, without the samples.
 */
 
 const CARDS_SHOWN_PER_COLUMN = 6;
@@ -69,7 +69,8 @@ function cardNote(lead: AdminLead) {
     const daysLeft = Math.max(0, Math.ceil((new Date(lead.trialEndsAt).getTime() - Date.now()) / 86400000));
     return daysLeft === 1 ? "1 day left" : `${daysLeft} days left`;
   }
-  return lead.note ?? "";
+  const kind = getLeadKind(lead);
+  return lead.note ?? (kind ? LEAD_KIND_LABELS[kind] : "");
 }
 
 const EMPTY_NEW_LEAD = { name: "", phone: "", source: "Instagram" as LeadSource };
@@ -83,7 +84,7 @@ export default function AdminLeadsPage() {
 }
 
 function LeadsPage() {
-  const leads = useAdminLeads();
+  const leads = useRealAdminLeads();
   useCustomerLeads(useAdminCan("create"));
   const [today] = useState(() => new Date());
   const [rangeFrom, setRangeFrom] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
@@ -121,6 +122,15 @@ function LeadsPage() {
   const contactedOrLater = shownLeads.filter((lead) => lead.stage !== "new" && lead.stage !== "lost").length;
   const converted = count("converted");
   const conversionRate = shownLeads.length ? Math.round((converted / shownLeads.length) * 100) : 0;
+
+  // New leads against the same number of days just before the chosen dates
+  const rangeLength = rangeTo.getTime() - rangeFrom.getTime() + 86400000;
+  const leadsBefore = leads.filter((lead) => {
+    const createdAt = new Date(lead.createdAt).getTime();
+    const firstDay = new Date(rangeFrom).setHours(0, 0, 0, 0);
+    return createdAt < firstDay && createdAt >= firstDay - rangeLength && isInFilter(lead, leadFilter);
+  }).length;
+  const leadsChange = shownLeads.length - leadsBefore;
 
   function moveTo(lead: AdminLead, stage: LeadStage) {
     if (lead.stage === stage) return;
@@ -188,14 +198,14 @@ function LeadsPage() {
           {
             label: "New leads",
             value: String(shownLeads.length),
-            note: "↑ 12 vs last month",
-            trend: "up",
+            note: leadsChange === 0 ? "Same as the days before" : `${leadsChange > 0 ? "↑" : "↓"} ${Math.abs(leadsChange)} vs the days before`,
+            trend: leadsChange > 0 ? "up" : "plain",
             icon: ["M10 11.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M3 20.5a7 7 0 0 1 14 0", "M19 8v6", "M16 11h6"],
           },
           {
             label: "Contacted",
             value: String(contactedOrLater),
-            note: "Avg reply in 3.2 h",
+            note: "Moved on from New",
             trend: "plain",
             icon: [
               "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z",
@@ -204,15 +214,15 @@ function LeadsPage() {
           {
             label: "Converted",
             value: String(converted),
-            note: `₹${(converted * 1217).toLocaleString("en-IN")} first-month value`,
+            note: "Became customers",
             trend: "plain",
             icon: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M8.5 12.2l2.4 2.4 4.8-4.8"],
           },
           {
             label: "Conversion rate",
             value: `${conversionRate}%`,
-            note: "↑ 4 pts vs last month",
-            trend: "up",
+            note: `${converted} of ${shownLeads.length} lead${shownLeads.length === 1 ? "" : "s"}`,
+            trend: "plain",
             icon: ["M19 5L5 19", "M7 8.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z", "M17 18.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"],
           },
         ]}

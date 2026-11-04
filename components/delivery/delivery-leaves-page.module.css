@@ -94,6 +94,48 @@
   outline: none;
 }
 
+/* Attach a document: the button, the chosen file's name and Remove */
+.delivery-leaves-document {
+  display: flex;
+  flex-direction: column;
+  gap: calc(5 * var(--delivery-pixel));
+}
+
+.delivery-leaves-document-label {
+  font-size: calc(12.5 * var(--delivery-pixel));
+  font-weight: 600;
+  color: #4d5a50;
+}
+
+.delivery-leaves-document-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(10 * var(--delivery-pixel));
+}
+
+.delivery-leaves-document-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #1f4d2e;
+}
+
+.delivery-leaves-document-remove {
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: calc(12.5 * var(--delivery-pixel));
+  font-weight: 600;
+  color: #c0392b;
+  cursor: pointer;
+}
+
+.delivery-leaves-document-hint {
+  font-size: calc(11.5 * var(--delivery-pixel));
+  color: #6b736c;
+}
+
 .delivery-leaves-date-row {
   display: flex;
   flex-wrap: wrap;

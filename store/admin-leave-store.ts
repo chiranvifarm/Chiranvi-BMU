@@ -10,6 +10,8 @@ import { createClient } from "@/lib/supabase/client";
   - The database's rules: the person reads and asks for their own; anyone with Staff → View reads the
     team's; deciding needs Staff → Edit.
   - Each type has a yearly allowance; approved days are taken from it (Unpaid has no limit).
+  - A document the person attaches is kept in the private "leave-documents" Storage bucket, in a folder named
+    after their number: they and anyone with Staff → View can open it, through a link that soon stops working.
   Read when first needed (only when someone is logged in), again when the window comes back into focus and
   after logging in or out. A decision shows at once and is
   then saved; if the database refuses it, the list is read again.
@@ -22,6 +24,7 @@ export type LeaveAttachment = {
   fileName: string; // "medical-certificate.pdf"
   label: string; // "Medical certificate"
   issuedBy?: string; // "Dr. Ramya, Sparsh Clinic"
+  path?: string; // where the file is in the bucket (none: only its details were saved)
 };
 
 export type LeaveRequest = {
@@ -39,6 +42,13 @@ export type LeaveRequest = {
   decidedBy?: string;
   rejectReason?: string;
 };
+
+// What can be attached (the bucket has the same limits)
+export const LEAVE_DOCUMENT_TYPES = "image/jpeg,image/png,image/webp,application/pdf";
+const LEAVE_DOCUMENT_MEGABYTES = 5;
+const LEAVE_DOCUMENT_BUCKET = "leave-documents";
+// How long a link to a document works, in seconds
+const LEAVE_DOCUMENT_LINK_SECONDS = 300;
 
 export const LEAVE_TYPES: LeaveType[] = ["Casual", "Sick", "Earned", "Emergency", "Half day", "Unpaid"];
 
@@ -155,15 +165,48 @@ export function decideLeave(id: string, status: Exclude<LeaveStatus, "Pending">,
     });
 }
 
-// A team member asks for their own leave (the Delivery Panel's Leaves & attendance); waits as Pending for
-// Roles & permissions. Answers a problem to show, or null when saved.
-export async function askForMyLeave(staffMobile: string, leave: Pick<LeaveRequest, "type" | "from" | "to" | "reason">) {
+// What's wrong with a file chosen to attach, or null when it can be sent
+export function leaveDocumentProblem(file: File) {
+  if (!LEAVE_DOCUMENT_TYPES.split(",").includes(file.type)) return "Attach a photo (JPG, PNG or WebP) or a PDF.";
+  if (file.size > LEAVE_DOCUMENT_MEGABYTES * 1024 * 1024) return `That file is over ${LEAVE_DOCUMENT_MEGABYTES} MB. Attach a smaller one.`;
+  return null;
+}
+
+// A short-lived link to an attached document, or null when it can't be opened
+export async function leaveDocumentLink(path: string) {
+  const { data, error } = await createClient().storage.from(LEAVE_DOCUMENT_BUCKET).createSignedUrl(path, LEAVE_DOCUMENT_LINK_SECONDS);
+  if (error) console.error("Could not open the leave document", error);
+  return data?.signedUrl ?? null;
+}
+
+// The file goes in the person's own folder, under a new name (its own name is kept on the request)
+async function uploadLeaveDocument(staffMobile: string, file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const path = `${staffMobile}/${crypto.randomUUID()}.${extension}`;
+  const { error } = await createClient().storage.from(LEAVE_DOCUMENT_BUCKET).upload(path, file, { contentType: file.type });
+  if (error) {
+    console.error("The leave document was not uploaded", error);
+    return null;
+  }
+  return path;
+}
+
+// A team member asks for their own leave (the Delivery Panel's Leaves & attendance), with a document if they
+// attach one; waits as Pending for Roles & permissions. Answers a problem to show, or null when saved.
+export async function askForMyLeave(staffMobile: string, leave: Pick<LeaveRequest, "type" | "from" | "to" | "reason">, document: File | null) {
+  let attachment: LeaveAttachment | null = null;
+  if (document) {
+    const path = await uploadLeaveDocument(staffMobile, document);
+    if (!path) return "Couldn't upload the document. Try again, or send the request without it.";
+    attachment = { fileName: document.name, label: "Attached document", path };
+  }
   const { error } = await createClient().from("leave_requests").insert({
     staff_mobile: staffMobile,
     leave_type: leave.type,
     from_date: leave.from,
     to_date: leave.type === "Half day" ? leave.from : leave.to,
     reason: leave.reason,
+    attachment,
   });
   await loadLeaveRequests();
   if (error) {

@@ -42,6 +42,7 @@ type PaymentLine = Omit<AdminPayment, "paidAt"> & { paidAt: number };
 
 const EMPTY: AdminPayment[] = [];
 let payments: AdminPayment[] = EMPTY;
+let hasLoaded = false;
 let isFollowing = false;
 const listeners = new Set<() => void>();
 
@@ -58,6 +59,7 @@ async function loadPayments() {
   } else {
     payments = ((data ?? []) as PaymentLine[]).map((line) => ({ ...line, paidAt: new Date(line.paidAt).toISOString(), amount: Number(line.amount) }));
   }
+  hasLoaded = true;
   listeners.forEach((onChange) => onChange());
 }
 
@@ -130,4 +132,8 @@ function subscribe(onChange: () => void) {
 
 export function useAdminPayments() {
   return useSyncExternalStore(subscribe, () => payments, () => EMPTY);
+}
+
+export function useArePaymentsLoaded() {
+  return useSyncExternalStore(subscribe, () => hasLoaded, () => false);
 }

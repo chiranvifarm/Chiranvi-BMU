@@ -127,6 +127,11 @@ export function usePauseRequests() {
   return store.useRecords();
 }
 
+// Without the sample requests (the dashboard)
+export function useRealPauseRequests() {
+  return store.useRealRecords();
+}
+
 // An approved pause whose resume day has come is "Resumed"
 export function getShownStatus(request: PauseRequest, today: Date): PauseRequestStatus | "Resumed" {
   if (request.status === "Approved" && new Date(request.resumeOn) <= today) return "Resumed";

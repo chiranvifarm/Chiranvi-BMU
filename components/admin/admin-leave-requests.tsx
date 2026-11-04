@@ -8,6 +8,7 @@ import {
   decideLeave,
   getLeaveDays,
   getLeaveLeft,
+  leaveDocumentLink,
   useLeaveRequests,
   type LeaveRequest,
   type LeaveStatus,
@@ -308,11 +309,26 @@ export default function AdminLeaveRequests({
 }
 
 /*
-  The attached document. Until the staff app uploads real files, this shows a sample page with the
-  document's details.
+  The attached document: the real file (a picture, or a PDF), through a link that soon stops working. Requests
+  saved with only the document's details show a sample page with them.
 */
 function LeaveDocument({ request, onClose }: { request: LeaveRequest; onClose: () => void }) {
   const attachment = request.attachment!;
+  const path = attachment.path;
+  // undefined: still being fetched; null: it couldn't be opened
+  const [fileLink, setFileLink] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (!path) return;
+    let isStillOpen = true;
+    void leaveDocumentLink(path).then((link) => {
+      if (isStillOpen) setFileLink(link);
+    });
+    return () => {
+      isStillOpen = false;
+    };
+  }, [path]);
+
   return (
     <div className={styles["admin-leave-document-backdrop"]} onPointerDown={(event) => event.target === event.currentTarget && onClose()}>
       <div role="dialog" aria-modal="true" aria-label={attachment.label} className={styles["admin-leave-document"]}>
@@ -327,21 +343,45 @@ function LeaveDocument({ request, onClose }: { request: LeaveRequest; onClose: (
             </svg>
           </button>
         </div>
-        <div className={styles["admin-leave-paper"]}>
-          <p className={styles["admin-leave-paper-issuer"]}>{attachment.issuedBy ?? request.staffName}</p>
-          <h3 className={styles["admin-leave-paper-title"]}>{attachment.label}</h3>
-          <dl className={styles["admin-leave-paper-details"]}>
-            <dt>Name</dt>
-            <dd>{request.staffName}</dd>
-            <dt>Dates</dt>
-            <dd>{datesText(request)}</dd>
-            <dt>Details</dt>
-            <dd>{request.reason}</dd>
-          </dl>
-          <p className={styles["admin-leave-paper-sign"]}>Signature & stamp</p>
-        </div>
-        <p className={styles["admin-leave-document-note"]}>Sample preview. The real file will open here once the staff app uploads it.</p>
+        {path ? (
+          <LeaveDocumentFile fileLink={fileLink} fileName={attachment.fileName} />
+        ) : (
+          <>
+            <div className={styles["admin-leave-paper"]}>
+              <p className={styles["admin-leave-paper-issuer"]}>{attachment.issuedBy ?? request.staffName}</p>
+              <h3 className={styles["admin-leave-paper-title"]}>{attachment.label}</h3>
+              <dl className={styles["admin-leave-paper-details"]}>
+                <dt>Name</dt>
+                <dd>{request.staffName}</dd>
+                <dt>Dates</dt>
+                <dd>{datesText(request)}</dd>
+                <dt>Details</dt>
+                <dd>{request.reason}</dd>
+              </dl>
+              <p className={styles["admin-leave-paper-sign"]}>Signature & stamp</p>
+            </div>
+            <p className={styles["admin-leave-document-note"]}>Sample preview. No file was uploaded with this request.</p>
+          </>
+        )}
       </div>
     </div>
+  );
+}
+
+function LeaveDocumentFile({ fileLink, fileName }: { fileLink: string | null | undefined; fileName: string }) {
+  if (fileLink === undefined) return <p className={styles["admin-leave-document-note"]}>Opening the document…</p>;
+  if (fileLink === null) return <p className={styles["admin-leave-document-note"]}>The document couldn&apos;t be opened. Close this and try again.</p>;
+  return (
+    <>
+      {/\.pdf$/i.test(fileName) ? (
+        <iframe src={fileLink} title={fileName} className={styles["admin-leave-file-frame"]} />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element -- a private file behind a short-lived link, not a site image
+        <img src={fileLink} alt={fileName} className={styles["admin-leave-file-picture"]} />
+      )}
+      <a href={fileLink} target="_blank" rel="noreferrer" className={styles["admin-leave-file-link"]}>
+        Open in a new tab
+      </a>
+    </>
   );
 }

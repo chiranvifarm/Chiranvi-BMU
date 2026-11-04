@@ -14,7 +14,10 @@ import {
   type StaffPerson,
   type TodayStatus,
 } from "@/store/admin-staff-store";
-import { addAgent, setAgentOnLeave } from "@/store/admin-routes-store";
+import { setAgentOnLeave } from "@/store/admin-routes-store";
+import { useLoggedInMobileNumber } from "@/components/login/login-status";
+import { giveTeamRole, useCurrentStaffAccess, useStaffMembers } from "@/store/staff-access-store";
+import { PROFILE_FIELD_LABELS, ProfileChangesDialog } from "./admin-roles-page";
 import { useLeaveRequests } from "@/store/admin-leave-store";
 import AdminLeaveRequests from "./admin-leave-requests";
 import { AdminFeatureGate } from "./admin-panel-layout";
@@ -84,6 +87,15 @@ export default function AdminStaffPage() {
 }
 
 function StaffPage() {
+  const access = useCurrentStaffAccess();
+  const canGiveRoles = Boolean(access?.isOwner || access?.roleId === "manager");
+  // Profile requests from the team
+  const myMobileNumber = useLoggedInMobileNumber();
+  const team = useStaffMembers();
+  const [profileChangesOf, setProfileChangesOf] = useState<string | null>(null);
+  const memberWithChanges = team.find((member) => member.mobileNumber === profileChangesOf);
+  const [isProfileRequestsOpen, setIsProfileRequestsOpen] = useState(false);
+  const membersWaiting = team.filter((member) => member.profileChange?.status === "Pending");
   const staff = useStaffList();
   const [today] = useState(() => new Date());
   const [searchText, setSearchText] = useState("");
@@ -133,6 +145,11 @@ function StaffPage() {
     );
   }
 
+  async function makeStaff(person: StaffPerson) {
+    const problem = await giveTeamRole(person.phone, "staff");
+    showToast(problem ?? `${person.name} is now Staff`);
+  }
+
   async function saveForm() {
     const phone = form.phone.replace(/\D/g, "");
     const salary = Number(form.salary);
@@ -147,7 +164,6 @@ function StaffPage() {
         showToast(added.error);
         return;
       }
-      if (group === "Delivery") addAgent({ name: added.name, phone, bike: "—" });
       setTab("all");
       setIsAwayOnly(false);
       setPage(Math.ceil((staff.length + 1) / PAGE_SIZE));
@@ -193,6 +209,12 @@ function StaffPage() {
         searchPlaceholder="Search name, job or phone..."
         actionLabel="Add staff"
         onAction={() => openForm("new")}
+        beforeExport={
+          <button type="button" className={dashboardStyles["admin-export-button"]} onClick={() => setIsProfileRequestsOpen(true)}>
+            Profile requests
+            {membersWaiting.length > 0 && <span className={styles["admin-staff-requests-count"]}>{membersWaiting.length}</span>}
+          </button>
+        }
         onExport={exportStaff}
       />
 
@@ -331,6 +353,10 @@ function StaffPage() {
                             onSelect: () => changeToday(person, status),
                           })),
                           { label: "Edit job, shift & salary", onSelect: () => openForm(person) },
+                          // The owner or a manager; shown on Roles & permissions too
+                          ...(canGiveRoles && (person.roleId === null || person.roleId === "delivery-agent")
+                            ? [{ label: "Make Staff", onSelect: () => void makeStaff(person) }]
+                            : []),
                           { label: "Remove from team", isDanger: true, permission: "delete", onSelect: () => setPersonToRemove(person) },
                         ]}
                       />
@@ -421,6 +447,59 @@ function StaffPage() {
             {personToRemove.group === "Delivery" ? " Their route on Routes & agents stays until you give it to someone else." : ""}
           </p>
         </AdminDialog>
+      )}
+
+      {isProfileRequestsOpen && (
+        <AdminDialog
+          title="Profile requests"
+          submitLabel="Close"
+          hasOnlyCloseButton
+          onClose={() => setIsProfileRequestsOpen(false)}
+          onSubmit={() => setIsProfileRequestsOpen(false)}
+        >
+          {membersWaiting.length === 0 ? (
+            <p className={styles["admin-staff-requests-empty"]}>No profile requests waiting.</p>
+          ) : (
+            <ul className={styles["admin-staff-requests-list"]}>
+              {membersWaiting.map((member) => (
+                <li key={member.mobileNumber}>
+                  <button
+                    type="button"
+                    className={styles["admin-staff-request-person"]}
+                    onClick={() => {
+                      setIsProfileRequestsOpen(false);
+                      setProfileChangesOf(member.mobileNumber);
+                    }}
+                  >
+                    <span className={styles["admin-staff-request-top-row"]}>
+                      <span>{member.name}</span>
+                      <span className={styles["admin-staff-request-phone"]}>{formatPhone(member.mobileNumber)}</span>
+                    </span>
+                    <span className={styles["admin-staff-request-fields"]}>
+                      {Object.keys(member.profileChange?.changes ?? {})
+                        .map((field) => PROFILE_FIELD_LABELS[field] ?? field)
+                        .join(", ")}
+                    </span>
+                    <span className={styles["admin-staff-request-reason"]}>{member.profileChange?.reason}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </AdminDialog>
+      )}
+
+      {memberWithChanges && (
+        <ProfileChangesDialog
+          member={memberWithChanges}
+          canDecide={Boolean(access?.can("staff", "edit")) && memberWithChanges.mobileNumber !== myMobileNumber}
+          // Back to the list of cards
+          onClose={() => {
+            setProfileChangesOf(null);
+            setIsProfileRequestsOpen(true);
+          }}
+          onDone={showToast}
+        />
       )}
 
       {isLeaveOpen && <AdminLeaveRequests staff={staff} onClose={() => setIsLeaveOpen(false)} showToast={showToast} />}

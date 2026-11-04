@@ -141,6 +141,49 @@
   color: #1b2a20;
 }
 
+/* The title with an X (hasOnlyCloseButton): stays at the top while a long pop-up scrolls */
+.admin-dialog-title-row {
+  position: sticky;
+  z-index: 2;
+  top: calc(-24 * var(--admin-pixel));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(12 * var(--admin-pixel));
+  margin: calc(-24 * var(--admin-pixel)) calc(-24 * var(--admin-pixel)) 0;
+  padding: calc(20 * var(--admin-pixel)) calc(24 * var(--admin-pixel)) calc(10 * var(--admin-pixel));
+  background: #ffffff;
+}
+
+.admin-dialog-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(34 * var(--admin-pixel));
+  height: calc(34 * var(--admin-pixel));
+  padding: 0;
+  border: 1px solid #d9e2d8;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.admin-dialog-close:hover {
+  border-color: #2f6b3a;
+  background: #e6f0e1;
+}
+
+.admin-dialog-close svg {
+  width: calc(16 * var(--admin-pixel));
+  height: calc(16 * var(--admin-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
 .admin-dialog-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;

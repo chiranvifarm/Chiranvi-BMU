@@ -36,3 +36,83 @@
   line-height: 1.5;
   color: #5c655e;
 }
+
+/* "Profile requests" beside Export: how many are waiting, and the list of people */
+.admin-staff-requests-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(20 * var(--admin-pixel));
+  height: calc(20 * var(--admin-pixel));
+  padding: 0 calc(5 * var(--admin-pixel));
+  border-radius: 9999px;
+  background: #f5bf2c;
+  font-size: calc(11.5 * var(--admin-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+.admin-staff-requests-empty {
+  grid-column: 1 / -1;
+  font-size: calc(13.5 * var(--admin-pixel));
+  color: #5c655e;
+}
+
+.admin-staff-requests-list {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--admin-pixel));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-staff-request-person {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--admin-pixel));
+  width: 100%;
+  padding: calc(10 * var(--admin-pixel)) calc(12 * var(--admin-pixel));
+  border: 1px solid #d9e2d8;
+  border-radius: calc(10 * var(--admin-pixel));
+  background: #ffffff;
+  font-family: inherit;
+  font-size: calc(13.5 * var(--admin-pixel));
+  font-weight: 700;
+  text-align: left;
+  color: #1b2a20;
+  cursor: pointer;
+}
+
+.admin-staff-request-person:hover {
+  border-color: #2f6b3a;
+  background: #e6f0e1;
+}
+
+.admin-staff-request-top-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(10 * var(--admin-pixel));
+}
+
+.admin-staff-request-phone {
+  font-size: calc(12 * var(--admin-pixel));
+  font-weight: 400;
+  white-space: nowrap;
+  color: #5c655e;
+}
+
+.admin-staff-request-fields {
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  color: #8a6a1c;
+}
+
+.admin-staff-request-reason {
+  font-size: calc(12 * var(--admin-pixel));
+  font-weight: 400;
+  color: #5c655e;
+  overflow-wrap: anywhere;
+}

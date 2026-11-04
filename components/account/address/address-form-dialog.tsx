@@ -41,7 +41,7 @@ export type { SavedAddress };
 
 const addressLabels = ["Home", "Work", "Other"];
 
-type FormValues = Omit<SavedAddress, "id">;
+type FormValues = Omit<SavedAddress, "id" | "isProfileAddress">;
 // The fields typed in boxes (the pin comes from the phone's GPS)
 type TextFieldName = Exclude<keyof FormValues, "pin" | "pinSavedBy">;
 // The Profile's details asked with the address (asksProfileDetails)

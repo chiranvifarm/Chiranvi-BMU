@@ -19,8 +19,26 @@ import {
 } from "@/store/customer-profiles-store";
 import { useOrders, type Order } from "@/store/orders-store";
 import { addProductToCart, useCartItems, useCartSubscription } from "@/store/cart-store";
+import {
+  applyMyProfileChange,
+  clearMyProfileChange,
+  requestProfileChange,
+  useCurrentStaffAccess,
+  useMyTeamRecord,
+  type ProfileChangeRequest,
+} from "@/store/staff-access-store";
+import NumberChangeDialog, { NumberOtpSteps } from "./profile-change-requests";
 import BengaluruAreaPicker, { OTHER_AREA, PincodeCheckNote, areaChoiceFor, otherAreaTextFor, pincodeForArea } from "@/components/area-picker/bengaluru-area-picker";
 import styles from "./profile-details-page.module.css";
+
+// The form's values with what a request asks for
+function withRequestedValues(values: ProfileForm, request?: ProfileChangeRequest): ProfileForm {
+  const requested = Object.entries(request?.changes ?? {}).filter(([field]) => field in values);
+  return { ...values, ...Object.fromEntries(requested.map(([field, change]) => [field, change.to])) };
+}
+
+// "+91 93457 09139" as its 10 digits
+const primaryMobileDigitsOf = (mobileNumber: string) => mobileNumber.replace(/\D/g, "").slice(-10);
 
 /*
   "My Profile" dashboard page (design): welcome banner, the personal details form and the notification
@@ -106,6 +124,10 @@ export default function ProfileDetailsPage() {
   // The saved details come from the database: "Please fill in" waits until they have been read
   const isProfileKnown = useIsCustomerProfileKnown(useLoggedInMobileNumber());
   const [isSavedMessageShown, setIsSavedMessageShown] = useState(false);
+  // The "Edit details" pop-up, and a customer's "Change number" pop-up over it
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isNumberOpen, setIsNumberOpen] = useState(false);
+  const profileRequest = useMyTeamRecord()?.profileChange;
   const [switchedOnNotifications, setSwitchedOnNotifications] = useState(
     () => new Set(notificationSettings.filter((setting) => setting.isOnAtStart).map((setting) => setting.id)),
   );
@@ -168,7 +190,35 @@ export default function ProfileDetailsPage() {
         isSavedMessageShown={isSavedMessageShown}
         onSaved={() => setIsSavedMessageShown(true)}
         onEdited={() => setIsSavedMessageShown(false)}
+        onOpenEdit={() => {
+          setIsSavedMessageShown(false);
+          setIsEditOpen(true);
+        }}
       />
+
+      {isEditOpen && savedProfile && (
+        <div className={styles["profile-delete-dialog-overlay"]} data-lenis-prevent>
+          <button type="button" aria-label="Close" className={styles["profile-delete-dialog-dimmed-page"]} onClick={() => setIsEditOpen(false)} />
+          <div role="dialog" aria-modal="true" aria-label="Edit details" className={styles["profile-edit-dialog"]}>
+            {/* Starts again when the request changes (sent, accepted, rejected) */}
+            <PersonalDetailsForm
+              key={`${savedProfile.updatedAt}-${profileRequest?.status ?? "none"}`}
+              primaryMobileNumber={accountProfile.mobileNumber}
+              savedProfile={savedProfile}
+              isSavedMessageShown={false}
+              isInPopup
+              onSaved={() => {
+                setIsEditOpen(false);
+                setIsSavedMessageShown(true);
+              }}
+              onEdited={() => setIsSavedMessageShown(false)}
+              onClosePopup={() => setIsEditOpen(false)}
+              onChangeNumber={() => setIsNumberOpen(true)}
+            />
+          </div>
+        </div>
+      )}
+      {isNumberOpen && <NumberChangeDialog mobileNumber={primaryMobileDigitsOf(accountProfile.mobileNumber)} onClose={() => setIsNumberOpen(false)} />}
 
       <OrderHistory />
 
@@ -270,23 +320,43 @@ function PersonalDetailsForm({
   isSavedMessageShown,
   onSaved,
   onEdited,
+  isInPopup = false,
+  onOpenEdit,
+  onClosePopup,
+  onChangeNumber,
 }: {
   primaryMobileNumber: string; // "+91 98450 12345"
   savedProfile: CustomerProfile | null;
   isSavedMessageShown: boolean;
   onSaved: () => void;
   onEdited: () => void;
+  isInPopup?: boolean; // the "Edit details" pop-up; otherwise the page (saved details, shown locked)
+  onOpenEdit?: () => void;
+  onClosePopup?: () => void;
+  onChangeNumber?: () => void;
 }) {
-  const [formValues, setFormValues] = useState<ProfileForm>(() => toForm(savedProfile));
-  // Saved details are shown locked, with "Edit details"; a new customer starts with the form open
-  const [isEditing, setIsEditing] = useState(!savedProfile);
+  // A team member asks before changing their saved Profile; a request shows its new values, locked
+  const teamRecord = useMyTeamRecord();
+  const isOwner = Boolean(useCurrentStaffAccess()?.isOwner);
+  const asksFirst = isInPopup && Boolean(teamRecord);
+  const request: ProfileChangeRequest | undefined = asksFirst ? teamRecord?.profileChange : undefined;
+  const isRequestOpen = request?.status === "Pending" || request?.status === "Accepted";
+  const [formValues, setFormValues] = useState<ProfileForm>(() => withRequestedValues(toForm(savedProfile), isRequestOpen ? request : undefined));
+  const primaryMobileDigits = primaryMobileNumber.replace(/\D/g, "").slice(-10);
+  const [newNumber, setNewNumber] = useState((isRequestOpen && request?.changes.primaryMobile?.to) || primaryMobileDigits);
+  const [reason, setReason] = useState("");
+  const [requestProblem, setRequestProblem] = useState("");
+  const [isBusy, setIsBusy] = useState(false);
+  // Saved, and the new number still needs its OTP
+  const [isConfirmingNumber, setIsConfirmingNumber] = useState(false);
+  // Saved details are shown locked, with "Edit details" (a pop-up); a new customer starts with the form open
+  const isEditing = isInPopup || !savedProfile;
   // After a Save with missing details, the list (and the red boxes) update as each one is filled in
   const [hasTriedSaving, setHasTriedSaving] = useState(false);
   // The date box shows its example text until clicked, then becomes a date picker.
   const [isDateFieldFocused, setIsDateFieldFocused] = useState(false);
-  const primaryMobileDigits = primaryMobileNumber.replace(/\D/g, "").slice(-10);
   // The Location box: a listed area, "Others" (then formValues.location is the typed text) or nothing yet
-  const [locationChoice, setLocationChoice] = useState(() => areaChoiceFor(savedProfile?.location ?? ""));
+  const [locationChoice, setLocationChoice] = useState(() => areaChoiceFor(formValues.location));
 
   function updateFormValue(field: keyof ProfileForm, value: string) {
     setFormValues((previousValues) => ({ ...previousValues, [field]: value }));
@@ -316,26 +386,42 @@ function PersonalDetailsForm({
   if (!/^\d{6}$/.test(trimmed.pincode)) missingDetails.push("Pincode: 6 digits");
   const problems = hasTriedSaving ? missingDetails : [];
 
+  // A team member: send the request, or Save what was accepted
+  async function saveForTeamMember() {
+    setRequestProblem("");
+    setIsBusy(true);
+    if (request?.status === "Accepted") {
+      const saved = await applyMyProfileChange();
+      setIsBusy(false);
+      if ("problem" in saved) setRequestProblem(saved.problem);
+      else if (saved.result === "confirm-number") setIsConfirmingNumber(true);
+      // The saved details are read again, and the page looks normal
+      else window.location.reload();
+      return;
+    }
+    const problem = await requestProfileChange({ ...trimmed, primaryMobile: newNumber }, reason.trim());
+    setIsBusy(false);
+    if (problem) setRequestProblem(problem);
+  }
+
+  async function takeBackRequest() {
+    setIsBusy(true);
+    const problem = await clearMyProfileChange();
+    setIsBusy(false);
+    if (problem) setRequestProblem(problem);
+  }
+
   function saveChanges(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (request?.status === "Pending" || isConfirmingNumber) return;
     setHasTriedSaving(true);
     if (missingDetails.length > 0) return;
+    if (asksFirst) {
+      void saveForTeamMember();
+      return;
+    }
     saveCustomerProfile({ ...trimmed, primaryMobile: primaryMobileDigits });
     onSaved();
-    setIsEditing(false);
-  }
-
-  function startEditing() {
-    setIsEditing(true);
-    onEdited();
-  }
-
-  // Cancel: back to the saved details, locked again
-  function cancelEditing() {
-    setFormValues(toForm(savedProfile));
-    setLocationChoice(areaChoiceFor(savedProfile?.location ?? ""));
-    setHasTriedSaving(false);
-    setIsEditing(false);
   }
 
   const isMissing = (field: string) => problems.some((problem) => problem.startsWith(field));
@@ -345,7 +431,16 @@ function PersonalDetailsForm({
 
   return (
     <form className={styles["profile-card"]} onSubmit={saveChanges} noValidate>
-      <h2 className={styles["profile-card-heading"]}>Personal details</h2>
+      <div className={styles["profile-edit-title-row"]}>
+        <h2 className={styles["profile-card-heading"]}>{isInPopup ? "Edit details" : "Personal details"}</h2>
+        {isInPopup && (
+          <button type="button" aria-label="Close" className={styles["profile-change-dialog-close"]} onClick={onClosePopup}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        )}
+      </div>
 
       {problems.length > 0 && (
         <div className={styles["profile-form-problems"]} role="alert">
@@ -359,7 +454,7 @@ function PersonalDetailsForm({
       )}
 
       {/* Locked (shown, not editable) until "Edit details" is pressed */}
-      <fieldset className={styles["profile-form-fieldset"]} disabled={!isEditing}>
+      <fieldset className={styles["profile-form-fieldset"]} disabled={!isEditing || isRequestOpen}>
       <div className={styles["profile-form-grid"]}>
         <label className={styles["profile-form-field"]}>
           <span className={styles["profile-form-label"]}>First name *</span>
@@ -384,7 +479,22 @@ function PersonalDetailsForm({
         <label className={styles["profile-form-field"]}>
           <span className={styles["profile-form-label"]}>Primary mobile number</span>
           {/* The number used to log in: shown, not editable (changing it would change the account) */}
-          <input className={styles["profile-form-input"]} type="tel" value={primaryMobileNumber} readOnly title="This is the number you log in with" />
+          {asksFirst ? (
+            <input
+              className={styles["profile-form-input"]}
+              type="tel"
+              inputMode="numeric"
+              value={newNumber}
+              onChange={(event) => setNewNumber(event.target.value.replace(/\D/g, "").slice(0, 10))}
+            />
+          ) : (
+            <input className={styles["profile-form-input"]} type="tel" value={primaryMobileNumber} readOnly title="This is the number you log in with" />
+          )}
+          {isInPopup && !asksFirst && !isOwner && (
+            <button type="button" className={styles["profile-change-link"]} onClick={onChangeNumber}>
+              Change number
+            </button>
+          )}
         </label>
         <label className={styles["profile-form-field"]}>
           <span className={styles["profile-form-label"]}>Secondary mobile number</span>
@@ -437,7 +547,7 @@ function PersonalDetailsForm({
             labelId="profile-form-location-label"
             look="account"
             hasError={isMissing("Location") && !locationChoice}
-            isDisabled={!isEditing}
+            isDisabled={!isEditing || isRequestOpen}
             className={styles["profile-form-area-picker"]}
           />
         </div>
@@ -452,7 +562,7 @@ function PersonalDetailsForm({
             onChange={(event) => updateFormValue("pincode", event.target.value.replace(/\D/g, "").slice(0, 6))}
           />
           {/* Filled from a listed area: ask the customer to check it (while editing) */}
-          {isEditing && pincodeForArea(locationChoice) && <PincodeCheckNote look="account" />}
+          {isEditing && !isRequestOpen && pincodeForArea(locationChoice) && <PincodeCheckNote look="account" />}
         </label>
         {/* "Others": the location in the customer's own words */}
         {locationChoice === OTHER_AREA && (
@@ -512,8 +622,41 @@ function PersonalDetailsForm({
       </div>
       </fieldset>
 
+      {/* A team member's request: how it stands, and why they are asking */}
+      {asksFirst && (
+        <div className={styles["profile-request-area"]}>
+          <p className={styles["profile-change-note"]}>You&rsquo;re on the Chiranvi team, so someone on the panel accepts changes first.</p>
+          {request?.status === "Pending" && <p className={styles["profile-change-status-pending"]}>Your request is waiting for the panel to accept it.</p>}
+          {request?.status === "Accepted" && !isConfirmingNumber && (
+            <p className={styles["profile-change-status-accepted"]}>Accepted by {request.decidedBy}. Press Save to save these details.</p>
+          )}
+          {request?.status === "Rejected" && (
+            <p className={styles["profile-change-status-rejected"]}>
+              Rejected by {request.decidedBy}.{request.rejectReason ? ` Why: ${request.rejectReason}` : ""} You can change it and ask again.
+            </p>
+          )}
+          {!isRequestOpen && (
+            <label className={styles["profile-form-field"]}>
+              <span className={styles["profile-form-label"]}>Reason for the change *</span>
+              <input className={styles["profile-form-input"]} value={reason} onChange={(event) => setReason(event.target.value)} />
+            </label>
+          )}
+          {isConfirmingNumber && request?.changes.primaryMobile && (
+            <>
+              <p className={styles["profile-change-status-accepted"]}>Your details are saved. Now confirm your new number.</p>
+              <NumberOtpSteps fixedNewNumber={request.changes.primaryMobile.to} />
+            </>
+          )}
+          {requestProblem && (
+            <p className={styles["profile-change-problem"]} role="alert">
+              {requestProblem}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className={styles["profile-form-actions"]}>
-        {isSavedMessageShown && !isEditing && (
+        {isSavedMessageShown && !isInPopup && (
           <p className={styles["profile-form-saved-message"]} role="status">
             Changes saved
           </p>
@@ -521,22 +664,30 @@ function PersonalDetailsForm({
         {!isEditing ? (
           <>
             <DeleteAccountButton mobileNumber={primaryMobileDigits} />
-            {/* Saved details: unlock them to change anything */}
-            <button type="button" className={styles["profile-save-button"]} onClick={startEditing}>
+            {/* Saved details: the pop-up changes them */}
+            <button type="button" className={styles["profile-save-button"]} onClick={onOpenEdit}>
               Edit details
             </button>
           </>
+        ) : asksFirst ? (
+          !isConfirmingNumber && (
+            <>
+              {request?.status === "Pending" && (
+                <button type="button" className={styles["profile-cancel-button"]} disabled={isBusy} onClick={() => void takeBackRequest()}>
+                  Take back request
+                </button>
+              )}
+              {request?.status !== "Pending" && (
+                <button type="submit" className={styles["profile-save-button"]} disabled={isBusy}>
+                  {isBusy ? "Please wait…" : request?.status === "Accepted" ? "Save" : "Send request"}
+                </button>
+              )}
+            </>
+          )
         ) : (
-          <>
-            {savedProfile && (
-              <button type="button" className={styles["profile-cancel-button"]} onClick={cancelEditing}>
-                Cancel
-              </button>
-            )}
-            <button type="submit" className={styles["profile-save-button"]}>
-              {savedProfile ? "Save changes" : "Save details"}
-            </button>
-          </>
+          <button type="submit" className={styles["profile-save-button"]}>
+            {savedProfile ? "Save" : "Save details"}
+          </button>
         )}
       </div>
     </form>

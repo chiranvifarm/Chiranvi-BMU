@@ -893,3 +893,59 @@ button.admin-team-request-accept {
 .admin-roles-remove-from-team:focus-visible {
   background: #fdf1f0;
 }
+
+/* A team member's request to change their number or address */
+.admin-team-change-request {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--admin-pixel));
+  padding: calc(12 * var(--admin-pixel));
+  border-radius: calc(12 * var(--admin-pixel));
+  background: #fbf3e1;
+}
+
+.admin-team-change-title {
+  font-size: calc(12 * var(--admin-pixel));
+  font-weight: 600;
+  color: #8a6a1c;
+}
+
+.admin-team-change-value {
+  font-size: calc(14 * var(--admin-pixel));
+  font-weight: 700;
+  color: #1b2a20;
+  overflow-wrap: anywhere;
+}
+
+.admin-team-change-reason {
+  font-size: calc(12.5 * var(--admin-pixel));
+  color: #5c655e;
+}
+
+.admin-team-change-buttons {
+  display: flex;
+  gap: calc(8 * var(--admin-pixel));
+  margin-top: calc(6 * var(--admin-pixel));
+}
+
+.admin-team-change-accept,
+.admin-team-change-reject {
+  padding: calc(6 * var(--admin-pixel)) calc(16 * var(--admin-pixel));
+  border-radius: 9999px;
+  font-family: inherit;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-team-change-accept {
+  border: 1px solid #2f6b3a;
+  background: #2f6b3a;
+  color: #ffffff;
+}
+
+.admin-team-change-reject {
+  border: 1px solid #c0392b;
+  background: #ffffff;
+  color: #c0392b;
+}

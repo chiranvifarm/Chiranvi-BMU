@@ -4,11 +4,10 @@ import { createPanelRecordStore } from "./panel-records";
   Delivery routes and agents for the Chiranvi Panel (Routes & agents page, and the Deliveries page's
   route names, colours and agent lists). Kept in the database (panel_records, "routes" and "agents";
   supabase/migrations/0019_… and 0020_…), seen and changed by the staff member's role (Routes & agents).
-  - 6 routes from the farm hub, each with its agent; route colours are Chiranvi greens and yellows.
-  - 9 agents: one per route, two spare (they take reassigned deliveries), one on leave.
+  - Routes are added on Routes & agents; route colours are Chiranvi greens and yellows.
+  - Agents: everyone with the Delivery agent role gets a card (supabase/migrations/0024_…).
   Each route and agent card carries its agent's number, so a delivery agent (Delivery Panel) reads only their
-  own card and route. The first time the panel opens Routes & agents, the starting routes and agents (or this
-  browser's lists from before the database) are copied in.
+  own card and route.
 */
 
 export type DeliveryRoute = {
@@ -29,54 +28,16 @@ export type DeliveryAgent = {
 // An agent card in the database: its id is the agent's name (what routes and deliveries point to)
 type AgentRecord = DeliveryAgent & { id: string };
 
-export const STARTING_ROUTES: DeliveryRoute[] = [
-  { id: "R1", name: "Route 1", area: "RR Nagar", agent: "Ramesh K", colour: "#1f4d2e" },
-  { id: "R2", name: "Route 2", area: "Kengeri", agent: "Shivu M", colour: "#5e9a4a" },
-  { id: "R3", name: "Route 3", area: "Banashankari", agent: "Manju R", colour: "#a3c98a" },
-  { id: "R4", name: "Route 4", area: "Jayanagar", agent: "Prakash S", colour: "#f5bf2c" },
-  { id: "R5", name: "Route 5", area: "Uttarahalli", agent: "Ganesh B", colour: "#c9891e" },
-  { id: "R6", name: "Route 6", area: "JP Nagar", agent: "Imran A", colour: "#8a6a1c" },
-];
-
-// Colours for routes added later (still greens and yellows)
+// Route colours (greens and yellows)
 const MORE_ROUTE_COLOURS = ["#3d7a3a", "#e0a91f", "#6f8f2e", "#b3872a", "#2f6b52", "#d9b54a"];
 
-const STARTING_AGENTS: DeliveryAgent[] = [
-  { name: "Ramesh K", phone: "9845041201", bike: "KA-05-4120" },
-  { name: "Shivu M", phone: "9845041572", bike: "KA-05-4157" },
-  { name: "Manju R", phone: "9845041943", bike: "KA-05-4194" },
-  { name: "Prakash S", phone: "9845042314", bike: "KA-05-4231" },
-  { name: "Ganesh B", phone: "9845042685", bike: "KA-05-4268" },
-  { name: "Imran A", phone: "9845043056", bike: "KA-05-4305" },
-  { name: "Somu N", phone: "9845043427", bike: "KA-05-4342" },
-  { name: "Raju T", phone: "9845043798", bike: "KA-05-4379" },
-  { name: "Basava", phone: "9845044169", bike: "KA-05-4416", isOnLeave: true },
-];
+const routeStore = createPanelRecordStore<DeliveryRoute>({ module: "routes" });
 
-const routeStore = createPanelRecordStore<DeliveryRoute>({
-  module: "routes",
-  seed: {
-    seedKey: "routes",
-    makeSamples: () => STARTING_ROUTES,
-    oldStorageKey: "chiranvi-admin-routes",
-    ownerMobileOf: (route) => agentPhoneOf(route.agent),
-  },
-});
-
-const agentStore = createPanelRecordStore<AgentRecord>({
-  module: "agents",
-  seed: {
-    seedKey: "agents",
-    makeSamples: () => STARTING_AGENTS.map((agent) => ({ ...agent, id: agent.name })),
-    oldStorageKey: "chiranvi-admin-agents",
-    fromOldCopy: (saved) => (Array.isArray(saved) ? (saved as DeliveryAgent[]).map((agent) => ({ ...agent, id: agent.name })) : null),
-    ownerMobileOf: (agent) => agent.phone,
-  },
-});
+const agentStore = createPanelRecordStore<AgentRecord>({ module: "agents" });
 
 // The agent's login number (their route and stops carry it, so the Delivery Panel shows them only their own)
 export function agentPhoneOf(agentName: string): string | undefined {
-  const phone = (agentStore.getRecords().find((agent) => agent.name === agentName) ?? STARTING_AGENTS.find((agent) => agent.name === agentName))?.phone;
+  const phone = agentStore.getRecords().find((agent) => agent.name === agentName)?.phone;
   return phone && /^\d{10}$/.test(phone) ? phone : undefined;
 }
 
@@ -98,20 +59,21 @@ export function addRoute(area: string, agent: string) {
     name: `Route ${number}`,
     area,
     agent,
-    colour: MORE_ROUTE_COLOURS[(number - 7 + MORE_ROUTE_COLOURS.length * 10) % MORE_ROUTE_COLOURS.length],
+    colour: MORE_ROUTE_COLOURS[(number - 1) % MORE_ROUTE_COLOURS.length],
   };
   void routeStore.add(newRoute, agentPhoneOf(agent));
   return newRoute;
-}
-
-export function addAgent(agent: DeliveryAgent) {
-  void agentStore.add({ ...agent, id: agent.name }, /^\d{10}$/.test(agent.phone) ? agent.phone : undefined);
 }
 
 // Set from the Staff page: an agent on leave is not on duty here either
 export function setAgentOnLeave(name: string, isOnLeave: boolean) {
   if (!agentStore.getRecords().some((agent) => agent.name === name)) return;
   void agentStore.change(name, (agent) => ({ ...agent, isOnLeave }));
+}
+
+// Read the agents again (a new agent's card is added by the database)
+export function reloadDeliveryAgents() {
+  return agentStore.reload();
 }
 
 export function useDeliveryRoutes() {

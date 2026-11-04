@@ -17,7 +17,7 @@ import {
   type DeliverySlot,
   type DeliveryStatus,
 } from "@/store/admin-deliveries-store";
-import { STARTING_ROUTES, useDeliveryAgents, useDeliveryRoutes, type DeliveryRoute } from "@/store/admin-routes-store";
+import { useDeliveryAgents, useDeliveryRoutes, type DeliveryRoute } from "@/store/admin-routes-store";
 import { AdminFeatureGate } from "./admin-panel-layout";
 import {
   AdminDialog,
@@ -79,7 +79,7 @@ const EMPTY_NEW_DELIVERY = {
   customerName: "",
   address: "",
   phone: "",
-  routeId: STARTING_ROUTES[0].id,
+  routeId: "",
   slot: DELIVERY_SLOTS[1] as DeliverySlot,
 };
 
@@ -96,9 +96,10 @@ function DeliveriesPage() {
   const routes = useDeliveryRoutes();
   const agents = useDeliveryAgents();
   const agentsOnDuty = agents.filter((agent) => !agent.isOnLeave).map((agent) => agent.name);
-  // Routes load from the database on their own, so a delivery can arrive before its route: show its id until then
+  // Routes load from the database on their own, so a delivery can arrive before its route: show its id until
+  // then ("—": a stop without a route)
   const routeOf = (routeId: string): DeliveryRoute =>
-    routes.find((route) => route.id === routeId) ?? { id: routeId, name: routeId, area: "", agent: "", colour: "#285C3A" };
+    routes.find((route) => route.id === routeId) ?? { id: routeId || "—", name: routeId || "No route", area: "", agent: "", colour: "#285C3A" };
   const updatedAt = useDeliveriesUpdatedAt();
   const [today] = useState(() => new Date());
   const [rangeFrom, setRangeFrom] = useState(today);
@@ -109,7 +110,9 @@ function DeliveriesPage() {
   const [isNewOpen, setIsNewOpen] = useState(false);
   const [newDelivery, setNewDelivery] = useState(EMPTY_NEW_DELIVERY);
   const [isReassignOpen, setIsReassignOpen] = useState(false);
-  const [reassignTo, setReassignTo] = useState("Somu N");
+  const [chosenReassignTo, setReassignTo] = useState("");
+  // The first agent on duty unless another was chosen
+  const reassignTo = chosenReassignTo || agentsOnDuty[0] || "";
   const { showToast, toast } = useAdminToast();
   useCarryOverOrderDeliveries();
 
@@ -152,7 +155,7 @@ function DeliveriesPage() {
   const missed = inRange.filter((delivery) => delivery.status === "Missed");
   const missedRoutes = [...new Set(missed.map((delivery) => routeOf(delivery.routeId).name))];
   const missedToday = todaysDeliveries.filter((delivery) => delivery.status === "Missed").length;
-  const activeRoutes = new Set(inRange.map((delivery) => delivery.routeId)).size;
+  const activeRoutes = new Set(inRange.map((delivery) => delivery.routeId).filter(Boolean)).size;
 
   // Per route: how far along it is, who drives it, when it finished or is expected to
   const routeProgress = routes.map((route) => {
@@ -187,12 +190,19 @@ function DeliveriesPage() {
       showToast("Enter the name, address and a 10-digit phone number");
       return;
     }
+    // The first route unless another was chosen
+    const routeId = newDelivery.routeId || routes[0]?.id;
+    if (!routeId) {
+      showToast("Add a route on Routes & agents first");
+      return;
+    }
     const added = addDelivery({
       ...newDelivery,
+      routeId,
       customerName: newDelivery.customerName.trim(),
       address: newDelivery.address.trim(),
       phone,
-      agent: routeOf(newDelivery.routeId).agent,
+      agent: routeOf(routeId).agent,
     });
     setRangeFrom(today);
     setRangeTo(today);

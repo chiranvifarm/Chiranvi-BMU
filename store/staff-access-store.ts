@@ -65,6 +65,17 @@ export type StaffMember = {
   roleId: string | null; // null: on the Staff section without a login role (a farm worker …)
   title?: string; // "Hub manager"
   deleteRequestedAt?: string; // they asked the admin to delete their account (Profile → Delete account → Request)
+  profileChange?: ProfileChangeRequest; // asking to change their Profile (supabase/migrations/0032_one_profile_request.sql)
+};
+
+// What changed, by the Profile's field names (primaryMobile: the new login number)
+export type ProfileChangeRequest = {
+  status: "Pending" | "Accepted" | "Rejected";
+  changes: Record<string, { from: string; to: string }>;
+  reason: string;
+  requestedAt: string;
+  decidedBy?: string;
+  rejectReason?: string;
 };
 
 export type StaffAccess = {
@@ -123,6 +134,7 @@ type StaffRow = {
   is_active: boolean;
   password_kind: "pin" | "password" | null;
   delete_requested_at: string | null;
+  profile_change: ProfileChangeRequest | null;
 };
 
 const NO_ROLES: PanelRole[] = [];
@@ -154,7 +166,7 @@ async function loadTeam(mobileNumber: string | null) {
     const supabase = createClient();
     const [roleAnswer, staffAnswer] = await Promise.all([
       supabase.from("panel_roles").select("id, name, is_built_in, has_panel_access, permissions").order("created_at"),
-      supabase.from("staff_members").select("mobile_number, name, role_id, title, is_active, password_kind, delete_requested_at").order("created_at"),
+      supabase.from("staff_members").select("mobile_number, name, role_id, title, is_active, password_kind, delete_requested_at, profile_change").order("created_at"),
     ]);
     // A newer login started meanwhile: its own read wins
     if (loadingForMobile !== mobileNumber) return;
@@ -178,6 +190,7 @@ async function loadTeam(mobileNumber: string | null) {
         roleId: row.role_id,
         title: row.title ?? undefined,
         deleteRequestedAt: row.delete_requested_at ?? undefined,
+        profileChange: row.profile_change ?? undefined,
       }));
   }
   loadedForMobile = mobileNumber;
@@ -324,6 +337,73 @@ export async function declineAccountDeletion(mobileNumber: string): Promise<stri
   staffMembers = staffMembers.map((member) => (member.mobileNumber === mobileNumber ? { ...member, deleteRequestedAt: undefined } : member));
   announceTeamChange();
   return null;
+}
+
+// The logged-in person's own row on the staff list (not the owner, who changes their details in their own way)
+export function useMyTeamRecord() {
+  const mobileNumber = useLoggedInMobileNumber();
+  return useStaffMembers().find((member) => member.mobileNumber === mobileNumber);
+}
+
+// The owner or a manager makes someone on the staff list Staff (Staff section) or a Delivery agent (Routes &
+// agents); the database checks it. Answers a problem to show, or null.
+export async function giveTeamRole(mobileNumber: string, role: "staff" | "delivery-agent", bike?: string): Promise<string | null> {
+  const { error } = await createClient().rpc("give_team_role", { staff_mobile: mobileNumber, new_role: role, bike: bike ?? null });
+  if (error) return error.message || "Couldn't give the role. Please try again.";
+  refreshTeam();
+  return null;
+}
+
+/*
+  A team member changing their Profile (any detail): they ask with a reason, anyone with Staff → Edit answers
+  on the Staff section or Roles & permissions (never for themselves), then they press Save and the accepted
+  values are saved. All checked by the database (0032_…sql). Each answers a problem to show, or null.
+*/
+async function afterStaffRequest(error: { message?: string } | null, fallback: string) {
+  if (error) return error.message || fallback;
+  refreshTeam();
+  return null;
+}
+
+export async function requestProfileChange(details: Record<string, string>, reason: string) {
+  const { error } = await createClient().rpc("request_profile_change", { details, reason });
+  return afterStaffRequest(error, "Couldn't send the request. Please try again.");
+}
+
+// Takes back a waiting request, or clears a rejected one
+export async function clearMyProfileChange() {
+  const { error } = await createClient().rpc("clear_my_profile_change");
+  return afterStaffRequest(error, "Please try again.");
+}
+
+export async function decideProfileChange(mobileNumber: string, accept: boolean, rejectReason?: string) {
+  const { error } = await createClient().rpc("decide_profile_change", { staff_mobile: mobileNumber, accept, reject_reason: rejectReason ?? null });
+  return afterStaffRequest(error, "Couldn't save the answer. Please try again.");
+}
+
+// Save after it was accepted: "saved", "confirm-number" (a new number still needs its OTP), or a problem
+export async function applyMyProfileChange(): Promise<{ result: "saved" | "confirm-number" } | { problem: string }> {
+  const { data, error } = await createClient().rpc("apply_my_profile_change");
+  if (error) return { problem: error.message || "Couldn't save. Please try again." };
+  refreshTeam();
+  return { result: data as "saved" | "confirm-number" };
+}
+
+/*
+  Changing the login number: an OTP goes to the new number; once it is confirmed the login has that number and
+  finish_my_number_change() moves everything to it. (A team member's new number must be accepted first.)
+*/
+export async function sendNewNumberOtp(newNumber: string) {
+  const { error } = await createClient().auth.updateUser({ phone: `+91${newNumber}` });
+  return error ? error.message || "Couldn't send the OTP. Please try again." : null;
+}
+
+export async function confirmNewNumberOtp(newNumber: string, code: string) {
+  const supabase = createClient();
+  const { error } = await supabase.auth.verifyOtp({ phone: `+91${newNumber}`, token: code, type: "phone_change" });
+  if (error) return error.message || "That OTP didn't work. Please try again.";
+  const moved = await supabase.rpc("finish_my_number_change");
+  return moved.error ? moved.error.message || "Couldn't move your account. Please contact the farm." : null;
 }
 
 /*

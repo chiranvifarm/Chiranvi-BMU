@@ -542,6 +542,22 @@
   color: #c0392b;
 }
 
+/* With stock counts the label follows them, so its buttons can't be pressed */
+.admin-product-stock-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.admin-product-stock-count-grid {
+  margin-top: calc(12 * var(--admin-pixel));
+}
+
+.admin-product-stock-count-note {
+  margin-top: calc(8 * var(--admin-pixel));
+  font-size: calc(12 * var(--admin-pixel));
+  color: #7a837c;
+}
+
 /* Switch rows: Restocked (light green panel) and Sell on the website */
 .admin-product-restock-row,
 .admin-product-option-row {

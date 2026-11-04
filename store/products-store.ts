@@ -11,6 +11,10 @@ import { createClient } from "@/lib/supabase/client";
     still shows, marked "Sold out", with a "Notify me" button instead of Add to cart.
   - Out of stock is reported by the manager (outOfStockReport). When the panel marks it restocked, the
     manager gets a restock notice and the customers waiting on "Notify me" (table restock_requests) are told.
+  - Stock counts (supabase/migrations/0029_stock_counts.sql): staff can enter how many are in stock, one number
+    per pack size. Paid one-time orders lower it, cancelled and refunded ones put it back, and the label then
+    follows the counts. A size without a number works by the label alone. Only the database changes the
+    counts (saveStockCounts asks it).
   The list is read when first needed and again when the window comes back into focus; until then the
   starting list below is shown. A change shows at once and is then saved; if the database refuses it
   (e.g. a price changed by someone who is not the owner), the list is read again.
@@ -30,6 +34,7 @@ export type ShopProduct = {
   originalPrice?: number; // the old price shown crossed out on the website
   subscriptionPrice?: number; // milk only
   stock: StockLevel;
+  stockCounts?: Record<string, number>; // how many are in stock, by the id the cart uses for each pack size
   isVisible: boolean; // false: switched off in the panel, the website shows it as Sold out
   showOnBestSellers?: boolean;
   bestSellerOrder?: number; // place in the landing page's Best Sellers (new ones go last)
@@ -226,6 +231,7 @@ type CardRow = {
   original_price_paise: number | null;
   subscription_price_paise: number | null;
   stock: StockLevel;
+  stock_counts: Record<string, number> | null;
   is_visible: boolean;
   show_on_best_sellers: boolean;
   best_seller_order: number | null;
@@ -251,6 +257,7 @@ function toProduct(row: CardRow, waiting: string[]): ShopProduct {
     originalPrice: rupees(row.original_price_paise),
     subscriptionPrice: rupees(row.subscription_price_paise),
     stock: row.stock,
+    stockCounts: row.stock_counts ?? undefined,
     isVisible: row.is_visible,
     showOnBestSellers: row.show_on_best_sellers,
     bestSellerOrder: row.best_seller_order ?? undefined,
@@ -392,6 +399,20 @@ export function markRestocked(productId: string, restockedBy: string, managers: 
   void createClient().from("restock_requests").delete().eq("product_id", productId);
   // The notice is shown in the panel's message (nothing is kept in the browser)
   return notice;
+}
+
+/*
+  The panel's stock boxes: only the sizes that changed are sent ({ id: 12 }, or { id: null } to stop counting
+  it), so a sale happening meanwhile isn't undone for the others. Answers a problem to show, or null.
+*/
+export async function saveStockCounts(productId: string, counts: Record<string, number | null>) {
+  const { error } = await createClient().rpc("set_stock_counts", { p_product_id: productId, p_counts: counts });
+  await loadProducts();
+  if (error) {
+    console.error("The database did not accept the stock counts", error);
+    return error.message || "Couldn't save the stock counts. Please try again.";
+  }
+  return null;
 }
 
 // "Notify me" on the website (once per mobile number; the database keeps one request per customer)

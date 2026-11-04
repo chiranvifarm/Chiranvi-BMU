@@ -10,8 +10,8 @@ import styles from "./bulk-order-popup.module.css";
 /*
   "We take bulk orders!" pop-up (mounted once in app/layout.tsx), only on the landing page:
   - shows 5 seconds after the site is opened; after that it takes turns with the "Log in / Complete your
-    profile" notification (components/profile-reminder), 2 minutes apart: closing it (×, Maybe later,
-    Escape or a click outside it) gives the notification its turn 2 minutes later, and the notification's
+    profile" notification (components/profile-reminder), 2 minutes apart: closing it (×, Escape or a
+    click outside it) gives the notification its turn 2 minutes later, and the notification's
     end gives this pop-up its turn 2 minutes after that. Once a quote is sent it skips its turns. Kept only in
     memory, so every refresh starts fresh again;
   - on any other page it waits, and shows when the visitor is back on the landing page;
@@ -155,16 +155,6 @@ export default function BulkOrderPopup() {
               <button type="button" className={styles["bulk-order-main-button"]} onClick={() => setView("form")}>
                 Get a bulk quote
               </button>
-              <p className={styles["bulk-order-footnote"]}>
-                or call{" "}
-                <a href={`tel:+91${PHONE_NUMBER}`} className={styles["bulk-order-phone-link"]}>
-                  +91 {PHONE_NUMBER}
-                </a>{" "}
-                ·{" "}
-                <button type="button" className={styles["bulk-order-maybe-later"]} onClick={close}>
-                  Maybe later
-                </button>
-              </p>
             </div>
           </>
         )}

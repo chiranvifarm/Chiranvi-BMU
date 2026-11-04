@@ -221,6 +221,7 @@
 /* ---------- Page area ---------- */
 
 .delivery-content {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -228,21 +229,15 @@
   padding: calc(26 * var(--delivery-pixel)) calc(28 * var(--delivery-pixel)) calc(40 * var(--delivery-pixel));
 }
 
+/* Sits on the page title's line, at the right */
 .delivery-content-top-row {
+  position: absolute;
+  z-index: 5;
+  top: calc(26 * var(--delivery-pixel));
+  right: calc(28 * var(--delivery-pixel));
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: calc(12 * var(--delivery-pixel));
-  margin-bottom: calc(14 * var(--delivery-pixel));
-}
-
-.delivery-content-page-name {
-  padding: calc(5 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
-  border-radius: 9999px;
-  background: #fbf3e1;
-  font-size: calc(12.5 * var(--delivery-pixel));
-  font-weight: 600;
-  color: #1f4d2e;
 }
 
 .delivery-topbar-actions {
@@ -416,6 +411,8 @@
   justify-content: space-between;
   gap: calc(12 * var(--delivery-pixel));
   margin-bottom: calc(22 * var(--delivery-pixel));
+  /* Room for the duty switch and bell */
+  padding-right: calc(220 * var(--delivery-pixel));
 }
 
 .delivery-page-title {
@@ -645,12 +642,12 @@
   }
 
   /* The switch and bell are in the top bar here */
-  .delivery-content-top-row .delivery-topbar-actions {
+  .delivery-content-top-row {
     display: none;
   }
 
-  .delivery-content-top-row {
-    margin-bottom: 10px;
+  .delivery-page-heading {
+    padding-right: 0;
   }
 
   .delivery-sidebar {

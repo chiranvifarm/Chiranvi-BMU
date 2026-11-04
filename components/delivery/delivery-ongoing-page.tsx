@@ -144,9 +144,9 @@ export function DeliverySubscriptionsPage() {
       columnId="subscription"
       emptyText="No subscription deliveries left today."
       isSubscription
-    >
-      <DeliveryPlanCalendar />
-    </StopsPage>
+      aboveStop={<DeliveryPlanCalendar />}
+      stopNote={<PlanDayNotices />}
+    />
   );
 }
 
@@ -156,6 +156,8 @@ function StopsPage({
   columnId,
   emptyText,
   isSubscription,
+  aboveStop,
+  stopNote,
   children,
 }: {
   title: string;
@@ -163,41 +165,54 @@ function StopsPage({
   columnId: string;
   emptyText: string;
   isSubscription: boolean;
+  aboveStop?: ReactNode;
+  stopNote?: ReactNode; // inside the "none left" box, or under the stop when there is one
   children?: ReactNode;
 }) {
   const { login, stops } = useDeliveryPanel();
+  const isAllDone = Boolean(login.route) && stops.ongoing.length === 0;
+  const hasStopHere = stops.ongoing.some((ongoingStop) => ongoingStop.isSubscription === isSubscription);
 
   return (
     <>
       <DeliveryPageHeading title={title} description={description} />
       <DeliveryShiftNotices />
+      {aboveStop}
 
-      {login.route && stops.ongoing.length === 0 ? (
+      {isAllDone ? (
         <DeliveryNotice title="All stops done for today" text="Well done! Every stop on your list is finished.">
           <Link href="/delivery/completed" className={deliveryButtonStyles.filled}>
             See completed stops
           </Link>
         </DeliveryNotice>
       ) : (
-        <OngoingStop columnId={columnId} emptyText={emptyText} isSubscription={isSubscription} />
+        <OngoingStop columnId={columnId} emptyText={emptyText} emptyNote={stopNote} isSubscription={isSubscription} />
       )}
+      {(isAllDone || hasStopHere) && stopNote}
       {children}
     </>
   );
 }
 
 // One kind of stop: its ongoing stop's customer, what to hand over and status
-function OngoingStop({ columnId, emptyText, isSubscription }: { columnId: string; emptyText: string; isSubscription: boolean }) {
+function OngoingStop({ columnId, emptyText, emptyNote, isSubscription }: { columnId: string; emptyText: string; emptyNote?: ReactNode; isSubscription: boolean }) {
   const { login, stops } = useDeliveryPanel();
   const [openSheet, setOpenSheet] = useState<OpenSheet>(null);
   const stop = stops.ongoing.find((ongoingStop) => ongoingStop.isSubscription === isSubscription);
   const finishedHere = stops.completed.filter((finished) => finished.isSubscription === isSubscription).length;
   const totalHere = finishedHere + stops.upNext.filter((next) => next.isSubscription === isSubscription).length + (stop ? 1 : 0);
+  // Only the next customer of this kind: when this stop finishes they move here, and the one after shows
+  const nextStop = stops.upNext.find((next) => next.isSubscription === isSubscription);
   const canWork = stops.isOnDuty;
 
   return (
     <div className={styles["ongoing-stop"]}>
-      {!stop && <p className={`${styles["ongoing-card"]} ${styles["ongoing-column-empty"]}`}>{emptyText}</p>}
+      {!stop && (
+        <div className={`${styles["ongoing-card"]} ${styles["ongoing-column-empty"]}`}>
+          {emptyText}
+          {emptyNote}
+        </div>
+      )}
 
       {stop && (
         <>
@@ -260,7 +275,7 @@ function OngoingStop({ columnId, emptyText, isSubscription }: { columnId: string
           </section>
 
           {/* What to hand over and collect */}
-          <section className={styles["ongoing-card"]} aria-labelledby={`${columnId}-items-title`}>
+          <section className={`${styles["ongoing-card"]} ${styles["ongoing-hand-over-card"]}`} aria-labelledby={`${columnId}-items-title`}>
             <h3 id={`${columnId}-items-title`} className={styles["ongoing-card-title"]}>
               Hand over
             </h3>
@@ -292,6 +307,17 @@ function OngoingStop({ columnId, emptyText, isSubscription }: { columnId: string
                 <span className={styles["ongoing-note-label"]}>Customer note</span>
                 {stop.note}
               </p>
+            )}
+
+            {nextStop && (
+              <div className={styles["ongoing-next-stop"]}>
+                <div className={styles["ongoing-next-stop-words"]}>
+                  <span className={styles["ongoing-next-stop-label"]}>Up next</span>
+                  <span className={styles["ongoing-next-stop-name"]}>{nextStop.customerName}</span>
+                  <span className={styles["ongoing-next-stop-address"]}>{nextStop.address}</span>
+                </div>
+                <span className={styles["ongoing-slot"]}>{nextStop.slot}</span>
+              </div>
             )}
           </section>
 

@@ -78,7 +78,7 @@ export type AgentRequest = {
 
 export type AgentNotification = {
   id: string;
-  kind: "new-stop" | "route-change" | "status-change" | "request-update" | "manager-message" | "skip" | "pause";
+  kind: "new-stop" | "route-change" | "status-change" | "request-update" | "manager-message" | "skip" | "pause" | "delivery-restart";
   text: string;
   at: string; // ISO
 };
@@ -253,6 +253,16 @@ async function saveDayNotReadYet(mobileNumber: string, id: string, change: (day:
 }
 
 const NO_DAY = freshDay("");
+
+// One row per notification: the same check can run twice before its first save is back
+function uniqueNotifications(notifications: AgentNotification[]) {
+  const seenIds = new Set<string>();
+  return notifications.filter((notification) => {
+    if (seenIds.has(notification.id)) return false;
+    seenIds.add(notification.id);
+    return true;
+  });
+}
 
 function useAgentDay(mobileNumber: string | null) {
   const records = dayStore.useRecords();
@@ -459,7 +469,7 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
       ...saved,
       knownStopIds: currentIds,
       knownStopStatuses: Object.fromEntries(stops.map((stop) => [stop.id, stop.status])),
-      notifications: [...notifications, ...saved.notifications].slice(0, 50),
+      notifications: uniqueNotifications([...notifications, ...saved.notifications]).slice(0, 50),
     }));
   }, [mobileNumber, agentName, isLoaded, deliveries.length, stops, day.knownStopIds, day.knownStopStatuses]);
 
@@ -483,9 +493,9 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
       isOnDuty: day.isOnDuty,
       isLoaded,
       requests: [...day.requests].sort((first, second) => second.raisedAt.localeCompare(first.raisedAt)),
-      notifications: day.notifications,
+      notifications: uniqueNotifications(day.notifications),
       unseenNotificationCount: day.notifications.filter((notification) => !day.readNotificationIds?.includes(notification.id)).length,
-      unreadNotifications: day.notifications.filter((notification) => !day.readNotificationIds?.includes(notification.id)),
+      unreadNotifications: uniqueNotifications(day.notifications).filter((notification) => !day.readNotificationIds?.includes(notification.id)),
       knownPlanEvents: day.knownPlanEvents,
     };
   }, [stops, day, isLoaded]);
@@ -535,7 +545,29 @@ export function useAssignedPlans() {
 
 const shortDay = (dayKey: string) => new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
-// New approved skips and pauses become notifications; the first look of the day only learns them
+const monthDay = (dayKey: string) => new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+// A paused plan's alarm: the last paused day (restarts tomorrow) and the day it restarts ("today" is in India)
+function planRestartReminders(plans: AssignedPlan[]) {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const tomorrowDate = new Date(`${today}T12:00:00`);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrow = `${tomorrowDate.getFullYear()}-${String(tomorrowDate.getMonth() + 1).padStart(2, "0")}-${String(tomorrowDate.getDate()).padStart(2, "0")}`;
+  return plans.flatMap((plan) =>
+    plan.pauses
+      // Not when that day is skipped or paused too
+      .filter((pause) => !plan.skips.includes(pause.to) && !plan.pauses.some((other) => pause.to >= other.from && pause.to < other.to))
+      .flatMap((pause) => {
+        const planText = `${plan.customerName}, next delivery on ${monthDay(pause.to)}`;
+        if (pause.to === tomorrow) return [{ key: `restart-eve-${plan.orderNumber}-${pause.to}`, text: `Delivery restarts tomorrow: ${planText}` }];
+        if (pause.to === today) return [{ key: `restart-day-${plan.orderNumber}-${pause.to}`, text: `Delivery restarts today: ${plan.customerName}, deliver today, ${monthDay(pause.to)}` }];
+        return [];
+      }),
+  );
+}
+
+// New approved skips and pauses become notifications; the first look of the day only learns them.
+// A restart alarm always shows, also on the first look of the day
 export function learnPlanEvents(mobileNumber: string, plans: AssignedPlan[], known: string[] | undefined) {
   const events = plans.flatMap((plan) => [
     ...plan.skips.map((day) => ({
@@ -549,16 +581,19 @@ export function learnPlanEvents(mobileNumber: string, plans: AssignedPlan[], kno
       text: `Pause approved: ${plan.customerName}, no delivery from ${shortDay(pause.from)}, back on ${shortDay(pause.to)}`,
     })),
   ]);
+  const reminders = planRestartReminders(plans);
   const added = events.filter((event) => !known?.includes(event.key));
-  if (known !== undefined && added.length === 0) return;
+  const addedReminders = reminders.filter((reminder) => !known?.includes(reminder.key));
+  if (known !== undefined && added.length === 0 && addedReminders.length === 0) return;
   const now = new Date().toISOString();
   saveDay(mobileNumber, (day) => ({
     ...day,
-    knownPlanEvents: events.map((event) => event.key),
-    notifications: [
+    knownPlanEvents: [...events, ...reminders].map((event) => event.key),
+    notifications: uniqueNotifications([
+      ...addedReminders.map((reminder) => ({ id: reminder.key, kind: "delivery-restart" as const, text: reminder.text, at: now })),
       ...(known === undefined ? [] : added.map((event) => ({ id: event.key, kind: event.kind, text: event.text, at: now }))),
       ...day.notifications,
-    ].slice(0, 50),
+    ]).slice(0, 50),
   }));
 }
 

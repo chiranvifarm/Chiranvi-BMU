@@ -1,11 +1,11 @@
 /*
   Deliveries → Subscriptions: the customers' calendars. Sizes in --delivery-pixel (set by the Delivery Panel frame).
   The day boxes follow the customer's Delivery calendar (My Subscription): delivered light green, today pale
-  yellow with red text, upcoming grey; not delivered red (serious), skipped and paused darker grey.
+  yellow with red text, upcoming white; not delivered red (serious), skipped and paused grey.
 */
 
 .plan-calendar-card {
-  margin-top: calc(14 * var(--delivery-pixel));
+  min-width: 0;
   padding: calc(18 * var(--delivery-pixel)) calc(22 * var(--delivery-pixel));
   border: 1px solid #e7e8e2;
   border-radius: calc(14 * var(--delivery-pixel));
@@ -34,16 +34,23 @@
 .plan-calendar-columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  gap: calc(18 * var(--delivery-pixel));
-  margin-top: calc(14 * var(--delivery-pixel));
+  gap: calc(14 * var(--delivery-pixel));
+  margin-bottom: calc(14 * var(--delivery-pixel));
+}
+
+/* No plans yet: the list card alone */
+.plan-calendar-card:only-child {
+  grid-column: 1 / -1;
 }
 
 .plan-calendar-customers {
   display: flex;
   flex-direction: column;
   gap: calc(8 * var(--delivery-pixel));
-  margin: 0;
+  max-height: calc(420 * var(--delivery-pixel));
+  margin: calc(14 * var(--delivery-pixel)) 0 0;
   padding: 0;
+  overflow-y: auto;
   list-style: none;
 }
 
@@ -81,14 +88,34 @@
   color: #5c655e;
 }
 
+.plan-calendar-customer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
+}
+
+.plan-calendar-next-delivery {
+  padding: calc(7 * var(--delivery-pixel)) calc(14 * var(--delivery-pixel));
+  border-radius: 9999px;
+  background: #1f4d2e;
+  font-size: calc(12.5 * var(--delivery-pixel));
+  font-weight: 600;
+  color: #ffffff;
+}
+
 .plan-calendar-month-area {
+  width: 100%;
+  max-width: calc(560 * var(--delivery-pixel));
   min-width: 0;
+  margin: calc(10 * var(--delivery-pixel)) auto 0;
 }
 
 .plan-calendar-month-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: calc(10 * var(--delivery-pixel));
   margin-bottom: calc(10 * var(--delivery-pixel));
 }
@@ -132,7 +159,7 @@
 .plan-calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: calc(10 * var(--delivery-pixel));
+  gap: calc(6 * var(--delivery-pixel));
 }
 
 .plan-calendar-day {
@@ -140,18 +167,18 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: calc(62 * var(--delivery-pixel));
-  border-radius: calc(10 * var(--delivery-pixel));
+  min-height: calc(46 * var(--delivery-pixel));
+  border-radius: calc(8 * var(--delivery-pixel));
 }
 
 .plan-calendar-weekday {
   font-family: var(--font-ubuntu), sans-serif;
-  font-size: calc(12.5 * var(--delivery-pixel));
+  font-size: calc(10.5 * var(--delivery-pixel));
 }
 
 .plan-calendar-date {
   font-family: var(--font-ubuntu), sans-serif;
-  font-size: calc(18 * var(--delivery-pixel));
+  font-size: calc(14.5 * var(--delivery-pixel));
   font-weight: 700;
   line-height: 1.2;
 }
@@ -169,7 +196,8 @@
 }
 
 .plan-calendar-day-upcoming {
-  background: #e2e2e2;
+  border: 1px solid #e0e2da;
+  background: #ffffff;
   color: #444444;
 }
 
@@ -185,8 +213,8 @@
 
 .plan-calendar-day-skipped,
 .plan-calendar-day-paused {
-  background: #bfc4bf;
-  color: #2f3a33;
+  background: #e2e2e2;
+  color: #444444;
 }
 
 .plan-calendar-day-missed {
@@ -220,14 +248,9 @@
   color: #5c655e;
 }
 
-.plan-today-done {
-  margin-top: calc(14 * var(--delivery-pixel));
-  padding: calc(11 * var(--delivery-pixel)) calc(14 * var(--delivery-pixel));
-  border-radius: calc(12 * var(--delivery-pixel));
+/* Delivered today: green */
+.plan-today-finished {
   background: #e6f0e1;
-  font-size: calc(13.5 * var(--delivery-pixel));
-  font-weight: 600;
-  color: #1f4d2e;
 }
 
 .plan-today-problem {
@@ -285,12 +308,13 @@
 
 @media (max-width: 900px) {
   .plan-calendar-card {
-    margin-top: 12px;
     padding: 16px;
   }
 
   .plan-calendar-columns {
     grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
   }
 
   .plan-calendar-grid {
@@ -298,16 +322,16 @@
   }
 
   .plan-calendar-day {
-    min-height: 54px;
+    min-height: 46px;
     border-radius: 8px;
   }
 
   .plan-calendar-weekday {
-    font-size: 11px;
+    font-size: 10.5px;
   }
 
   .plan-calendar-date {
-    font-size: 15px;
+    font-size: 14px;
   }
 
   .plan-calendar-day-word {

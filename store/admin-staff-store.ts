@@ -29,6 +29,7 @@ export type StaffPerson = {
   today: TodayStatus;
   daysAbsentThisMonth: number; // before today
   roleId: string | null; // their login role on Roles & permissions (null: none)
+  joinedOn: string; // ISO: when they joined the staff list
 };
 
 export const STAFF_JOBS: { job: string; group: StaffGroup }[] = [
@@ -57,6 +58,7 @@ type StaffRow = {
   today_status: TodayStatus;
   days_absent_this_month: number;
   is_active: boolean;
+  created_at: string;
 };
 
 const EMPTY: StaffPerson[] = [];
@@ -77,7 +79,7 @@ async function loadStaff() {
   await supabase.rpc("start_staff_day");
   const { data, error } = await supabase
     .from("staff_members")
-    .select("id, mobile_number, name, role_id, job, staff_group, shift, salary_paise, today_status, days_absent_this_month, is_active")
+    .select("id, mobile_number, name, role_id, job, staff_group, shift, salary_paise, today_status, days_absent_this_month, is_active, created_at")
     .order("created_at");
   if (error) {
     console.error("Could not read the staff:", error.message || error.code);
@@ -96,6 +98,7 @@ async function loadStaff() {
       today: row.today_status,
       daysAbsentThisMonth: row.days_absent_this_month,
       roleId: row.role_id,
+      joinedOn: row.created_at,
     }));
   announce();
 }
@@ -164,7 +167,7 @@ export async function addStaffPerson(
   }
   void loadStaff();
   refreshTeam();
-  return { ...person, id: data.id, today: "Present", daysAbsentThisMonth: 0, roleId: null };
+  return { ...person, id: data.id, today: "Present", daysAbsentThisMonth: 0, roleId: null, joinedOn: new Date().toISOString() };
 }
 
 // Removes the person from the staff list (and their role, if they had one)

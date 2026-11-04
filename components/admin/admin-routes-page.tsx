@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   getDeliveriesForRange,
   addAgentStopsToRoute,
+  resolveAgentRequest,
   useAgentRequestsToday,
   moveRouteToAgent,
   toDateKey,
@@ -103,6 +104,7 @@ export default function AdminRoutesPage() {
 function RoutesPage() {
   const access = useCurrentStaffAccess();
   const agentRequests = useAgentRequestsToday();
+  const canResolveRequests = Boolean(access?.can("deliveries", "edit"));
   // The owner or a manager makes someone an agent (from the staff list; not managers or the owner)
   const canGiveRoles = Boolean(access?.isOwner || access?.roleId === "manager");
   const staffToMakeAgents = useStaffList().filter((person) => person.roleId === null || person.roleId === "staff");
@@ -220,6 +222,11 @@ function RoutesPage() {
     setIsNewRouteOpen(false);
     setNewRoute({ area: "", otherArea: "", agent: "" });
     showToast(`${added.name} · ${added.area} added for ${firstName(added.agent)}`);
+  }
+
+  async function markRequestResolved(dayId: string, requestId: string, kind: string) {
+    const problem = await resolveAgentRequest(dayId, requestId);
+    showToast(problem ?? `${kind}: marked resolved`);
   }
 
   // The person gets the Delivery agent role (shown on Roles & permissions), and with it their agent card
@@ -466,6 +473,15 @@ function RoutesPage() {
                       {new Date(request.raisedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}
                     </p>
                     {request.note && <p className={styles["admin-agent-request-note"]}>{request.note}</p>}
+                    {canResolveRequests && request.status === "Pending" && (
+                      <button
+                        type="button"
+                        className={styles["admin-agent-request-resolve"]}
+                        onClick={() => void markRequestResolved(request.dayId, request.id, request.kind)}
+                      >
+                        Mark resolved
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>

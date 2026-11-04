@@ -305,6 +305,24 @@
   overflow-wrap: anywhere;
 }
 
+.admin-agent-request-resolve {
+  display: block;
+  margin: calc(8 * var(--admin-pixel)) 0 0 auto;
+  padding: calc(5 * var(--admin-pixel)) calc(13 * var(--admin-pixel));
+  border: 1px solid #2f6b3a;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-family: inherit;
+  font-size: calc(12 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.admin-agent-request-resolve:hover {
+  background: #e6f0e1;
+}
+
 .admin-agent-request-note {
   margin-top: calc(5 * var(--admin-pixel));
   font-size: calc(12.5 * var(--admin-pixel));

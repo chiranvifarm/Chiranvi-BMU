@@ -4,31 +4,18 @@
   subscriptions on the right. One column on phones (one-time orders first), big tap targets.
 */
 
-.ongoing-columns {
+/* One stop filling the page: customer beside hand over, status under them */
+.ongoing-stop {
   display: grid;
-  flex: 1;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: calc(14 * var(--delivery-pixel));
-}
-
-/* One kind of stop: customer, hand over and status, one under the other */
-.ongoing-column {
-  display: flex;
-  flex-direction: column;
+  align-content: start;
   gap: calc(14 * var(--delivery-pixel));
   min-width: 0;
 }
 
-.ongoing-column-title {
-  font-family: var(--font-ubuntu), sans-serif;
-  font-size: calc(17 * var(--delivery-pixel));
-  font-weight: 700;
-  color: #1f4d2e;
-}
-
 /* Nothing left of this kind today */
 .ongoing-column-empty {
-  flex: 1;
+  grid-column: 1 / -1;
   font-size: calc(13.5 * var(--delivery-pixel));
   color: #6b736c;
 }
@@ -41,9 +28,8 @@
   background: #ffffff;
 }
 
-/* The last card reaches the bottom, so the two columns end level */
 .ongoing-card-status {
-  flex: 1;
+  grid-column: 1 / -1;
 }
 
 .ongoing-card-title {
@@ -540,12 +526,8 @@
 
 /* Phones: one column, finish buttons stacked */
 @media (max-width: 900px) {
-  .ongoing-columns {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-
-  .ongoing-column {
+  .ongoing-stop {
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
   }
 

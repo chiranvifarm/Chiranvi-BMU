@@ -7,14 +7,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { rememberPageAfterLogin } from "@/components/login/login-status";
 import { getNameInitials } from "@/components/account/account-profile";
 import {
-  formatTime,
-  markNotificationsSeen,
   setOnDuty,
   useAgentStops,
   useDeliveryAgentLogin,
   type AgentStops,
   type DeliveryAgentLogin,
 } from "@/store/delivery-agent-store";
+import DeliveryAlerts, { NotificationRow } from "./delivery-alerts";
 import styles from "./delivery-panel-layout.module.css";
 
 /*
@@ -22,7 +21,7 @@ import styles from "./delivery-panel-layout.module.css";
   on a phone. Built from the written brief (no design yet), in the Chiranvi Panel's style.
   Who can open it: a number with the "Delivery agent" role (Roles & permissions). Logged-out visitors log
   in first and come back here; everyone else goes to their account.
-  Sidebar: Profile; Deliveries (Ongoing, Up next, Completed, with live counts); Manager reports; Leaves &
+  Sidebar: Profile; Deliveries (Ongoing, Subscriptions, Up next, Completed, with live counts); Manager reports; Leaves &
   attendance; Contact farm. At the top of every page: On duty / Off duty and the notifications bell.
   Phones and tablets (900 wide or less): a top bar with the menu button, duty switch and bell; the sidebar
   slides in from the left (closes on a page link, the backdrop, the close button or Escape).
@@ -60,8 +59,14 @@ const panelPageGroups: { title: string; pages: PanelPage[] }[] = [
       {
         href: "/delivery",
         label: "Ongoing",
-        count: (stops) => stops.ongoing.length,
+        count: (stops) => stops.ongoing.filter((stop) => !stop.isSubscription).length,
         iconPaths: ["M2.5 6.5h11v9.5h-11z", "M13.5 9.5h4l3.5 3.5v3h-7.5", "M6.5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M17 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"],
+      },
+      {
+        href: "/delivery/subscriptions",
+        label: "Subscriptions",
+        count: (stops) => stops.ongoing.filter((stop) => stop.isSubscription).length,
+        iconPaths: ["M4 12a8 8 0 0 1 13.7-5.7L20 8.5", "M20 4v4.5h-4.5", "M20 12a8 8 0 0 1-13.7 5.7L4 15.5", "M4 20v-4.5h4.5"],
       },
       {
         href: "/delivery/up-next",
@@ -151,6 +156,7 @@ function DeliveryPanelFrame({ login, children }: { login: AgentLogin; children: 
   return (
     <DeliveryPanelContext.Provider value={{ login, stops }}>
       <div className={styles["delivery-panel"]}>
+        <DeliveryAlerts mobileNumber={login.mobileNumber} stops={stops} />
         {/* Phones and tablets: menu button, logo, duty switch, bell */}
         <header className={styles["delivery-topbar"]}>
           <button
@@ -169,7 +175,7 @@ function DeliveryPanelFrame({ login, children }: { login: AgentLogin; children: 
           </Link>
           <div className={styles["delivery-topbar-actions"]}>
             <DutySwitch mobileNumber={login.mobileNumber} isOnDuty={stops.isOnDuty} />
-            <NotificationsBell mobileNumber={login.mobileNumber} stops={stops} />
+            <NotificationsBell stops={stops} />
           </div>
         </header>
 
@@ -244,7 +250,7 @@ function DeliveryPanelFrame({ login, children }: { login: AgentLogin; children: 
             {currentPage && <span className={styles["delivery-content-page-name"]}>{currentPage.label}</span>}
             <div className={styles["delivery-topbar-actions"]}>
               <DutySwitch mobileNumber={login.mobileNumber} isOnDuty={stops.isOnDuty} />
-              <NotificationsBell mobileNumber={login.mobileNumber} stops={stops} />
+              <NotificationsBell stops={stops} />
             </div>
           </div>
           {children}
@@ -273,7 +279,7 @@ function DutySwitch({ mobileNumber, isOnDuty }: { mobileNumber: string; isOnDuty
 }
 
 // The bell: new stops, route changes, request updates and manager messages, newest first
-function NotificationsBell({ mobileNumber, stops }: { mobileNumber: string; stops: AgentStops }) {
+function NotificationsBell({ stops }: { stops: AgentStops }) {
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
@@ -286,8 +292,6 @@ function NotificationsBell({ mobileNumber, stops }: { mobileNumber: string; stop
   }, [isOpen]);
 
   function toggle() {
-    // Opening the list marks everything in it as seen
-    if (!isOpen) markNotificationsSeen(mobileNumber);
     setIsOpen(!isOpen);
   }
 
@@ -317,14 +321,13 @@ function NotificationsBell({ mobileNumber, stops }: { mobileNumber: string; stop
             <p className={styles["delivery-bell-list-title"]}>Notifications</p>
             {stops.notifications.length === 0 ? (
               <p className={styles["delivery-bell-empty"]}>
-                Nothing new. New stops, route changes, request updates and manager messages show here.
+                Nothing yet. New stops, skips, pauses and route changes show here.
               </p>
             ) : (
               <ul className={styles["delivery-bell-items"]}>
                 {stops.notifications.map((notification) => (
-                  <li key={notification.id} className={styles["delivery-bell-item"]}>
-                    <span className={styles["delivery-bell-item-text"]}>{notification.text}</span>
-                    <span className={styles["delivery-bell-item-time"]}>{formatTime(notification.at)}</span>
+                  <li key={notification.id}>
+                    <NotificationRow notification={notification} />
                   </li>
                 ))}
               </ul>

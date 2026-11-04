@@ -49,6 +49,15 @@ export function getPlanLength(subscription: AdminSubscription): PlanLength {
   return subscription.planLength ?? PLAN_LENGTHS[Number(subscription.id.replace(/\D/g, "")) % 3];
 }
 
+// The plan's last day: its start plus its length ("6 months", "1 year")
+export function getPlanEnd(subscription: AdminSubscription) {
+  const length = getPlanLength(subscription);
+  const amount = Number(length.match(/\d+/)?.[0] ?? 0);
+  const end = new Date(subscription.since);
+  end.setMonth(end.getMonth() + (length.includes("year") ? amount * 12 : amount));
+  return end;
+}
+
 // Paused by the panel, or inside an approved pause (from its first day until the resume day)
 export function getSubscriptionStatus(subscription: AdminSubscription, today = new Date()): SubscriptionStatus {
   if (subscription.isPaused) return "Paused";
@@ -175,6 +184,15 @@ export function getCancelledThisWeek() {
   }
   const weekAgo = Date.now() - 7 * 86400000;
   return SAMPLE_CANCELLED_THIS_WEEK + store.getRecords().filter((subscription) => subscription.cancelledAt && new Date(subscription.cancelledAt).getTime() > weekAgo).length;
+}
+
+// Every real plan, the cancelled ones too, without the samples (the dashboard)
+export function useRealSubscriptions() {
+  return store.useRealRecords();
+}
+
+export function useAreSubscriptionsLoaded() {
+  return store.useIsLoaded();
 }
 
 // The plans still running or paused (cancelled ones are left out)

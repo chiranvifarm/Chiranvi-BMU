@@ -3,16 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useCurrentStaffAccess } from "@/store/staff-access-store";
-import {
-  dashboardAlerts,
-  dashboardStats,
-  revenueLastWeek,
-  revenueThisWeek,
-} from "./admin-dashboard-data";
+import { useDashboardAlerts, useDashboardNumbers } from "./admin-dashboard-data";
 import {
   ADMIN_ORDER_STATUSES,
   changeAdminOrderStatus,
-  useAdminOrders,
+  useRealAdminOrders,
   type AdminOrderStatus,
 } from "@/store/admin-orders-store";
 import { useTodayDeliveries } from "@/store/admin-deliveries-store";
@@ -32,7 +27,7 @@ import styles from "./admin-dashboard.module.css";
     deliveries  today's delivered / pending / missed ring
     orders      the five newest orders (shared with the Orders page, store/admin-orders-store.ts);
                 "..." changes an order's status; Export downloads them as a CSV file
-  The numbers are samples (admin-dashboard-data.ts) until the database is connected.
+  Everything shown is real data from the database, without the samples (admin-dashboard-data.ts).
 */
 
 const STATUS_CLASS_NAMES: Record<AdminOrderStatus, string> = {
@@ -75,7 +70,9 @@ export default function AdminDashboard() {
   const staffAccess = useCurrentStaffAccess();
   const [today] = useState(() => new Date());
   const [searchText, setSearchText] = useState("");
-  const allOrders = useAdminOrders();
+  const allOrders = useRealAdminOrders();
+  const alerts = useDashboardAlerts();
+  const { stats, revenueThisWeek, revenueLastWeek } = useDashboardNumbers();
   const orders = useMemo(() => allOrders.slice(0, 5), [allOrders]);
   const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
   // The chosen date range: the last seven days at first
@@ -268,51 +265,43 @@ export default function AdminDashboard() {
         </button>
       </div>
 
-      {/* Alerts */}
-      <ul className={styles["admin-alerts"]}>
-        {dashboardAlerts.map((alert) => (
-          <li
-            key={alert.title}
-            className={`${styles["admin-alert"]} ${styles[`admin-alert-${alert.tone}`]}`}
-          >
-            <span
-              className={`${styles["admin-alert-icon"]} ${styles[`admin-alert-icon-${alert.tone}`]}`}
+      {/* Alerts: only what needs acting on */}
+      {alerts.length > 0 && (
+        <ul className={styles["admin-alerts"]}>
+          {alerts.map((alert) => (
+            <li
+              key={alert.title}
+              className={`${styles["admin-alert"]} ${styles[`admin-alert-${alert.tone}`]}`}
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                {alert.icon.map((path) => (
-                  <path key={path} d={path} />
-                ))}
-              </svg>
-            </span>
-            <span className={styles["admin-alert-text"]}>
-              <span className={styles["admin-alert-title"]}>{alert.title}</span>
-              <span className={styles["admin-alert-detail"]}>
-                {alert.detail}
+              <span
+                className={`${styles["admin-alert-icon"]} ${styles[`admin-alert-icon-${alert.tone}`]}`}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  {alert.icon.map((path) => (
+                    <path key={path} d={path} />
+                  ))}
+                </svg>
               </span>
-            </span>
-            {alert.href ? (
+              <span className={styles["admin-alert-text"]}>
+                <span className={styles["admin-alert-title"]}>{alert.title}</span>
+                <span className={styles["admin-alert-detail"]}>
+                  {alert.detail}
+                </span>
+              </span>
               <Link
                 href={alert.href}
                 className={`${styles["admin-alert-action"]} ${styles[`admin-alert-action-${alert.tone}`]}`}
               >
                 {alert.action} →
               </Link>
-            ) : (
-              <button
-                type="button"
-                className={`${styles["admin-alert-action"]} ${styles[`admin-alert-action-${alert.tone}`]}`}
-                onClick={() => setToastMessage(alert.doneMessage ?? "Done")}
-              >
-                {alert.action} →
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/* Numbers */}
       <ul className={styles["admin-stats"]}>
-        {dashboardStats.map((stat) => (
+        {stats.map((stat) => (
           <li key={stat.label} className={styles["admin-stat"]}>
             <span className={styles["admin-stat-label"]}>{stat.label}</span>
             <span className={styles["admin-stat-value"]}>{stat.value}</span>
@@ -335,7 +324,7 @@ export default function AdminDashboard() {
       </ul>
 
       <div className={styles["admin-charts-row"]}>
-        <RevenueChart today={today} />
+        <RevenueChart today={today} revenueThisWeek={revenueThisWeek} revenueLastWeek={revenueLastWeek} />
         <DeliveriesGauge />
       </div>
 
@@ -445,7 +434,7 @@ export default function AdminDashboard() {
               {filteredOrders.length === 0 && (
                 <tr>
                   <td colSpan={8} className={styles["admin-orders-empty"]}>
-                    No recent orders match &ldquo;{searchText}&rdquo;.
+                    {searchText ? <>No recent orders match &ldquo;{searchText}&rdquo;.</> : "No orders yet."}
                   </td>
                 </tr>
               )}
@@ -466,12 +455,33 @@ export default function AdminDashboard() {
 }
 
 /*
-  Revenue line chart: this week (dark green line, shaded below) against last week (dashed yellow),
-  ₹20k to ₹60k. Today's amount is shown in a dark label; hovering another day moves the label there.
+  Revenue line chart: this week (dark green line, shaded below) against last week (dashed yellow), its
+  scale made to fit the amounts. Today's amount is shown in a dark label; hovering another day moves the label there.
   The chart is drawn at its real size on screen (one chart unit = one pixel), so its labels keep the
   same text size as the rest of the panel however wide the card is.
 */
-function RevenueChart({ today }: { today: Date }) {
+// The top of the chart's scale: a round number with some room above the biggest amount
+function chartScaleTop(biggestAmount: number) {
+  if (biggestAmount <= 0) return 1000;
+  const roomy = biggestAmount * 1.2;
+  const step = 10 ** Math.floor(Math.log10(roomy)) / 2;
+  return Math.ceil(roomy / step) * step;
+}
+
+// ₹500, ₹2.5k, ₹60k
+function formatChartAmount(amount: number) {
+  return Math.abs(amount) >= 1000 ? `₹${Number((amount / 1000).toFixed(1))}k` : `₹${Math.round(amount)}`;
+}
+
+function RevenueChart({
+  today,
+  revenueThisWeek,
+  revenueLastWeek,
+}: {
+  today: Date;
+  revenueThisWeek: number[];
+  revenueLastWeek: number[];
+}) {
   const [hoveredDay, setHoveredDay] = useState(revenueThisWeek.length - 1);
   const chartAreaRef = useRef<HTMLDivElement>(null);
   const [chartSize, setChartSize] = useState({ width: 600, height: 210 });
@@ -493,8 +503,10 @@ function RevenueChart({ today }: { today: Date }) {
   const right = 14;
   const top = 18;
   const bottom = 30;
-  const minimum = 20000;
-  const maximum = 60000;
+  // A day of refunds can be below zero
+  const minimum = Math.min(0, ...revenueThisWeek, ...revenueLastWeek);
+  const maximum = chartScaleTop(Math.max(...revenueThisWeek, ...revenueLastWeek));
+  const scaleLines = [4, 3, 2, 1, 0].map((step) => minimum + ((maximum - minimum) * step) / 4);
   const x = (dayIndex: number) =>
     left + (dayIndex * (width - left - right)) / (revenueThisWeek.length - 1);
   const y = (amount: number) =>
@@ -550,7 +562,7 @@ function RevenueChart({ today }: { today: Date }) {
               <stop offset="1" stopColor="#285c3a" stopOpacity="0" />
             </linearGradient>
           </defs>
-          {[60000, 50000, 40000, 30000, 20000].map((amount) => (
+          {scaleLines.map((amount) => (
             <g key={amount}>
               <line
                 x1={left}
@@ -565,7 +577,7 @@ function RevenueChart({ today }: { today: Date }) {
                 textAnchor="end"
                 className={styles["admin-chart-axis"]}
               >
-                ₹{amount / 1000}k
+                {formatChartAmount(amount)}
               </text>
             </g>
           ))}
@@ -614,7 +626,7 @@ function RevenueChart({ today }: { today: Date }) {
             </g>
           ))}
           <g
-            transform={`translate(${Math.min(x(hoveredDay) - tooltipWidth + 12, width - right - tooltipWidth)}, ${y(revenueThisWeek[hoveredDay]) - 34})`}
+            transform={`translate(${Math.max(0, Math.min(x(hoveredDay) - tooltipWidth + 12, width - right - tooltipWidth))}, ${Math.max(0, y(revenueThisWeek[hoveredDay]) - 34)})`}
             pointerEvents="none"
           >
             <rect

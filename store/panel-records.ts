@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 /*
@@ -15,10 +15,11 @@ import { createClient } from "@/lib/supabase/client";
   minute while the page is open.
 */
 
-type RecordRow = { id: string; data: unknown };
+type RecordRow = { id: string; data: unknown; is_sample: boolean };
 
 export type PanelRecordStore<T extends { id: string }> = {
   useRecords(): T[];
+  useRealRecords(): T[]; // without the sample records
   getRecords(): T[];
   useIsLoaded(): boolean;
   add(record: T, ownerMobile?: string): Promise<boolean>;
@@ -112,6 +113,7 @@ async function forgetOldBrowserCopies() {
 export function createPanelRecordStore<T extends { id: string }>(options: StoreOptions<T>): PanelRecordStore<T> {
   const EMPTY: T[] = [];
   let records: T[] = EMPTY;
+  let sampleRecordIds = new Set<string>();
   let isLoaded = false;
   let isLoading = false;
   let isFollowing = false;
@@ -132,7 +134,7 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
     const supabase = createClient();
     const rows: RecordRow[] = [];
     for (let from = 0; ; from += PAGE_SIZE) {
-      let query = supabase.from("panel_records").select("id, data").eq("module", options.module);
+      let query = supabase.from("panel_records").select("id, data, is_sample").eq("module", options.module);
       for (const [column, value] of options.filters?.() ?? []) query = query.eq(column, value);
       const { data, error } = await query
         .order("created_at", { ascending: false })
@@ -197,6 +199,7 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
       return;
     }
     const fromData = options.fromData ?? ((data: T) => data);
+    sampleRecordIds = new Set(rows.filter((row) => row.is_sample).map((row) => row.id));
     records = rows.map((row) => fromData({ ...(row.data as T), id: row.id }));
     isLoaded = true;
     if (options.seed?.oldStorageKey) forgetBrowserCopy(options.seed.oldStorageKey);
@@ -252,6 +255,10 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
 
   return {
     useRecords: () => useSyncExternalStore(subscribe, () => records, () => EMPTY),
+    useRealRecords: () => {
+      const all = useSyncExternalStore(subscribe, () => records, () => EMPTY);
+      return useMemo(() => all.filter((record) => !sampleRecordIds.has(record.id)), [all]);
+    },
     getRecords: () => records,
     useIsLoaded: () => useSyncExternalStore(subscribe, () => isLoaded, () => false),
     add: (record, ownerMobile) =>

@@ -409,6 +409,34 @@
   text-align: center;
 }
 
+/* The real file */
+.admin-leave-file-picture,
+.admin-leave-file-frame {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: calc(4 * var(--admin-pixel));
+  background: #ffffff;
+}
+
+.admin-leave-file-picture {
+  max-height: 70svh;
+  object-fit: contain;
+}
+
+.admin-leave-file-frame {
+  height: 70svh;
+}
+
+.admin-leave-file-link {
+  display: block;
+  margin-top: calc(10 * var(--admin-pixel));
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  text-align: center;
+  color: #1f4d2e;
+}
+
 .admin-leave-document-note {
   margin-top: calc(10 * var(--admin-pixel));
   font-size: calc(11.5 * var(--admin-pixel));

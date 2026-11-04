@@ -172,7 +172,14 @@
   white-space: nowrap;
 }
 
-.admin-lead-source-instagram {
+/* Social media */
+.admin-lead-source-instagram,
+.admin-lead-source-facebook,
+.admin-lead-source-whatsapp,
+.admin-lead-source-youtube,
+.admin-lead-source-x,
+.admin-lead-source-linkedin,
+.admin-lead-source-othersocial {
   background: #fbf3e1;
   color: #a37a12;
 }

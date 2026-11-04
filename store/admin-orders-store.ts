@@ -325,6 +325,17 @@ export function useAdminOrders() {
 
 const EMPTY_SAVED: Order[] = [];
 
+// The same list without the sample orders (the dashboard)
+export function useRealAdminOrders() {
+  const panelOrders = store.useRealRecords();
+  const savedOrders = useSyncExternalStore(followSavedOrders, getSavedOrders, () => EMPTY_SAVED);
+  return useMemo(() => mergeOrders(savedOrders, panelOrders), [savedOrders, panelOrders]);
+}
+
+export function useAreAdminOrdersLoaded() {
+  return store.useIsLoaded();
+}
+
 // Website orders placed since the Orders page was last opened, newest first (sidebar badge and bell);
 // orders added in the panel itself are not counted
 export function useNewOrders() {

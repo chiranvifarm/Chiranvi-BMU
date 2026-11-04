@@ -3,13 +3,18 @@
 import { useMemo, useState } from "react";
 import { getNameInitials } from "@/components/account/account-profile";
 import {
+  LEAD_KIND_LABELS,
   LEAD_SOURCES,
   LEAD_STAGES,
+  SOCIAL_SOURCES,
   addLead,
+  getLeadKind,
   moveLead,
   removeLead,
   useAdminLeads,
+  useCustomerLeads,
   type AdminLead,
+  type LeadKind,
   type LeadSource,
   type LeadStage,
 } from "@/store/admin-leads-store";
@@ -17,35 +22,48 @@ import { AdminFeatureGate } from "./admin-panel-layout";
 import {
   AdminDialog,
   AdminDialogField,
+  AdminFilterTabs,
   AdminPageTop,
   AdminRowMenu,
   AdminStatCards,
   adminInputClassName,
   downloadCsv,
   toDateFileName,
+  useAdminCan,
   useAdminToast,
 } from "./admin-shared";
 import dashboardStyles from "./admin-dashboard.module.css";
 import styles from "./admin-leads-page.module.css";
 
 /*
-  Leads (/admin/leads), from the design 06-leads: enquiries from Instagram, the website, referrals,
-  Google and walk-ins, on a board with five columns: New, Contacted, Free trial, Converted, Lost.
+  Leads (/admin/leads), from the design 06-leads: enquiries from social media, the website, referrals,
+  Google and walk-ins, and people who logged in but haven't bought yet, on a board with five columns: New,
+  Contacted, Free trial, Converted, Lost.
     top        search (name or phone), Add lead (pop-up form), Custom range (when the lead came in), Export
     numbers    new leads, contacted, converted, conversion rate (for the chosen dates)
+    tabs       All, Profile not completed, No order yet, Location request, Bulk order, Social media
     board      each column shows 6 cards and "+ N more" to open the rest; drag a card to another
                column to move it, or use its "..." menu (also removes a lead)
   Source tags use only Chiranvi colours (greens and yellows), each with its name written on it.
-  Leads come from store/admin-leads-store.ts (saved in this browser for now).
+  Leads come from store/admin-leads-store.ts (the database).
 */
 
 const CARDS_SHOWN_PER_COLUMN = 6;
 
+type LeadFilter = "all" | LeadKind | "social";
+
+function isInFilter(lead: AdminLead, filter: LeadFilter) {
+  if (filter === "all") return true;
+  if (filter === "social") return SOCIAL_SOURCES.includes(lead.source);
+  return getLeadKind(lead) === filter;
+}
+
 function cardNote(lead: AdminLead) {
   if (lead.stage === "new") {
     const daysAgo = Math.max(1, Math.round((Date.now() - new Date(lead.createdAt).getTime()) / 86400000));
-    // A bulk order request from the website keeps its "Bulk quote" label while new
-    return lead.bulkOrderItems?.length ? `Bulk quote · ${daysAgo}d ago` : `${daysAgo}d ago`;
+    // Why they are a lead, while new
+    const kind = getLeadKind(lead);
+    return kind ? `${LEAD_KIND_LABELS[kind]} · ${daysAgo}d ago` : `${daysAgo}d ago`;
   }
   if (lead.stage === "trial" && lead.trialEndsAt) {
     const daysLeft = Math.max(0, Math.ceil((new Date(lead.trialEndsAt).getTime() - Date.now()) / 86400000));
@@ -66,10 +84,12 @@ export default function AdminLeadsPage() {
 
 function LeadsPage() {
   const leads = useAdminLeads();
+  useCustomerLeads(useAdminCan("create"));
   const [today] = useState(() => new Date());
   const [rangeFrom, setRangeFrom] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [rangeTo, setRangeTo] = useState(today);
   const [searchText, setSearchText] = useState("");
+  const [leadFilter, setLeadFilter] = useState<LeadFilter>("all");
   const [openColumns, setOpenColumns] = useState<Set<LeadStage>>(new Set());
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [dropColumn, setDropColumn] = useState<LeadStage | null>(null);
@@ -80,7 +100,7 @@ function LeadsPage() {
   const openLead = leads.find((lead) => lead.id === openLeadId);
   const { showToast, toast } = useAdminToast();
 
-  const shownLeads = useMemo(() => {
+  const leadsInRange = useMemo(() => {
     const from = new Date(rangeFrom);
     from.setHours(0, 0, 0, 0);
     const to = new Date(rangeTo);
@@ -94,6 +114,8 @@ function LeadsPage() {
       return lead.name.toLowerCase().includes(words) || (digits.length >= 3 && lead.phone.replace(/\D/g, "").includes(digits));
     });
   }, [leads, rangeFrom, rangeTo, searchText]);
+  const shownLeads = leadsInRange.filter((lead) => isInFilter(lead, leadFilter));
+  const tabLabel = (label: string, filter: LeadFilter) => `${label} ${leadsInRange.filter((lead) => isInFilter(lead, filter)).length}`;
 
   const count = (stage: LeadStage) => shownLeads.filter((lead) => lead.stage === stage).length;
   const contactedOrLater = shownLeads.filter((lead) => lead.stage !== "new" && lead.stage !== "lost").length;
@@ -125,11 +147,12 @@ function LeadsPage() {
 
   function exportLeads() {
     downloadCsv(`chiranvi-leads-${toDateFileName(today)}.csv`, [
-      ["Name", "Phone", "Source", "Stage", "Note", "Came in", "Address", "Email", "Bulk order"],
+      ["Name", "Phone", "Source", "Reason", "Stage", "Note", "Came in", "Address", "Email", "Bulk order"],
       ...shownLeads.map((lead) => [
         lead.name,
         lead.phone,
         lead.source,
+        LEAD_KIND_LABELS[getLeadKind(lead) as LeadKind] ?? "",
         LEAD_STAGES.find((stage) => stage.key === lead.stage)?.label ?? lead.stage,
         cardNote(lead),
         new Date(lead.createdAt).toLocaleDateString("en-GB"),
@@ -144,7 +167,7 @@ function LeadsPage() {
     <div className={dashboardStyles["admin-dashboard"]}>
       <AdminPageTop
         title="Leads"
-        description="Enquiries from Instagram, website, referrals and walk-ins"
+        description="Enquiries from social media, website, referrals and walk-ins, and people who haven't bought yet"
         searchText={searchText}
         onSearchTextChange={setSearchText}
         searchPlaceholder="Search name or phone..."
@@ -192,6 +215,20 @@ function LeadsPage() {
             trend: "up",
             icon: ["M19 5L5 19", "M7 8.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z", "M17 18.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"],
           },
+        ]}
+      />
+
+      <AdminFilterTabs
+        label="Show leads"
+        selected={leadFilter}
+        onSelect={setLeadFilter}
+        tabs={[
+          { key: "all", label: tabLabel("All", "all") },
+          { key: "profile-incomplete", label: tabLabel(LEAD_KIND_LABELS["profile-incomplete"], "profile-incomplete") },
+          { key: "no-order", label: tabLabel(LEAD_KIND_LABELS["no-order"], "no-order") },
+          { key: "location", label: tabLabel(LEAD_KIND_LABELS.location, "location") },
+          { key: "bulk", label: tabLabel(LEAD_KIND_LABELS.bulk, "bulk") },
+          { key: "social", label: tabLabel("Social media", "social") },
         ]}
       />
 
@@ -353,6 +390,12 @@ function LeadsPage() {
               <dt>Source</dt>
               <dd>{openLead.source}</dd>
             </div>
+            {getLeadKind(openLead) && (
+              <div>
+                <dt>Reason</dt>
+                <dd>{LEAD_KIND_LABELS[getLeadKind(openLead) as LeadKind]}</dd>
+              </div>
+            )}
             <div>
               <dt>Stage</dt>
               <dd>{LEAD_STAGES.find((stage) => stage.key === openLead.stage)?.label}</dd>

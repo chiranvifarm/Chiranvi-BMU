@@ -7,7 +7,7 @@ import { useNewOrders, useOrderStepNews } from "@/store/admin-orders-store";
 import { useNewCustomers } from "@/store/admin-customers-store";
 import { useDeliveryTransferNews } from "@/store/admin-deliveries-store";
 import { usePanelSeenAt } from "@/store/account-state";
-import { dashboardAlerts } from "./admin-dashboard-data";
+import { useDashboardAlerts } from "./admin-dashboard-data";
 import AdminDateRangePicker from "./admin-date-range-picker";
 import dashboardStyles from "./admin-dashboard.module.css";
 import styles from "./admin-shared.module.css";
@@ -125,6 +125,7 @@ export function AdminNotificationsBell() {
   // Transfers between agents since the Deliveries page was last opened
   const transfersSeenAt = usePanelSeenAt("delivery-transfers");
   const newTransfers = useDeliveryTransferNews().filter((news) => news.event.at > transfersSeenAt);
+  const alerts = useDashboardAlerts();
   const newItems = [
     ...(access?.can("orders", "view") ? newOrders : []).map((order) => ({
       key: `order-${order.orderNumber}`,
@@ -203,7 +204,8 @@ export function AdminNotificationsBell() {
           <p className={`${dashboardStyles["admin-popup-title"]} ${dashboardStyles["admin-notifications-second-title"]}`}>
             Needs your attention
           </p>
-          {dashboardAlerts.map((alert) => (
+          {alerts.length === 0 && <p className={dashboardStyles["admin-notification-empty"]}>Nothing needs your attention</p>}
+          {alerts.map((alert) => (
             <p key={alert.title} className={dashboardStyles["admin-notification"]}>
               <span className={`${dashboardStyles["admin-alert-icon"]} ${dashboardStyles[`admin-alert-icon-${alert.tone}`]}`}>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -604,7 +606,13 @@ export function useAdminToast() {
   return { showToast: setMessage, toast };
 }
 
-// The "Actions" button with a small menu of actions for one row
+// Space kept between the "Actions" button, its menu and the edge of the screen
+const ROW_MENU_GAP = 8;
+
+/*
+  The "Actions" button with a small menu of actions for one row. The menu floats over the page (a table's
+  scroll box would cut it off): under the button, or above it when the bottom of the screen is too close.
+*/
 export function AdminRowMenu({
   label,
   title,
@@ -617,16 +625,41 @@ export function AdminRowMenu({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useCloseOnOutside(isOpen, () => setIsOpen(false));
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const canEdit = useAdminCan("edit");
   const canDelete = useAdminCan("delete");
   const canCreate = useAdminCan("create");
   const allowed = { view: true, edit: canEdit, delete: canDelete, create: canCreate, export: true };
   const shownOptions = options.filter((option) => allowed[option.permission ?? "edit"]);
+
+  // The menu stays where it opened, so scrolling or resizing closes it instead of leaving it behind
+  useEffect(() => {
+    if (!isOpen) return;
+    const close = () => setIsOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [isOpen]);
+
+  function placeMenu(menu: HTMLDivElement | null) {
+    const button = buttonRef.current?.getBoundingClientRect();
+    if (!menu || !button) return;
+    const fitsBelow = button.bottom + menu.offsetHeight + 2 * ROW_MENU_GAP <= window.innerHeight;
+    const top = fitsBelow ? button.bottom + ROW_MENU_GAP : Math.max(ROW_MENU_GAP, button.top - menu.offsetHeight - ROW_MENU_GAP);
+    menu.style.position = "fixed";
+    menu.style.top = `${top}px`;
+    menu.style.right = `${document.documentElement.clientWidth - button.right}px`;
+  }
+
   // Nothing this role can do here: no "Actions" button at all
   if (shownOptions.length === 0) return null;
   return (
     <div ref={menuRef} className={dashboardStyles["admin-popup-anchor"]}>
       <button
+        ref={buttonRef}
         type="button"
         className={dashboardStyles["admin-more-button"]}
         aria-label={label}
@@ -639,7 +672,7 @@ export function AdminRowMenu({
         </svg>
       </button>
       {isOpen && (
-        <div className={`${dashboardStyles["admin-popup"]} ${dashboardStyles["admin-order-menu"]}`}>
+        <div ref={placeMenu} className={`${dashboardStyles["admin-popup"]} ${dashboardStyles["admin-order-menu"]}`}>
           <p className={dashboardStyles["admin-popup-title"]}>{title}</p>
           {shownOptions.map((option) => (
             <button

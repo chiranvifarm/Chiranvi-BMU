@@ -6,9 +6,12 @@ import { withCurrentMilkPlanName } from "./admin-subscriptions-store";
   "pause-requests"; supabase/migrations/0019_…):
   - the Chiranvi Panel (Pause requests page, and the count on its sidebar badge) sees all of them and
     approves or rejects, by the staff member's role;
-  - a customer sends a request from My Subscription ("Pause subscription": from, resume on, reason) and sees
-    only their own, with the answer; the database always saves it as Pending, and only a Pending one can be
-    taken back. An approved one pauses that plan on the Subscriptions page for those days (the database does it).
+  - a customer sends a request from My Subscription ("Pause subscription": from, resume on, reason; 8 days or
+    more) and sees only their own, with the answer; the database always saves it as Pending, and only a Pending
+    one can be taken back. An approved one pauses that plan on the Subscriptions page for those days (the
+    database does it);
+  - a skip is a one-day request in the same list (kind "skip": a delivery in the running week, from the Delivery
+    calendar). Approved pauses and skips move the plan's end date later (supabase/migrations/0034_…sql).
   The first time the panel opens the page, 56 sample requests are copied in (5 waiting for approval).
 */
 
@@ -30,6 +33,9 @@ export type PauseRequest = {
   websiteOrderId?: string;
   customerMobile?: string;
   requestedAt?: string; // ISO date and time
+  // A skip: one delivery (pauseFrom is the day, resumeOn the next), its plan in planOrderId
+  kind?: "skip";
+  planOrderId?: string;
 };
 
 // Reasons a customer can choose on My Subscription
@@ -116,6 +122,28 @@ export function addPauseRequest(
   };
   void store.add(newRequest, request.customerMobile);
   return newRequest;
+}
+
+// A customer asks to skip one delivery this week (dayStart: that day at midnight); waits for the panel's answer
+export function addSkipRequest(
+  request: Pick<PauseRequest, "customerName" | "area" | "plan" | "frequency" | "litresPerDay" | "customerMobile"> & { planOrderId: string; dayStart: Date },
+) {
+  const { dayStart, ...details } = request;
+  const nextDay = new Date(dayStart);
+  nextDay.setDate(nextDay.getDate() + 1);
+  void store.add(
+    {
+      ...details,
+      id: `SK-${Date.now().toString(36).toUpperCase()}`,
+      kind: "skip",
+      pauseFrom: dayStart.toISOString(),
+      resumeOn: nextDay.toISOString(),
+      reason: "Skip this day",
+      status: "Pending",
+      requestedAt: new Date().toISOString(),
+    },
+    request.customerMobile,
+  );
 }
 
 // The customer cancels a request the panel has not answered yet

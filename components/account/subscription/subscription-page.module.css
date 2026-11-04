@@ -13,6 +13,32 @@
   background: #ffffff;
 }
 
+/* No running plan */
+.subscription-no-plan {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(6 * var(--account-design-pixel));
+  padding: calc(22 * var(--account-design-pixel)) calc(24 * var(--account-design-pixel));
+  border-radius: calc(16 * var(--account-design-pixel));
+  background: #ffffff;
+}
+
+.subscription-no-plan-text {
+  font-size: calc(13 * var(--account-design-pixel));
+  color: #6e7a72;
+}
+
+.subscription-no-plan-button {
+  margin-top: calc(8 * var(--account-design-pixel));
+  padding: calc(10 * var(--account-design-pixel)) calc(22 * var(--account-design-pixel));
+  border-radius: 9999px;
+  background: #2f6b3f;
+  font-size: calc(14 * var(--account-design-pixel));
+  font-weight: 600;
+  color: #ffffff;
+}
+
 .subscription-card {
   display: flex;
   align-items: center;

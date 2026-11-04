@@ -73,6 +73,8 @@ export type OrderSubscription = {
   extendsOrderId?: string; // set when this order adds days to an earlier plan instead of starting one
   bottleLabel?: string; // "500 ml" (missing: "1 L")
   unitName?: string; // what the price is per: "500 ml" (missing: "litre")
+  pausedDays?: number; // approved pauses and skips: the plan ends this many days later (kept by the database)
+  deliveredDays?: string[]; // days the agent marked delivered ("2026-11-06"; kept by the database)
 };
 
 // What the checkout adds to an order
@@ -548,6 +550,7 @@ export type RunningPlan = {
   deliverTo: string;
   product: CartItem; // the milk as bought (price = the plan's price per litre, originalPrice = one-time price)
   endsOn: Date; // the last delivery day
+  deliveredDays: string[]; // days the agent marked delivered ("2026-11-06")
 };
 
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
@@ -578,7 +581,8 @@ export function findRunningPlans(orderList: Order[], today = new Date()) {
       unitName: subscription.unitName ?? "litre",
       deliverTo: order.deliverTo ?? "",
       product: order.items[0],
-      endsOn: new Date(firstDay.getTime() + (subscription.days - 1) * DAY_IN_MILLISECONDS),
+      endsOn: new Date(firstDay.getTime() + (subscription.days - 1 + (subscription.pausedDays ?? 0)) * DAY_IN_MILLISECONDS),
+      deliveredDays: subscription.deliveredDays ?? [],
     });
   }
   const startOfToday = new Date(today);

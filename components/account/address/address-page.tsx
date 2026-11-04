@@ -11,6 +11,7 @@ import {
   type AddressDetails,
   type SavedAddress,
 } from "@/store/address-store";
+import { useMyTeamRecord } from "@/store/staff-access-store";
 import { AccountPageHeading } from "../account-dashboard-layout";
 import AddressFormDialog from "./address-form-dialog";
 import styles from "./address-page.module.css";
@@ -30,6 +31,7 @@ type OpenForm = { mode: "closed" } | { mode: "add" } | { mode: "edit"; address: 
 
 export default function AddressPage() {
   const { addresses: savedAddresses, defaultAddressId } = useAddressBook();
+  const isTeamMember = Boolean(useMyTeamRecord());
   const [openForm, setOpenForm] = useState<OpenForm>({ mode: "closed" });
   const closeForm = useCallback(() => setOpenForm({ mode: "closed" }), []);
 
@@ -84,22 +86,27 @@ export default function AddressPage() {
                 <p className={styles["address-line"]}>{formatAddressLine(address)}</p>
                 <p className={styles["address-line"]}>{address.mobileNumber}</p>
 
-                <div className={styles["address-actions"]}>
-                  <button
-                    type="button"
-                    className={styles["address-action-button"]}
-                    onClick={() => setOpenForm({ mode: "edit", address })}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles["address-action-button"]} ${styles["address-remove-button"]}`}
-                    onClick={() => removeAddress(address.id)}
-                  >
-                    Remove
-                  </button>
-                </div>
+                {/* A team member's Profile addresses change by a request (Profile → Edit details) */}
+                {address.isProfileAddress && isTeamMember ? (
+                  <p className={styles["address-line"]}>To change this address, use Edit details on your Profile.</p>
+                ) : (
+                  <div className={styles["address-actions"]}>
+                    <button
+                      type="button"
+                      className={styles["address-action-button"]}
+                      onClick={() => setOpenForm({ mode: "edit", address })}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles["address-action-button"]} ${styles["address-remove-button"]}`}
+                      onClick={() => removeAddress(address.id)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
               </li>
             );
           })}

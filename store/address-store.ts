@@ -31,9 +31,10 @@ export type SavedAddress = {
   pincode: string;
   pin?: MapPin | null; // null: no pin; left out on a change: the pin stays as it is
   pinSavedBy?: "customer" | "agent" | null;
+  isProfileAddress?: boolean; // the Profile's Home or Other (a team member asks before changing it)
 };
 
-export type AddressDetails = Omit<SavedAddress, "id">;
+export type AddressDetails = Omit<SavedAddress, "id" | "isProfileAddress">;
 
 type AddressBook = { addresses: SavedAddress[]; defaultAddressId: string };
 
@@ -85,6 +86,7 @@ function toAddress(row: AddressRow): SavedAddress {
     city: row.city,
     pincode: row.pincode,
     pin: row.latitude !== null && row.longitude !== null ? { latitude: row.latitude, longitude: row.longitude } : null,
+    isProfileAddress: row.profile_slot !== null,
     pinSavedBy: row.pin_saved_by,
   };
 }

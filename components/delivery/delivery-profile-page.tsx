@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useDeliveryRoutes } from "@/store/admin-routes-store";
 import { getDaysPresent, useStaffList } from "@/store/admin-staff-store";
 import { DeliveryNotice, DeliveryPageHeading, deliveryButtonStyles, useDeliveryPanel } from "./delivery-panel-layout";
 import styles from "./delivery-profile-page.module.css";
@@ -24,6 +25,8 @@ export default function DeliveryProfilePage() {
   const { login, stops } = useDeliveryPanel();
   // The agent's own row (the database shows a team member only their own)
   const me = useStaffList().find((person) => person.phone === login.mobileNumber);
+  // Every route given to them on Routes & agents
+  const myRoutes = useDeliveryRoutes().filter((route) => route.agent === login.agent?.name);
   const totalStops = stops.completed.length + stops.upNext.length + (stops.ongoing ? 1 : 0);
   const formattedMobile = `${login.mobileNumber.slice(0, 5)} ${login.mobileNumber.slice(5)}`;
 
@@ -32,7 +35,7 @@ export default function DeliveryProfilePage() {
     { label: "Role", value: "Delivery agent" },
     { label: "Job", value: me?.job || "—" },
     { label: "Shift", value: me?.shift || "Not set yet" },
-    { label: "Route", value: login.route ? `${login.route.name} · ${login.route.area}` : "Not given yet" },
+    { label: myRoutes.length > 1 ? "Routes" : "Route", value: myRoutes.map((route) => `${route.name} · ${route.area}`).join(", ") || "Not given yet" },
     { label: "Bike", value: login.agent?.bike && login.agent.bike !== "—" ? login.agent.bike : "—" },
   ];
 

@@ -508,6 +508,7 @@ export function AdminDialog({
   children,
   isDanger = false,
   isLarge = false,
+  hasOnlyCloseButton = false,
 }: {
   title: string;
   onClose: () => void;
@@ -516,6 +517,7 @@ export function AdminDialog({
   children: ReactNode;
   isDanger?: boolean;
   isLarge?: boolean; // a wider pop-up (an order's details, choosing an agent)
+  hasOnlyCloseButton?: boolean; // an X at the top instead of the buttons at the bottom (submitLabel names the X)
 }) {
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
@@ -537,16 +539,29 @@ export function AdminDialog({
           onSubmit();
         }}
       >
-        <h2 className={styles["admin-dialog-title"]}>{title}</h2>
+        {hasOnlyCloseButton ? (
+          <div className={styles["admin-dialog-title-row"]}>
+            <h2 className={styles["admin-dialog-title"]}>{title}</h2>
+            <button type="button" className={styles["admin-dialog-close"]} aria-label={submitLabel} onClick={onClose}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </div>
+        ) : (
+          <h2 className={styles["admin-dialog-title"]}>{title}</h2>
+        )}
         <div className={styles["admin-dialog-fields"]}>{children}</div>
-        <div className={styles["admin-dialog-buttons"]}>
-          <button type="button" className={styles["admin-dialog-cancel"]} onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className={`${styles["admin-dialog-submit"]} ${isDanger ? styles["admin-dialog-submit-danger"] : ""}`}>
-            {submitLabel}
-          </button>
-        </div>
+        {!hasOnlyCloseButton && (
+          <div className={styles["admin-dialog-buttons"]}>
+            <button type="button" className={styles["admin-dialog-cancel"]} onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className={`${styles["admin-dialog-submit"]} ${isDanger ? styles["admin-dialog-submit-danger"] : ""}`}>
+              {submitLabel}
+            </button>
+          </div>
+        )}
       </form>
     </div>
   );

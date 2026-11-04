@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ADMIN_DELIVERY_STEPS,
   OPEN_ORDER_STATUSES,
@@ -17,6 +17,7 @@ import {
   cancelDeliveryTransfer,
   describeDeliveryEvent,
   isDeliveryOpen,
+  removeOrderDelivery,
   useAgentOnDutyReader,
   useAreOrderStopsCarriedOver,
   useAreTodayDeliveriesLoaded,
@@ -131,6 +132,8 @@ function OrdersPage() {
   // Giving an order to an agent saves its stop in Deliveries, so that page's rights are needed too
   const access = useCurrentStaffAccess();
   const canAssign = canEdit && Boolean(access?.can("deliveries", "create") && access.can("deliveries", "edit"));
+  // Taking the agent off deletes the stop
+  const canCancelAgent = canAssign && Boolean(access?.can("deliveries", "delete"));
   // The order whose details are open (clicking its row)
   const [viewingNumber, setViewingNumber] = useState<string | null>(null);
   const viewing = orders.find((order) => order.orderNumber === viewingNumber);
@@ -172,19 +175,22 @@ function OrdersPage() {
 
   function assignAgent(order: AdminOrder, agent: DeliveryAgent) {
     const area = order.area.trim().toLowerCase();
-    const current = deliveryOfOrder.get(order.orderNumber);
-    // The agent's route that covers the order's area, else their own route, else the stop's route, else the first
+    // The agent's route that covers the order's area, else their own route, else none (a spare agent)
     const route =
       routes.find((existing) => existing.agent === agent.name && existing.area.toLowerCase() === area) ??
-      routes.find((existing) => existing.agent === agent.name) ??
-      routes.find((existing) => existing.id === current?.routeId) ??
-      routes[0];
-    assignAdminOrderAgent(order, agent.name, route?.id ?? current?.routeId ?? "");
-    setAssigningNumber(null);
+      routes.find((existing) => existing.agent === agent.name);
+    assignAdminOrderAgent(order, agent.name, route?.id ?? "");
     const markedPacked = order.status === "Placed";
     showToast(
       `${order.orderNumber} assigned to ${agent.name}${markedPacked ? " · marked as packed" : ""}${markedPacked && order.websiteOrderId ? ", the customer sees it too" : ""}`,
     );
+  }
+
+  // The agent is taken off the order: its stop goes from their list, and the order can be given to someone else
+  function cancelAgent(order: AdminOrder) {
+    const agentName = deliveryOfOrder.get(order.orderNumber)?.agent;
+    removeOrderDelivery(order.orderNumber);
+    showToast(`${agentName} taken off ${order.orderNumber}`);
   }
 
   // Orders in the chosen dates that match the search (the numbers and tabs count these)
@@ -454,8 +460,10 @@ function OrdersPage() {
           delivery={deliveryOfOrder.get(assigning.orderNumber)}
           todaysDeliveries={todaysDeliveries}
           routes={routes}
+          canCancelAgent={canCancelAgent}
           onClose={() => setAssigningNumber(null)}
           onAssign={(agent) => assignAgent(assigning, agent)}
+          onCancelAgent={() => cancelAgent(assigning)}
         />
       )}
 
@@ -775,33 +783,133 @@ type AgentChoice = {
   stopsToGoInArea: number;
   coveringRoute?: DeliveryRoute;
   ownRoute?: DeliveryRoute;
-  areaCounts: [string, number][]; // their areas today, most stops first
+  areaCounts: [string, number][]; // the areas they cover: today's stops (most first), then their routes' areas (0)
   openOrdersInArea: string[]; // "#CF-60084"
 };
 
+// Where the areas pop-up goes on the screen (fixed, so the table's scrolling doesn't cut it off)
+type AreasPopupPlace = { left: number; top?: number; bottom?: number };
+
+const AREAS_POPUP_ROOM = 332; // its widest, and the gap from the screen's edge
+
+// Under the "3 areas" button, or over it when the button is low on the screen; never past the screen's edge
+function placeAreasPopup(button: HTMLElement): AreasPopupPlace {
+  const box = button.getBoundingClientRect();
+  const left = Math.max(12, Math.min(box.left, window.innerWidth - AREAS_POPUP_ROOM));
+  return box.bottom > window.innerHeight * 0.6 ? { left, bottom: window.innerHeight - box.top + 6 } : { left, top: box.bottom + 6 };
+}
+
 /*
-  "Assign agent": every agent, the best for this order first — on leave last (they can't be picked), then
+  The areas an agent covers: each area with its stops today (or "Route" when it's only on their route), the
+  order's own area in yellow, and their open orders there. Closes on a click outside, Escape or scrolling.
+*/
+function AgentAreasPopup({
+  choice,
+  orderArea,
+  place,
+  onClose,
+}: {
+  choice: AgentChoice;
+  orderArea: string;
+  place: AreasPopupPlace;
+  onClose: () => void;
+}) {
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const isInPopup = (target: EventTarget | null) => target instanceof Node && Boolean(popupRef.current?.contains(target));
+    function closeOnOutsideClick(pointerEvent: PointerEvent) {
+      // The "3 areas" buttons open and close it themselves
+      const isAreasButton = pointerEvent.target instanceof Element && pointerEvent.target.closest("[data-agent-areas-button]");
+      if (!isInPopup(pointerEvent.target) && !isAreasButton) onClose();
+    }
+    function closeOnEscape(keyEvent: KeyboardEvent) {
+      if (keyEvent.key === "Escape") onClose();
+    }
+    function closeOnScroll(scrollEvent: Event) {
+      if (!isInPopup(scrollEvent.target)) onClose();
+    }
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("scroll", closeOnScroll, true);
+    window.addEventListener("resize", onClose);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("scroll", closeOnScroll, true);
+      window.removeEventListener("resize", onClose);
+    };
+  }, [onClose]);
+
+  return (
+    <div ref={popupRef} className={dashboardStyles["admin-agent-areas-popup"]} style={place} role="dialog" aria-label={`Areas ${choice.agent.name} covers`}>
+      <div className={dashboardStyles["admin-agent-areas-heading"]}>
+        <span className={dashboardStyles["admin-agent-areas-name"]}>{choice.agent.name}</span>
+        <span className={dashboardStyles["admin-agent-areas-count"]}>
+          Covers {choice.areaCounts.length} area{choice.areaCounts.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <ul className={dashboardStyles["admin-agent-areas-list"]}>
+        {choice.areaCounts.map(([stopArea, count]) => {
+          const isOrderArea = stopArea.toLowerCase() === orderArea;
+          return (
+            <li key={stopArea} className={isOrderArea ? dashboardStyles["admin-agent-areas-row-match"] : undefined}>
+              <span className={dashboardStyles["admin-agent-areas-dot"]} aria-hidden="true" />
+              <span className={dashboardStyles["admin-agent-areas-area"]}>
+                {stopArea}
+                {isOrderArea && <span className={dashboardStyles["admin-agent-areas-this-order"]}>This order</span>}
+              </span>
+              <span className={dashboardStyles["admin-agent-areas-stops"]}>{count > 0 ? `${count} stop${count === 1 ? "" : "s"}` : "Route"}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {choice.openOrdersInArea.length > 0 && (
+        <p className={dashboardStyles["admin-agent-areas-orders"]}>Open orders here: {choice.openOrdersInArea.join(", ")}</p>
+      )}
+    </div>
+  );
+}
+
+/*
+  "Assign agent": every agent, the best for this order first — on leave last (they can't be given it), then
   the most stops still to go in the order's area today, then the agent whose route covers the area, then the
   fewest stops left, then by name. The top one is "Suggested" when they match the area.
+  - Areas today: "3 areas" opens a pop-up with the areas the agent covers.
+  - Closed with the X at the top, or a click outside.
+  - Assign: "Assign agent" on each row gives them the order at once (from another agent, it moves). The agent
+    who has it shows a green "Assigned", with a red X to take them off (asks first). Not once the stop is out
+    for delivery: the agent is already on the way.
+  - Reassign: after one agent handed the order to another (Delivery Panel), "Reassigned to Harry" on the first
+    agent's row and "Reassigned from Somu" on the second's.
 */
 function AssignAgentDialog({
   order,
   delivery,
   todaysDeliveries,
   routes,
+  canCancelAgent,
   onClose,
   onAssign,
+  onCancelAgent,
 }: {
   order: AdminOrder;
   delivery: Delivery | undefined;
   todaysDeliveries: Delivery[];
   routes: DeliveryRoute[];
+  canCancelAgent: boolean;
   onClose: () => void;
   onAssign: (agent: DeliveryAgent) => void;
+  onCancelAgent: () => void;
 }) {
   const agents = useDeliveryAgents();
   const isOnDuty = useAgentOnDutyReader();
   const area = order.area.trim().toLowerCase();
+  // The agent whose areas pop-up is open, and where it goes
+  const [openAreas, setOpenAreas] = useState<({ agentName: string } & AreasPopupPlace) | null>(null);
+  const [isConfirmingCancel, setIsConfirmingCancel] = useState(false);
+  // The last time one agent handed this order to another
+  const exchange = [...(delivery?.history ?? [])].reverse().find((event) => event.kind === "transfer-accepted");
 
   const choices: AgentChoice[] = useMemo(() => {
     const list = agents.map((agent): AgentChoice => {
@@ -811,6 +919,9 @@ function AssignAgentDialog({
       for (const stop of stops) {
         const stopArea = areaOfDelivery(stop);
         if (stopArea) counts.set(stopArea, (counts.get(stopArea) ?? 0) + 1);
+      }
+      for (const route of routes) {
+        if (route.agent === agent.name && route.area && !counts.has(route.area)) counts.set(route.area, 0);
       }
       const inArea = open.filter((stop) => areaOfDelivery(stop).toLowerCase() === area);
       return {
@@ -838,133 +949,179 @@ function AssignAgentDialog({
 
   const top = choices[0];
   const suggestedName = top && !top.agent.isOnLeave && (top.stopsToGoInArea > 0 || top.coveringRoute) ? top.agent.name : null;
-  const [pickedName, setPickedName] = useState<string | null>(
-    () => delivery?.agent ?? choices.find((choice) => !choice.agent.isOnLeave)?.agent.name ?? null,
-  );
-  const picked = choices.find((choice) => choice.agent.name === pickedName && !choice.agent.isOnLeave);
+  const openAreasChoice = choices.find((choice) => choice.agent.name === openAreas?.agentName);
 
   return (
-    <AdminDialog
-      title={`Assign delivery agent · ${order.orderNumber}`}
-      submitLabel="Assign"
-      isLarge
-      onClose={onClose}
-      onSubmit={() => (picked ? onAssign(picked.agent) : onClose())}
-    >
-      <div className={dashboardStyles["admin-assign-agent"]}>
-        <p className={dashboardStyles["admin-order-agent-detail"]}>
-          {order.customerName}
-          {order.area ? ` · ${order.area}` : ""} · {order.items}
-        </p>
-        {delivery?.transferRequest && (
-          <p className={dashboardStyles["admin-assign-agent-transfer-note"]}>
-            {delivery.transferRequest.fromAgent} asked {delivery.transferRequest.toAgent} to take this order. Assigning here replaces that request.
+    <>
+      <AdminDialog
+        title={`Assign delivery agent · ${order.orderNumber}`}
+        submitLabel="Close"
+        isLarge
+        hasOnlyCloseButton
+        // Escape closes the pop-up on top first, not this window too
+        onClose={() => !isConfirmingCancel && !openAreas && onClose()}
+        onSubmit={onClose}
+      >
+        <div className={dashboardStyles["admin-assign-agent"]}>
+          <p className={dashboardStyles["admin-order-agent-detail"]}>
+            {order.customerName}
+            {order.area ? ` · ${order.area}` : ""} · {order.items}
           </p>
-        )}
-        {choices.length === 0 ? (
-          <p className={dashboardStyles["admin-order-agent-detail"]}>No delivery agents yet. Add them on Routes &amp; agents.</p>
-        ) : (
-          <div className={dashboardStyles["admin-table-scroll"]}>
-            <table className={`${dashboardStyles["admin-orders-table"]} ${dashboardStyles["admin-assign-agent-table"]}`}>
-              <thead>
-                <tr>
-                  <th scope="col">Agent</th>
-                  <th scope="col">Duty and route</th>
-                  <th scope="col">Today</th>
-                  <th scope="col">Areas today</th>
-                </tr>
-              </thead>
-              <tbody>
-                {choices.map((choice) => {
-                  const { agent } = choice;
-                  const isPicked = picked?.agent.name === agent.name;
-                  const routeLine =
-                    choice.stopsToGoInArea > 0
-                      ? `Already delivering in ${order.area} today · ${choice.stopsToGoInArea} order${choice.stopsToGoInArea === 1 ? "" : "s"}`
-                      : choice.coveringRoute
-                        ? `${choice.coveringRoute.name} covers ${order.area}`
-                        : choice.ownRoute
-                          ? `${choice.ownRoute.name} · ${choice.ownRoute.area}`
-                          : "Spare agent (no route)";
-                  return (
-                    <tr
-                      key={agent.name}
-                      className={`${dashboardStyles["admin-assign-agent-row"]} ${isPicked ? dashboardStyles["admin-assign-agent-row-picked"] : ""} ${agent.isOnLeave ? dashboardStyles["admin-assign-agent-row-on-leave"] : ""}`}
-                      onClick={() => !agent.isOnLeave && setPickedName(agent.name)}
-                    >
-                      <td>
-                        <label className={dashboardStyles["admin-assign-agent-name"]}>
-                          <input
-                            type="radio"
-                            name="assign-agent"
-                            checked={isPicked}
-                            disabled={agent.isOnLeave}
-                            onChange={() => setPickedName(agent.name)}
-                          />
-                          <span>{agent.name}</span>
-                        </label>
-                        <span className={dashboardStyles["admin-assign-agent-badges"]}>
+          {delivery?.transferRequest && (
+            <p className={dashboardStyles["admin-assign-agent-transfer-note"]}>
+              {delivery.transferRequest.fromAgent} asked {delivery.transferRequest.toAgent} to take this order. Assigning here replaces that request.
+            </p>
+          )}
+          {choices.length === 0 ? (
+            <p className={dashboardStyles["admin-order-agent-detail"]}>No delivery agents yet. Add them on Routes &amp; agents.</p>
+          ) : (
+            <div className={dashboardStyles["admin-table-scroll"]}>
+              <table className={`${dashboardStyles["admin-orders-table"]} ${dashboardStyles["admin-assign-agent-table"]}`}>
+                <thead>
+                  <tr>
+                    <th scope="col">Agent</th>
+                    <th scope="col">Duty and route</th>
+                    <th scope="col">Today</th>
+                    <th scope="col">Areas today</th>
+                    <th scope="col">Assign</th>
+                    <th scope="col">Reassign</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {choices.map((choice) => {
+                    const { agent } = choice;
+                    const isAssigned = agent.name === delivery?.agent;
+                    const areAreasOpen = openAreas?.agentName === agent.name;
+                    const routeLine =
+                      choice.stopsToGoInArea > 0
+                        ? `Already delivering in ${order.area} today · ${choice.stopsToGoInArea} order${choice.stopsToGoInArea === 1 ? "" : "s"}`
+                        : choice.coveringRoute
+                          ? `${choice.coveringRoute.name} covers ${order.area}`
+                          : choice.ownRoute
+                            ? `${choice.ownRoute.name} · ${choice.ownRoute.area}`
+                            : "Spare agent (no route)";
+                    return (
+                      <tr key={agent.name} className={agent.isOnLeave ? dashboardStyles["admin-assign-agent-row-on-leave"] : undefined}>
+                        <td>
+                          <span className={dashboardStyles["admin-assign-agent-name"]}>{agent.name}</span>
                           {agent.name === suggestedName && <span className={dashboardStyles["admin-assign-agent-suggested"]}>Suggested</span>}
-                          {agent.name === delivery?.agent && <span className={dashboardStyles["admin-assign-agent-current"]}>Assigned now</span>}
-                        </span>
-                        <span className={dashboardStyles["admin-orders-area"]}>
-                          {/^\d{10}$/.test(agent.phone) ? (
-                            <a href={`tel:+91${agent.phone}`} onClick={(clickEvent) => clickEvent.stopPropagation()}>
-                              {`${agent.phone.slice(0, 5)} ${agent.phone.slice(5)}`}
-                            </a>
+                          <span className={dashboardStyles["admin-orders-area"]}>
+                            {/^\d{10}$/.test(agent.phone) ? (
+                              <a href={`tel:+91${agent.phone}`}>{`${agent.phone.slice(0, 5)} ${agent.phone.slice(5)}`}</a>
+                            ) : (
+                              agent.phone
+                            )}
+                            {agent.bike ? ` · ${agent.bike}` : ""}
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            className={`${dashboardStyles["admin-assign-agent-duty"]} ${
+                              agent.isOnLeave
+                                ? dashboardStyles["admin-assign-agent-duty-leave"]
+                                : choice.isOnDuty
+                                  ? dashboardStyles["admin-assign-agent-duty-on"]
+                                  : dashboardStyles["admin-assign-agent-duty-off"]
+                            }`}
+                          >
+                            {agent.isOnLeave ? "On leave" : choice.isOnDuty ? "On duty" : "Off duty"}
+                          </span>
+                          <span className={dashboardStyles["admin-orders-area"]}>{routeLine}</span>
+                        </td>
+                        <td>
+                          <span className={dashboardStyles["admin-orders-customer"]}>
+                            {choice.stopsToGo} stop{choice.stopsToGo === 1 ? "" : "s"} to go
+                          </span>
+                          <span className={dashboardStyles["admin-orders-area"]}>
+                            {choice.delivered} delivered · {choice.missed} missed
+                          </span>
+                        </td>
+                        <td>
+                          {choice.areaCounts.length === 0 ? (
+                            <span className={dashboardStyles["admin-orders-area"]}>No areas yet</span>
                           ) : (
-                            agent.phone
-                          )}
-                          {agent.bike ? ` · ${agent.bike}` : ""}
-                        </span>
-                      </td>
-                      <td>
-                        <span
-                          className={`${dashboardStyles["admin-assign-agent-duty"]} ${
-                            agent.isOnLeave
-                              ? dashboardStyles["admin-assign-agent-duty-leave"]
-                              : choice.isOnDuty
-                                ? dashboardStyles["admin-assign-agent-duty-on"]
-                                : dashboardStyles["admin-assign-agent-duty-off"]
-                          }`}
-                        >
-                          {agent.isOnLeave ? "On leave" : choice.isOnDuty ? "On duty" : "Off duty"}
-                        </span>
-                        <span className={dashboardStyles["admin-orders-area"]}>{routeLine}</span>
-                      </td>
-                      <td>
-                        <span className={dashboardStyles["admin-orders-customer"]}>
-                          {choice.stopsToGo} stop{choice.stopsToGo === 1 ? "" : "s"} to go
-                        </span>
-                        <span className={dashboardStyles["admin-orders-area"]}>
-                          {choice.delivered} delivered · {choice.missed} missed
-                        </span>
-                      </td>
-                      <td>
-                        <span className={dashboardStyles["admin-assign-agent-areas"]}>
-                          {choice.areaCounts.slice(0, 3).map(([stopArea, count]) => (
-                            <span
-                              key={stopArea}
-                              className={`${dashboardStyles["admin-assign-agent-area-chip"]} ${stopArea.toLowerCase() === area ? dashboardStyles["admin-assign-agent-area-chip-match"] : ""}`}
+                            <button
+                              type="button"
+                              className={dashboardStyles["admin-assign-agent-areas-button"]}
+                              aria-expanded={areAreasOpen}
+                              data-agent-areas-button
+                              onClick={(clickEvent) =>
+                                setOpenAreas(areAreasOpen ? null : { agentName: agent.name, ...placeAreasPopup(clickEvent.currentTarget) })
+                              }
                             >
-                              {stopArea} {count}
+                              {choice.areaCounts.length} area{choice.areaCounts.length === 1 ? "" : "s"}
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d={areAreasOpen ? "M7 14l5-5 5 5" : "M7 10l5 5 5-5"} />
+                              </svg>
+                            </button>
+                          )}
+                        </td>
+                        <td>
+                          {isAssigned ? (
+                            <span className={dashboardStyles["admin-assign-agent-assigned-row"]}>
+                              <span className={dashboardStyles["admin-assign-agent-assigned"]}>Assigned</span>
+                              {canCancelAgent && delivery?.status === "Pending" && (
+                                <button
+                                  type="button"
+                                  className={dashboardStyles["admin-assign-agent-cancel"]}
+                                  aria-label={`Take ${agent.name} off ${order.orderNumber}`}
+                                  onClick={() => setIsConfirmingCancel(true)}
+                                >
+                                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M7 7l10 10M17 7 7 17" />
+                                  </svg>
+                                </button>
+                              )}
                             </span>
-                          ))}
-                          {choice.areaCounts.length > 3 && <span className={dashboardStyles["admin-orders-area"]}>+{choice.areaCounts.length - 3} more</span>}
-                          {choice.areaCounts.length === 0 && <span className={dashboardStyles["admin-orders-area"]}>No stops yet</span>}
-                        </span>
-                        {choice.openOrdersInArea.length > 0 && (
-                          <span className={dashboardStyles["admin-orders-area"]}>Here: {choice.openOrdersInArea.join(", ")}</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </AdminDialog>
+                          ) : (
+                            <button
+                              type="button"
+                              className={dashboardStyles["admin-order-agent-button"]}
+                              disabled={agent.isOnLeave}
+                              onClick={() => onAssign(agent)}
+                            >
+                              Assign agent
+                            </button>
+                          )}
+                        </td>
+                        <td className={dashboardStyles["admin-assign-agent-reassign"]}>
+                          {agent.name === exchange?.fromAgent
+                            ? `Reassigned to ${exchange.toAgent}`
+                            : agent.name === exchange?.toAgent
+                              ? `Reassigned from ${exchange.fromAgent}`
+                              : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </AdminDialog>
+
+      {openAreas && openAreasChoice && (
+        <AgentAreasPopup choice={openAreasChoice} orderArea={area} place={openAreas} onClose={() => setOpenAreas(null)} />
+      )}
+
+      {/* Beside the window, not inside it: a pop-up is a form, and forms can't sit inside each other */}
+      {isConfirmingCancel && delivery && (
+        <AdminDialog
+          title="Cancel this agent?"
+          submitLabel="Yes, cancel agent"
+          isDanger
+          onClose={() => setIsConfirmingCancel(false)}
+          onSubmit={() => {
+            setIsConfirmingCancel(false);
+            onCancelAgent();
+          }}
+        >
+          <p className={dashboardStyles["admin-assign-agent-confirm-text"]}>
+            Are you sure you want to take {delivery.agent} off {order.orderNumber}? The stop goes from their list, and you can assign another agent.
+          </p>
+        </AdminDialog>
+      )}
+    </>
   );
 }

@@ -735,3 +735,183 @@
   opacity: 0.6;
   cursor: wait;
 }
+
+/* The "Edit details" pop-up: the Profile form, scrolling inside */
+.profile-edit-dialog {
+  position: relative;
+  width: min(820px, 100%);
+  max-height: calc(100svh - 32px);
+  overflow-y: auto;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 20px 50px rgba(19, 37, 27, 0.25);
+}
+
+.profile-edit-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profile-request-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+/* The pop-up for changing a customer's number (profile-change-requests.tsx) */
+.profile-change-dialog {
+  position: relative;
+  width: min(520px, 100%);
+  max-height: calc(100svh - 32px);
+  padding: 22px;
+  overflow-y: auto;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 20px 50px rgba(19, 37, 27, 0.25);
+}
+
+.profile-change-dialog-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profile-change-dialog-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid #d9e2d8;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.profile-change-dialog-close svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.profile-change-heading {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+.profile-change-note {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #5c655e;
+}
+
+.profile-change-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.profile-change-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.profile-change-button {
+  min-height: 42px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 9999px;
+  background: #1f4d2e;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.profile-change-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.profile-change-link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: underline;
+  color: inherit;
+  cursor: pointer;
+}
+
+.profile-change-problem {
+  font-size: 13px;
+  color: #c0392b;
+}
+
+.profile-change-status-pending,
+.profile-change-status-accepted,
+.profile-change-status-rejected {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.profile-change-status-pending {
+  background: #fbf3e1;
+  color: #8a6a1c;
+}
+
+.profile-change-status-accepted {
+  background: #e6f0e1;
+  color: #1f4d2e;
+}
+
+.profile-change-status-rejected {
+  background: #fdecea;
+  color: #c0392b;
+}
+
+@media (max-width: 640px) {
+  .profile-change-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* "Change number", under the number box in the pop-up */
+.profile-change-link {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  color: #2f6b3a;
+}

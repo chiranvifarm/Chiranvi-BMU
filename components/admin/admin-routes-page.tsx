@@ -3,19 +3,22 @@
 import { useMemo, useState } from "react";
 import {
   getDeliveriesForRange,
+  addAgentStopsToRoute,
   moveRouteToAgent,
   toDateKey,
   useTodayDeliveries,
 } from "@/store/admin-deliveries-store";
 import {
-  addAgent,
   addRoute,
   updateRoutes,
+  reloadDeliveryAgents,
   useDeliveryAgents,
   useDeliveryRoutes,
-  type DeliveryAgent,
   type DeliveryRoute,
 } from "@/store/admin-routes-store";
+import { useStaffList } from "@/store/admin-staff-store";
+import { giveTeamRole, useCurrentStaffAccess } from "@/store/staff-access-store";
+import BengaluruAreaPicker, { OTHER_AREA } from "@/components/area-picker/bengaluru-area-picker";
 import { AdminFeatureGate } from "./admin-panel-layout";
 import {
   AdminDialog,
@@ -86,7 +89,7 @@ function routeShape(index: number): [number, number][] {
   return [1, 2, 3].map((step) => [HUB.x + Math.cos(angle) * 62 * step, HUB.y + Math.sin(angle) * 30 * step]);
 }
 
-const EMPTY_NEW_AGENT = { name: "", phone: "", bike: "" };
+const EMPTY_NEW_AGENT = { phone: "", bike: "" };
 
 export default function AdminRoutesPage() {
   return (
@@ -97,6 +100,10 @@ export default function AdminRoutesPage() {
 }
 
 function RoutesPage() {
+  const access = useCurrentStaffAccess();
+  // The owner or a manager makes someone an agent (from the staff list; not managers or the owner)
+  const canGiveRoles = Boolean(access?.isOwner || access?.roleId === "manager");
+  const staffToMakeAgents = useStaffList().filter((person) => person.roleId === null || person.roleId === "staff");
   const todaysDeliveries = useTodayDeliveries();
   const routes = useDeliveryRoutes();
   const agents = useDeliveryAgents();
@@ -108,7 +115,7 @@ function RoutesPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [routeEdits, setRouteEdits] = useState<{ id: string; area: string; agent: string }[]>([]);
   const [isNewRouteOpen, setIsNewRouteOpen] = useState(false);
-  const [newRoute, setNewRoute] = useState({ area: "", agent: "" });
+  const [newRoute, setNewRoute] = useState({ area: "", otherArea: "", agent: "" });
   const [isNewAgentOpen, setIsNewAgentOpen] = useState(false);
   const [newAgent, setNewAgent] = useState(EMPTY_NEW_AGENT);
   const { showToast, toast } = useAdminToast();
@@ -149,7 +156,7 @@ function RoutesPage() {
             .map((delivery) => delivery.routeId),
         ),
       ]
-        .filter((routeId) => !ownRoutes.some((route) => route.id === routeId))
+        .filter((routeId) => routeId && !ownRoutes.some((route) => route.id === routeId))
         .map((routeId) => routes.find((route) => route.id === routeId)?.name ?? routeId)
         .join(", ");
     const helpingRoutes = otherRoutes(true);
@@ -200,31 +207,35 @@ function RoutesPage() {
   }
 
   function saveNewRoute() {
-    if (!newRoute.area.trim() || !newRoute.agent) {
-      showToast("Enter the area and choose an agent");
+    // "Others": the area as typed
+    const area = (newRoute.area === OTHER_AREA ? newRoute.otherArea : newRoute.area).trim();
+    if (!area || !newRoute.agent) {
+      showToast("Choose the area and an agent");
       return;
     }
-    const added = addRoute(newRoute.area.trim(), newRoute.agent);
+    const added = addRoute(area, newRoute.agent);
+    addAgentStopsToRoute(newRoute.agent, added.id);
     setIsNewRouteOpen(false);
-    setNewRoute({ area: "", agent: "" });
+    setNewRoute({ area: "", otherArea: "", agent: "" });
     showToast(`${added.name} · ${added.area} added for ${firstName(added.agent)}`);
   }
 
-  function saveNewAgent() {
-    const phone = newAgent.phone.replace(/\D/g, "");
-    if (!newAgent.name.trim() || phone.length !== 10) {
-      showToast("Enter the name and a 10-digit phone number");
+  // The person gets the Delivery agent role (shown on Roles & permissions), and with it their agent card
+  async function saveNewAgent() {
+    const person = staffToMakeAgents.find((candidate) => candidate.phone === newAgent.phone);
+    if (!person) {
+      showToast("Choose a person from the staff list");
       return;
     }
-    if (agents.some((agent) => agent.name.toLowerCase() === newAgent.name.trim().toLowerCase())) {
-      showToast("An agent with this name is already in the team");
+    const problem = await giveTeamRole(person.phone, "delivery-agent", newAgent.bike);
+    if (problem) {
+      showToast(problem);
       return;
     }
-    const agent: DeliveryAgent = { name: newAgent.name.trim(), phone, bike: newAgent.bike.trim().toUpperCase() || "—" };
-    addAgent(agent);
+    void reloadDeliveryAgents();
     setIsNewAgentOpen(false);
     setNewAgent(EMPTY_NEW_AGENT);
-    showToast(`${agent.name} added as a spare agent`);
+    showToast(`${person.name} is now a delivery agent`);
   }
 
   function exportRoutes() {
@@ -247,7 +258,7 @@ function RoutesPage() {
         searchPlaceholder="Search route, area or agent..."
         actionLabel="New route"
         onAction={() => {
-          setNewRoute({ area: "", agent: onDuty.find((agent) => !routes.some((route) => route.agent === agent.name))?.name ?? onDuty[0]?.name ?? "" });
+          setNewRoute({ area: "", otherArea: "", agent: onDuty.find((agent) => !routes.some((route) => route.agent === agent.name))?.name ?? onDuty[0]?.name ?? "" });
           setIsNewRouteOpen(true);
         }}
         today={today}
@@ -375,9 +386,11 @@ function RoutesPage() {
                 {onDuty.length} on duty {isOnlyToday ? "today" : ""}
               </p>
             </div>
-            <button type="button" className={styles["admin-routes-text-button"]} onClick={() => setIsNewAgentOpen(true)}>
-              + Add agent
-            </button>
+            {canGiveRoles && (
+              <button type="button" className={styles["admin-routes-text-button"]} onClick={() => setIsNewAgentOpen(true)}>
+                + Add agent
+              </button>
+            )}
           </div>
 
           <ul className={styles["admin-agent-list"]}>
@@ -466,15 +479,17 @@ function RoutesPage() {
 
       {isNewRouteOpen && (
         <AdminDialog title="New route" submitLabel="Add route" onClose={() => setIsNewRouteOpen(false)} onSubmit={saveNewRoute}>
-          <AdminDialogField label="Area">
-            <input
-              className={adminInputClassName}
-              placeholder="e.g. Vijayanagar"
-              value={newRoute.area}
-              onChange={(changeEvent) => setNewRoute({ ...newRoute, area: changeEvent.target.value })}
-              autoFocus
+          <div className={sharedStyles["admin-dialog-field"]}>
+            <span id="admin-new-route-area-label" className={sharedStyles["admin-dialog-label"]}>
+              Area
+            </span>
+            <BengaluruAreaPicker
+              area={newRoute.area}
+              onChoose={(chosenArea) => setNewRoute({ ...newRoute, area: chosenArea })}
+              labelId="admin-new-route-area-label"
+              look="admin"
             />
-          </AdminDialogField>
+          </div>
           <AdminDialogField label="Agent">
             <select
               className={adminInputClassName}
@@ -489,6 +504,17 @@ function RoutesPage() {
               ))}
             </select>
           </AdminDialogField>
+          {newRoute.area === OTHER_AREA && (
+            <AdminDialogField label="Area name" isWide>
+              <input
+                className={adminInputClassName}
+                placeholder="Area or landmark"
+                value={newRoute.otherArea}
+                onChange={(changeEvent) => setNewRoute({ ...newRoute, otherArea: changeEvent.target.value })}
+                autoFocus
+              />
+            </AdminDialogField>
+          )}
           <p className={styles["admin-routes-dialog-note"]}>
             It is called Route {Math.max(0, ...routes.map((route) => Number(route.id.slice(1)))) + 1} and shows on the map and on the
             Deliveries page, ready for new deliveries.
@@ -498,22 +524,20 @@ function RoutesPage() {
 
       {isNewAgentOpen && (
         <AdminDialog title="Add agent" submitLabel="Add agent" onClose={() => setIsNewAgentOpen(false)} onSubmit={saveNewAgent}>
-          <AdminDialogField label="Name">
-            <input
+          <AdminDialogField label="Person" isWide>
+            <select
               className={adminInputClassName}
-              value={newAgent.name}
-              onChange={(changeEvent) => setNewAgent({ ...newAgent, name: changeEvent.target.value })}
-              autoFocus
-            />
-          </AdminDialogField>
-          <AdminDialogField label="Phone">
-            <input
-              className={adminInputClassName}
-              inputMode="numeric"
-              placeholder="10 digits"
               value={newAgent.phone}
-              onChange={(changeEvent) => setNewAgent({ ...newAgent, phone: changeEvent.target.value.replace(/\D/g, "").slice(0, 10) })}
-            />
+              autoFocus
+              onChange={(changeEvent) => setNewAgent({ ...newAgent, phone: changeEvent.target.value })}
+            >
+              <option value="">{staffToMakeAgents.length > 0 ? "Choose from the staff list" : "No one to add: add them in the Staff section first"}</option>
+              {staffToMakeAgents.map((person) => (
+                <option key={person.phone} value={person.phone}>
+                  {person.name} · {person.phone.slice(0, 5)} {person.phone.slice(5)}
+                </option>
+              ))}
+            </select>
           </AdminDialogField>
           <AdminDialogField label="Bike number" isWide>
             <input
@@ -524,7 +548,8 @@ function RoutesPage() {
             />
           </AdminDialogField>
           <p className={styles["admin-routes-dialog-note"]}>
-            New agents start as spare: give them a route with Edit routes, or missed deliveries from the Deliveries page.
+            They get the Delivery agent role and log in with their own number. New agents start as spare: give them a route with
+            Edit routes, or orders from the Orders page.
           </p>
         </AdminDialog>
       )}

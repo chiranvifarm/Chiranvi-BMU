@@ -18,16 +18,14 @@ import { createClient } from "@/lib/supabase/client";
   The Delivery Panel (/delivery): one delivery agent's day.
   Who it is for: a number the owner gave the "Delivery agent" role on Roles & permissions (checked by the
   database). The same number on Routes & agents decides which agent they are, and so their stops: today's
-  deliveries the Chiranvi Panel gives that agent (store/admin-deliveries-store.ts, sample data).
+  deliveries the Chiranvi Panel gives that agent (store/admin-deliveries-store.ts).
   What the agent adds is kept per agent and day in the database (panel_records, "agent-days", one record per
   agent and day; only that agent, and staff with Deliveries → View, can read it): their stop order, the step each stop is at
   (Picked up → On the way → Reached), how it ended (Delivered / Left at door / Not delivered) with its proof
   (customer's OTP or a photo), bottles and cash collected, requests raised to the manager, on / off duty and
   notifications. Finishing a stop also marks it on the panel's Deliveries page (Delivered, or Missed), and
   starting one marks it Out for delivery.
-  The stops' products, bottles to collect, landmark, gate code, notes, cash to collect and map position are
-  sample details made from the delivery's ID, so they stay the same every time, until orders and addresses
-  come from the database. A stop with a map pin (the customer's address pin, or the spot the agent saved at
+  A stop shows only what is real: an order's items and cash to collect. A stop with a map pin (the customer's address pin, or the spot the agent saved at
   the gate; 0027_address_pins.sql) uses it: Google Maps goes to that exact spot. Without one, Maps searches
   the address text.
   Stops: Ongoing is the first unfinished stop in the agent's order, Up next the other unfinished ones, and
@@ -260,7 +258,7 @@ function useAgentDay(mobileNumber: string | null) {
   return useMemo(() => (mobileNumber ? findDay(records, mobileNumber) : NO_DAY), [records, mobileNumber]);
 }
 
-// ---------- Sample details for each stop (the same every time for the same delivery) ----------
+// ---------- What each stop shows ----------
 
 // Where each area is (centre), for the route map and distances
 const AREA_POSITIONS: Record<string, [number, number]> = {
@@ -275,38 +273,7 @@ const AREA_POSITIONS: Record<string, [number, number]> = {
 };
 const BENGALURU_CENTRE: [number, number] = [12.9352, 77.5615];
 
-const MILKS: StopItem[] = [
-  { name: "A2 Desi Milk", packSize: "1 L glass bottle", quantity: 1, price: 105 },
-  { name: "Jersey Milk", packSize: "1 L glass bottle", quantity: 1, price: 60 },
-  { name: "Skimmed Milk", packSize: "1 L glass bottle", quantity: 1, price: 95 },
-  { name: "A2 Milk", packSize: "500 ml glass bottle", quantity: 1, price: 52 },
-];
-const EXTRAS: StopItem[] = [
-  { name: "Malai Paneer", packSize: "200 g", quantity: 1, price: 95 },
-  { name: "Buttermilk", packSize: "500 ml", quantity: 1, price: 25 },
-  { name: "White Butter", packSize: "100 g", quantity: 1, price: 143 },
-  { name: "Khoa", packSize: "250 g", quantity: 1, price: 160 },
-  { name: "A2 Desi Ghee", packSize: "500 ml", quantity: 1, price: 249 },
-];
-const LANDMARKS = [
-  "Opposite the Ganesha temple",
-  "Near the bus stop",
-  "Next to the Nandini milk booth",
-  "Behind the park",
-  "Above the medical shop",
-  "Near the water tank",
-  "Beside the school gate",
-  "Corner house, blue gate",
-];
-const NOTES = [
-  "Ring the bell twice",
-  "Leave with the security if no answer",
-  "Call before coming, dog at home",
-  "Keep the milk in the bag on the door",
-  "Don't ring before 6 AM",
-];
-
-// The delivery's number (the last four digits of "D-20261030-0004"), a steady seed for its sample details
+// The delivery's number (the last four digits of "D-20261030-0004"), a steady spread for stops without a pin
 function seedOf(id: string) {
   return Number(id.slice(-4)) || id.length;
 }
@@ -316,52 +283,25 @@ function areaOf(delivery: Delivery, route: DeliveryRoute | undefined) {
   return fromAddress || route?.area || "";
 }
 
-function sampleDetails(delivery: Delivery, route: DeliveryRoute | undefined, isTheirRouteAgent: boolean) {
+function stopDetails(delivery: Delivery, route: DeliveryRoute | undefined) {
   const seed = seedOf(delivery.id);
   const area = areaOf(delivery, route);
-  const milk = { ...MILKS[seed % MILKS.length], quantity: 1 + (seed % 3 === 0 ? 1 : 0) };
-  const items: StopItem[] = [milk];
-  if (seed % 3 === 1) items.push(EXTRAS[seed % EXTRAS.length]);
-  if (seed % 7 === 2) items.push({ ...EXTRAS[(seed + 2) % EXTRAS.length], quantity: 2 });
-  // Yesterday's glass bottles come back on two stops in three
-  const bottlesToCollect = seed % 3 === 2 ? 0 : milk.packSize.includes("glass") ? milk.quantity : 0;
-  // One stop in nine pays cash (an order taken in the panel); website orders are paid online
-  const cashToCollect = seed % 9 === 4 ? items.reduce((sum, item) => sum + item.price * item.quantity, 0) : 0;
   const [baseLatitude, baseLongitude] = AREA_POSITIONS[area] ?? AREA_POSITIONS[route?.area ?? ""] ?? BENGALURU_CENTRE;
   // The stop's real map pin, when its address has one
   const exactPin =
     typeof delivery.latitude === "number" && typeof delivery.longitude === "number"
       ? { latitude: delivery.latitude, longitude: delivery.longitude, hasExactPin: true }
       : null;
-  // A real order given to the agent (Orders page): its own items and cash only, nothing made up
-  if (delivery.orderNumber) {
-    return {
-      area: delivery.area || area,
-      items: delivery.items ?? [],
-      bottlesToCollect: 0,
-      cashToCollect: delivery.cashToCollect ?? 0,
-      landmark: "",
-      gateCode: undefined,
-      note: undefined,
-      changedByDispatch: false,
-      // On the map: the address's pin, else around the area's centre
-      latitude: baseLatitude + (((seed * 7919) % 1000) / 1000 - 0.5) * 0.028,
-      longitude: baseLongitude + (((seed * 104729) % 1000) / 1000 - 0.5) * 0.028,
-      hasExactPin: false,
-      ...exactPin,
-    };
-  }
   return {
-    area,
-    items,
-    bottlesToCollect,
-    cashToCollect,
-    landmark: LANDMARKS[seed % LANDMARKS.length],
-    gateCode: seed % 4 === 1 ? String(4000 + ((seed * 37) % 6000)) : undefined,
-    note: seed % 5 === 3 ? NOTES[seed % NOTES.length] : undefined,
-    // Added in the panel today, or moved here from another route's agent
-    changedByDispatch: !isTheirRouteAgent || seed > 812,
-    // Up to about 1.5 km around the area's centre (or the spot the agent saved at the gate)
+    area: delivery.area || area,
+    items: delivery.items ?? [],
+    bottlesToCollect: 0,
+    cashToCollect: delivery.cashToCollect ?? 0,
+    landmark: "",
+    gateCode: undefined,
+    note: undefined,
+    changedByDispatch: false,
+    // On the map: the address's pin, else around the area's centre
     latitude: baseLatitude + (((seed * 7919) % 1000) / 1000 - 0.5) * 0.028,
     longitude: baseLongitude + (((seed * 104729) % 1000) / 1000 - 0.5) * 0.028,
     hasExactPin: false,
@@ -369,13 +309,12 @@ function sampleDetails(delivery: Delivery, route: DeliveryRoute | undefined, isT
   };
 }
 
-// The panel already shows these as finished (the sample day, or changed in the panel)
+// The panel already shows these as finished (changed in the panel)
 function outcomeFromPanel(delivery: Delivery): StopProgress | null {
   if (delivery.status === "Delivered") {
     return {
       outcome: "delivered",
       finishedAt: delivery.deliveredAt,
-      proof: { kind: "otp", code: String(1000 + ((seedOf(delivery.id) * 7) % 9000)) },
     };
   }
   if (delivery.status === "Missed") return { outcome: "not-delivered", notDeliveredReason: "Customer not available" };
@@ -430,7 +369,7 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
     const mine = deliveries.filter((delivery) => delivery.agent === agentName);
     return mine.map((delivery): AgentStop => {
       const route = routes.find((existing) => existing.id === delivery.routeId);
-      const details = sampleDetails(delivery, route, route?.agent === agentName);
+      const details = stopDetails(delivery, route);
       // What the agent did wins; otherwise what the panel shows
       const progress = day.progress[delivery.id] ?? outcomeFromPanel(delivery) ?? {};
       return {

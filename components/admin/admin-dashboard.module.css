@@ -961,6 +961,11 @@
   background: #e6f0e1;
 }
 
+.admin-order-agent-button:disabled {
+  background: #ffffff;
+  cursor: default;
+}
+
 .admin-order-agent-button-assigned {
   border-color: #e6f0e1;
   background: #e6f0e1;
@@ -1132,61 +1137,23 @@
   vertical-align: top;
 }
 
-.admin-assign-agent-row {
-  cursor: pointer;
-}
-
-.admin-assign-agent-row:hover td {
-  background: #f7faf5;
-}
-
-.admin-assign-agent-row-picked td,
-.admin-assign-agent-row-picked:hover td {
-  background: #e6f0e1;
-}
-
 .admin-assign-agent-row-on-leave {
-  cursor: default;
   opacity: 0.6;
 }
 
 .admin-assign-agent-name {
-  display: inline-flex;
-  align-items: center;
-  gap: calc(8 * var(--admin-pixel));
   font-weight: 700;
-  cursor: inherit;
-}
-
-.admin-assign-agent-name input {
-  accent-color: #2f6b3a;
-}
-
-.admin-assign-agent-badges {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: calc(4 * var(--admin-pixel));
-  margin-left: calc(6 * var(--admin-pixel));
-}
-
-.admin-assign-agent-suggested,
-.admin-assign-agent-current {
-  padding: calc(2 * var(--admin-pixel)) calc(8 * var(--admin-pixel));
-  border-radius: 9999px;
-  font-size: calc(10.5 * var(--admin-pixel));
-  font-weight: 700;
-  white-space: nowrap;
 }
 
 .admin-assign-agent-suggested {
+  margin-left: calc(6 * var(--admin-pixel));
+  padding: calc(2 * var(--admin-pixel)) calc(8 * var(--admin-pixel));
+  border-radius: 9999px;
   background: #f5bf2c;
+  font-size: calc(10.5 * var(--admin-pixel));
+  font-weight: 700;
+  white-space: nowrap;
   color: #1f4d2e;
-}
-
-.admin-assign-agent-current {
-  background: #e6f0e1;
-  color: #1f4d2e;
-  box-shadow: inset 0 0 0 1px #2f6b3a;
 }
 
 .admin-assign-agent-duty {
@@ -1213,25 +1180,198 @@
   color: #8a6a1c;
 }
 
-.admin-assign-agent-areas {
+/* "3 areas": opens the pop-up with the areas the agent covers */
+.admin-assign-agent-areas-button {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4 * var(--admin-pixel));
+  padding: calc(4 * var(--admin-pixel)) calc(8 * var(--admin-pixel)) calc(4 * var(--admin-pixel)) calc(11 * var(--admin-pixel));
+  border: 1px solid #d9e2d8;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-family: inherit;
+  font-size: calc(12 * var(--admin-pixel));
+  font-weight: 600;
+  white-space: nowrap;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.admin-assign-agent-areas-button:hover,
+.admin-assign-agent-areas-button[aria-expanded="true"] {
+  border-color: #2f6b3a;
+  background: #e6f0e1;
+}
+
+.admin-assign-agent-areas-button svg {
+  width: calc(13 * var(--admin-pixel));
+  height: calc(13 * var(--admin-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The areas pop-up: green heading, one line per area with its stops on the right, the order's area in yellow */
+.admin-agent-areas-popup {
+  position: fixed;
+  z-index: 45;
+  width: min(calc(300 * var(--admin-pixel)), calc(100vw - 24px));
+  overflow: hidden;
+  border: 1px solid #d9e2d8;
+  border-radius: calc(14 * var(--admin-pixel));
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(19, 37, 27, 0.22);
+}
+
+.admin-agent-areas-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(10 * var(--admin-pixel));
+  padding: calc(11 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  background: #1f4d2e;
+}
+
+.admin-agent-areas-name {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14 * var(--admin-pixel));
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.admin-agent-areas-count {
+  font-size: calc(11.5 * var(--admin-pixel));
+  white-space: nowrap;
+  color: #e6f0e1;
+}
+
+.admin-agent-areas-list {
+  max-height: calc(230 * var(--admin-pixel));
+  margin: 0;
+  padding: calc(6 * var(--admin-pixel));
+  overflow-y: auto;
+  list-style: none;
+}
+
+.admin-agent-areas-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: calc(9 * var(--admin-pixel));
+  padding: calc(7 * var(--admin-pixel)) calc(8 * var(--admin-pixel));
+  border-radius: calc(9 * var(--admin-pixel));
+}
+
+.admin-agent-areas-list .admin-agent-areas-row-match {
+  background: #fbf3e1;
+}
+
+.admin-agent-areas-dot {
+  width: calc(8 * var(--admin-pixel));
+  height: calc(8 * var(--admin-pixel));
+  border-radius: 50%;
+  background: #2f6b3a;
+}
+
+.admin-agent-areas-row-match .admin-agent-areas-dot {
+  background: #f5bf2c;
+}
+
+.admin-agent-areas-area {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: calc(4 * var(--admin-pixel));
-}
-
-.admin-assign-agent-area-chip {
-  padding: calc(2 * var(--admin-pixel)) calc(8 * var(--admin-pixel));
-  border-radius: 9999px;
-  background: #f1f1ec;
-  font-size: calc(11 * var(--admin-pixel));
-  white-space: nowrap;
+  gap: calc(6 * var(--admin-pixel));
+  font-size: calc(13 * var(--admin-pixel));
+  font-weight: 600;
   color: #1b2a20;
 }
 
-.admin-assign-agent-area-chip-match {
+.admin-agent-areas-this-order {
+  padding: calc(1 * var(--admin-pixel)) calc(7 * var(--admin-pixel));
+  border-radius: 9999px;
   background: #f5bf2c;
+  font-size: calc(10 * var(--admin-pixel));
   font-weight: 700;
+  white-space: nowrap;
+  color: #1f4d2e;
+}
+
+.admin-agent-areas-stops {
+  padding: calc(2 * var(--admin-pixel)) calc(9 * var(--admin-pixel));
+  border-radius: 9999px;
+  background: #e6f0e1;
+  font-size: calc(11 * var(--admin-pixel));
+  font-weight: 600;
+  white-space: nowrap;
+  color: #1f4d2e;
+}
+
+.admin-agent-areas-orders {
+  padding: calc(8 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border-top: 1px solid #f1f1ec;
+  font-size: calc(11.5 * var(--admin-pixel));
+  color: #8a6a1c;
+}
+
+/* The agent who has the order: green "Assigned", and a red X to take them off */
+.admin-assign-agent-assigned-row {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6 * var(--admin-pixel));
+}
+
+.admin-assign-agent-assigned {
+  padding: calc(6 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border-radius: 9999px;
+  background: #2f6b3a;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  white-space: nowrap;
+  color: #ffffff;
+}
+
+.admin-assign-agent-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(28 * var(--admin-pixel));
+  height: calc(28 * var(--admin-pixel));
+  padding: 0;
+  border: 1px solid #c0392b;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #c0392b;
+  cursor: pointer;
+}
+
+.admin-assign-agent-cancel:hover {
+  background: #c0392b;
+  color: #ffffff;
+}
+
+.admin-assign-agent-cancel svg {
+  width: calc(14 * var(--admin-pixel));
+  height: calc(14 * var(--admin-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+
+.admin-assign-agent-reassign {
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  white-space: nowrap;
+  color: #1f4d2e;
+}
+
+.admin-assign-agent-confirm-text {
+  grid-column: 1 / -1;
+  font-size: calc(13.5 * var(--admin-pixel));
+  color: #5c655e;
 }
 
 /* An ordered item's Product ID, small under its name (order details, a customer's order history) */

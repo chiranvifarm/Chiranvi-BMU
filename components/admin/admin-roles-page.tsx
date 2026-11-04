@@ -9,6 +9,7 @@ import {
   addRole,
   declineAccountDeletion,
   deleteRoleWithSecret,
+  decideProfileChange,
   removeStaffMember,
   renameRole,
   changeOwnerNumber,
@@ -29,6 +30,7 @@ import {
   type RolePermissions,
   type StaffMember,
 } from "@/store/staff-access-store";
+import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import { decideLeave, getLeaveDays, useLeaveRequests, type LeaveRequest } from "@/store/admin-leave-store";
 import { saveCustomerProfile, useCustomerProfile } from "@/store/customer-profiles-store";
 import { AdminFeatureGate } from "./admin-panel-layout";
@@ -137,8 +139,12 @@ function RolesPage() {
   const [isDeletingRole, setIsDeletingRole] = useState(false);
   // Staff: the person whose leave requests are open
   const [leaveOf, setLeaveOf] = useState<StaffMember | null>(null);
+  // Whose Profile request is open
+  const [profileChangesOf, setProfileChangesOf] = useState<string | null>(null);
+  const memberWithChanges = team.find((member) => member.mobileNumber === profileChangesOf);
   const leaveRequests = useLeaveRequests();
   const myAccess = useCurrentStaffAccess();
+  const myMobileNumber = useLoggedInMobileNumber();
   const { showToast, toast } = useAdminToast();
 
   const allRoles = [OWNER_ROLE, ...roles];
@@ -271,9 +277,11 @@ function RolesPage() {
   // Staff: what waits for the admin (shown as a count on the Staff card)
   const isOnTeam = (mobileNumber: string) => team.some((member) => member.mobileNumber === mobileNumber);
   const pendingLeaveOf = (mobileNumber: string) => leaveRequests.filter((request) => request.staffMobile === mobileNumber && request.status === "Pending");
+  const waitingChangesOf = (member: StaffMember) => (member.profileChange?.status === "Pending" ? 1 : 0);
   const staffAlertCount =
     leaveRequests.filter((request) => request.status === "Pending" && isOnTeam(request.staffMobile)).length +
-    team.filter((member) => member.deleteRequestedAt).length;
+    team.filter((member) => member.deleteRequestedAt).length +
+    team.reduce((sum, member) => sum + waitingChangesOf(member), 0);
   // The owner removes anyone; a manager removes anyone who isn't a manager (the database checks it too)
   const canRemove = (member: StaffMember) => isOwner || (myAccess?.roleId === "manager" && member.roleId !== "manager");
   const canDecideLeave = Boolean(myAccess?.can("staff", "edit"));
@@ -447,6 +455,11 @@ function RolesPage() {
                         !
                       </span>
                     )}
+                    {person.member && waitingChangesOf(person.member) > 0 && (
+                      <span className={styles["admin-person-delete-mark"]} title="Asked to change their Profile" aria-label="Asked to change their Profile">
+                        !
+                      </span>
+                    )}
                   </span>
                   <span className={styles["admin-person-detail"]}>
                     {words || selectedRole.id === "staff" ? `${person.roleName} · ` : ""}
@@ -502,6 +515,7 @@ function RolesPage() {
                     <th scope="col">Number</th>
                     <th scope="col">Leave</th>
                     <th scope="col">Delete request</th>
+                    <th scope="col">Profile change</th>
                     <th scope="col" className={styles["admin-team-actions-column"]}>
                       Actions
                     </th>
@@ -544,6 +558,19 @@ function RolesPage() {
                             <span className={styles["admin-team-none"]}>None</span>
                           )}
                         </td>
+                        <td>
+                          {waitingChangesOf(member) > 0 ? (
+                            <button
+                              type="button"
+                              className={`${styles["admin-team-leave-button"]} ${styles["admin-team-leave-button-waiting"]}`}
+                              onClick={() => setProfileChangesOf(member.mobileNumber)}
+                            >
+                              {waitingChangesOf(member)} waiting
+                            </button>
+                          ) : (
+                            <span className={styles["admin-team-none"]}>None</span>
+                          )}
+                        </td>
                         <td className={styles["admin-team-actions-column"]}>
                           {isOwner && (
                             <span className={styles["admin-team-actions"]}>
@@ -571,7 +598,7 @@ function RolesPage() {
                   })}
                   {team.length === 0 && (
                     <tr>
-                      <td colSpan={5} className={styles["admin-team-none"]}>
+                      <td colSpan={6} className={styles["admin-team-none"]}>
                         No one on the team yet.
                       </td>
                     </tr>
@@ -853,6 +880,15 @@ function RolesPage() {
             Delivery agent can&rsquo;t be deleted.
           </p>
         </AdminDialog>
+      )}
+
+      {memberWithChanges && (
+        <ProfileChangesDialog
+          member={memberWithChanges}
+          canDecide={canDecideLeave && memberWithChanges.mobileNumber !== myMobileNumber}
+          onClose={() => setProfileChangesOf(null)}
+          onDone={showToast}
+        />
       )}
 
       {leaveOf && (
@@ -1330,5 +1366,94 @@ function DeleteRequestMenu({
         </div>
       )}
     </div>
+  );
+}
+
+// What the panel calls each detail of a Profile request
+export const PROFILE_FIELD_LABELS: Record<string, string> = {
+  firstName: "First name",
+  lastName: "Last name",
+  primaryMobile: "Mobile number",
+  secondaryMobile: "Secondary mobile number",
+  email: "Email",
+  primaryAddress: "Primary address",
+  secondaryAddress: "Secondary address",
+  location: "Location",
+  pincode: "Pincode",
+  dateOfBirth: "Date of birth",
+  familySize: "Family size",
+  preferredPlanType: "Preferred plan type",
+};
+
+/*
+  A team member's request to change their Profile (here and in the Staff section, which managers can open):
+  each detail, old and new, and why. Accept or Reject (with a reason they see). After Accept they press Save on
+  their Profile. Nobody answers their own request (the database checks it too).
+*/
+export function ProfileChangesDialog({
+  member,
+  canDecide,
+  onClose,
+  onDone,
+}: {
+  member: StaffMember;
+  canDecide: boolean;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}) {
+  const [rejectReason, setRejectReason] = useState("");
+  const [problem, setProblem] = useState("");
+  const request = member.profileChange;
+
+  async function answer(accept: boolean) {
+    if (!accept && !rejectReason.trim()) {
+      setProblem("Write why you are rejecting it");
+      return;
+    }
+    const decideProblem = await decideProfileChange(member.mobileNumber, accept, rejectReason.trim());
+    if (decideProblem) {
+      setProblem(decideProblem);
+      return;
+    }
+    onDone(`${member.name}'s profile change ${accept ? "accepted" : "rejected"}`);
+    onClose();
+  }
+
+  return (
+    <AdminDialog title={`${member.name}'s profile change`} submitLabel="Close" onClose={onClose} onSubmit={onClose} hasOnlyCloseButton>
+      <ul className={styles["admin-team-leave-list"]}>
+        {Object.entries(request?.changes ?? {}).map(([field, change]) => (
+          <li key={field} className={styles["admin-team-change-request"]}>
+            <p className={styles["admin-team-change-title"]}>{PROFILE_FIELD_LABELS[field] ?? field}</p>
+            <p className={styles["admin-team-change-value"]}>
+              {change.from || "(empty)"} → {change.to || "(empty)"}
+            </p>
+          </li>
+        ))}
+      </ul>
+      <p className={styles["admin-team-change-reason"]}>Reason: {request?.reason}</p>
+      {canDecide ? (
+        <>
+          <AdminDialogField label="Why, if you reject it" isWide>
+            <input className={adminInputClassName} value={rejectReason} onChange={(changeEvent) => setRejectReason(changeEvent.target.value)} />
+          </AdminDialogField>
+          <div className={styles["admin-team-change-buttons"]}>
+            <button type="button" className={styles["admin-team-change-accept"]} onClick={() => void answer(true)}>
+              Accept
+            </button>
+            <button type="button" className={styles["admin-team-change-reject"]} onClick={() => void answer(false)}>
+              Reject
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className={styles["admin-team-change-reason"]}>Someone else with Staff → Edit answers this.</p>
+      )}
+      {problem && (
+        <p className={styles["admin-roles-dialog-problem"]} role="alert">
+          {problem}
+        </p>
+      )}
+    </AdminDialog>
   );
 }

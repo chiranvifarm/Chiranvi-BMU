@@ -479,10 +479,10 @@ export default function CartView() {
     deliverySettings,
   );
   const deliveryFee = deliveryQuote.fee;
-  // Platform fee (set in the database): once per checkout (one-time items, a milk plan or both), added after
-  // delivery; it doesn't count towards free delivery or a coupon's minimum order. Paid with the plan's order
-  // when there is one.
-  const platformFee = deliverySettings.platformFee;
+  // Platform fee (set in the database): only with a milk plan, once per checkout, paid with the plan's order.
+  // One-time items alone pay none (their delivery fee still applies). It doesn't count towards free delivery
+  // or a coupon's minimum order.
+  const platformFee = cartSubscription ? deliverySettings.platformFee : 0;
   const isDeliveryFree = deliveryFee === 0;
   const toPay = afterDiscounts + deliveryFee;
   const youSave = discountOnMrp + itemsCouponDiscount + (deliveryQuote.crossedOutFee ?? deliveryFee) - deliveryFee;
@@ -636,7 +636,7 @@ export default function CartView() {
     return {
       cartItems: oneTimeItems,
       checkout: {
-        total: toPay + (cartSubscription ? 0 : platformFee),
+        total: toPay,
         couponCode: appliedCoupon && !isCouponForPlan ? appliedCoupon.code : undefined,
         couponDiscount: itemsCouponDiscount || undefined,
         deliveryFee,
@@ -1278,10 +1278,13 @@ export default function CartView() {
                       <dd className={styles["checkout-bill-saving"]}>−{rupees(couponDiscount)}</dd>
                     </div>
                   )}
-                  <div>
-                    <dt>Platform fee</dt>
-                    <dd>{rupees(platformFee)}</dd>
-                  </div>
+                  {/* Only with a milk plan */}
+                  {platformFee > 0 && (
+                    <div>
+                      <dt>Platform fee</dt>
+                      <dd>{rupees(platformFee)}</dd>
+                    </div>
+                  )}
                 </dl>
                 {/* One-time orders: free delivery from the owner's amount (₹500 → "above ₹499") */}
                 {!cartSubscription && (

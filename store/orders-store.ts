@@ -1,5 +1,6 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { markPanelPageSeen, useIsAccountStateLoaded, usePanelSeenAt } from "./account-state";
 import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import type { CartItem } from "./cart-store";
 import type { OrderPaymentMethod } from "./admin-orders-store";
@@ -315,6 +316,38 @@ export function useOrdersAndFailedPayments() {
 // A payment that did not go through: no order was placed (only its receipt is kept)
 export function isFailedPayment(order: Order) {
   return order.paymentStatus === "failed";
+}
+
+/*
+  What's new on the customer's orders: each step reached (Packed, Out for delivery, Delivered, Cancelled) since
+  they last opened My Orders, newest first, for the pop-up message and the badge next to Orders. Worked out
+  from the orders' own step times; "last opened" is kept with their login. Never opened: the last 24 hours.
+*/
+export type OrderUpdate = { orderId: string; status: OrderStatus; at: number };
+
+const NO_UPDATES: OrderUpdate[] = [];
+
+export function useOrderUpdates() {
+  const orders = useOrders();
+  const lastSeen = usePanelSeenAt("my-orders");
+  const isAccountStateLoaded = useIsAccountStateLoaded();
+  const [dayAgo] = useState(() => Date.now() - DAY_IN_MILLISECONDS);
+  return useMemo(() => {
+    if (!isAccountStateLoaded) return NO_UPDATES;
+    const since = lastSeen ? new Date(lastSeen).getTime() : dayAgo;
+    return orders
+      .flatMap((order) =>
+        (Object.entries(order.statusChangedAt ?? {}) as [OrderStatus, number][])
+          .filter(([status, at]) => status !== "placed" && at > since)
+          .map(([status, at]) => ({ orderId: order.orderId, status, at })),
+      )
+      .sort((first, second) => second.at - first.at);
+  }, [orders, lastSeen, isAccountStateLoaded, dayAgo]);
+}
+
+// My Orders was opened: the updates are seen
+export function markOrderUpdatesSeen() {
+  markPanelPageSeen("my-orders");
 }
 
 // Paid (or placed before payments) and not yet delivered or cancelled

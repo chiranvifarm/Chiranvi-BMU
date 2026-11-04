@@ -5,9 +5,11 @@ import {
   reloadTodayDeliveries,
   setDeliveryStatus,
   toDateKey,
+  useAreTodayDeliveriesLoaded,
   useTodayDeliveries,
   type Delivery,
   type DeliverySlot,
+  type DeliveryStatus,
   type DeliveryTransferRequest,
 } from "./admin-deliveries-store";
 import { useDeliveryAgents, useDeliveryRoutes, type DeliveryAgent, type DeliveryRoute } from "./admin-routes-store";
@@ -21,7 +23,7 @@ import { createClient } from "@/lib/supabase/client";
   deliveries the Chiranvi Panel gives that agent (store/admin-deliveries-store.ts, sample data).
   What the agent adds is kept per agent and day in the database (panel_records, "agent-days", one record per
   agent and day; only that agent, and staff with Deliveries → View, can read it): their stop order, the step each stop is at
-  (Picked up → On the way → Reached), how it ended (Delivered / Left at door / Not delivered) with its proof
+  (Picked up), how it ended (Delivered / Left at door / Not delivered) with its proof
   (customer's OTP or a photo), bottles and cash collected, requests raised to the manager, on / off duty and
   notifications. Finishing a stop also marks it on the panel's Deliveries page (Delivered, or Missed), and
   starting one marks it Out for delivery.
@@ -34,12 +36,8 @@ import { createClient } from "@/lib/supabase/client";
   Completed the finished ones (including those the panel already shows as Delivered or Missed).
 */
 
-export type StopStep = "picked-up" | "on-the-way" | "reached";
-export const STOP_STEPS: { key: StopStep; label: string }[] = [
-  { key: "picked-up", label: "Picked up" },
-  { key: "on-the-way", label: "On the way" },
-  { key: "reached", label: "Reached" },
-];
+export type StopStep = "picked-up";
+export const STOP_STEPS: { key: StopStep; label: string }[] = [{ key: "picked-up", label: "Picked up" }];
 
 export type StopOutcome = "delivered" | "left-at-door" | "not-delivered";
 export const STOP_OUTCOME_LABELS: Record<StopOutcome, string> = {
@@ -82,7 +80,7 @@ export type AgentRequest = {
 
 export type AgentNotification = {
   id: string;
-  kind: "new-stop" | "route-change" | "request-update" | "manager-message";
+  kind: "new-stop" | "route-change" | "status-change" | "request-update" | "manager-message";
   text: string;
   at: string; // ISO
 };
@@ -91,6 +89,7 @@ export type StopItem = { name: string; packSize: string; quantity: number; price
 
 export type AgentStop = {
   id: string; // the panel's delivery ID, "D-20261030-0004"
+  status: DeliveryStatus; // as on the panel's Deliveries page
   customerName: string;
   phone: string; // 10 digits
   address: string;
@@ -135,6 +134,7 @@ type AgentDay = {
   progress: Record<string, StopProgress>;
   requests: AgentRequest[];
   knownStopIds: string[]; // the stops seen so far today (new ones and removed ones become notifications)
+  knownStopStatuses?: Record<string, DeliveryStatus>; // each stop's status when last seen (a change becomes a notification)
   notifications: AgentNotification[];
   notificationsSeenAt: string; // ISO, when the bell was last opened
 };
@@ -382,6 +382,25 @@ function outcomeFromPanel(delivery: Delivery): StopProgress | null {
   return null;
 }
 
+/*
+  Where a stop stands. Its status on the Deliveries list decides, the same for the agent and the panel: finished
+  there (Delivered, Missed) is finished here, and reopened there is reopened here. What the agent saved adds the
+  details (proof, bottles, cash) when it agrees.
+*/
+function progressOf(delivery: Delivery, saved: StopProgress | undefined): StopProgress {
+  const fromPanel = outcomeFromPanel(delivery);
+  if (!fromPanel) {
+    return {
+      ...saved,
+      step: saved?.step ?? (delivery.status === "Out for delivery" ? "picked-up" : undefined),
+      outcome: undefined,
+      finishedAt: undefined,
+    };
+  }
+  if (saved?.outcome && (saved.outcome === "not-delivered") === (delivery.status === "Missed")) return saved;
+  return { ...saved, ...fromPanel };
+}
+
 // ---------- Distances ----------
 
 // Road distance between two stops: straight line × 1.3 (Bengaluru roads), in km
@@ -411,6 +430,7 @@ export type AgentStops = {
   upNext: AgentStop[];
   completed: AgentStop[]; // newest first
   isOnDuty: boolean;
+  isLoaded: boolean; // the stops and the agent's day have been read (the sidebar's counts wait for it)
   requests: AgentRequest[]; // newest first
   notifications: AgentNotification[]; // newest first
   unseenNotificationCount: number;
@@ -424,6 +444,9 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
   const deliveries = useTodayDeliveries();
   const routes = useDeliveryRoutes();
   const day = useAgentDay(mobileNumber);
+  const areDeliveriesLoaded = useAreTodayDeliveriesLoaded();
+  const isDayLoaded = dayStore.useIsLoaded();
+  const isLoaded = areDeliveriesLoaded && isDayLoaded;
 
   const stops = useMemo(() => {
     if (!agentName) return [];
@@ -431,10 +454,10 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
     return mine.map((delivery): AgentStop => {
       const route = routes.find((existing) => existing.id === delivery.routeId);
       const details = sampleDetails(delivery, route, route?.agent === agentName);
-      // What the agent did wins; otherwise what the panel shows
-      const progress = day.progress[delivery.id] ?? outcomeFromPanel(delivery) ?? {};
+      const progress = progressOf(delivery, day.progress[delivery.id]);
       return {
         id: delivery.id,
+        status: delivery.status,
         customerName: delivery.customerName,
         phone: delivery.phone,
         address: delivery.address,
@@ -449,13 +472,16 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
 
   // New stops and stops moved away since the agent last looked: notifications
   useEffect(() => {
-    if (!mobileNumber || !agentName || deliveries.length === 0) return;
+    if (!mobileNumber || !agentName || !isLoaded || deliveries.length === 0) return;
     const currentIds = stops.map((stop) => stop.id);
     const known = new Set(day.knownStopIds);
     const current = new Set(currentIds);
     const added = stops.filter((stop) => !known.has(stop.id));
     const removed = day.knownStopIds.filter((id) => !current.has(id));
-    if (added.length === 0 && removed.length === 0) return;
+    const knownStatuses = day.knownStopStatuses;
+    const areStatusesKnown = knownStatuses !== undefined && stops.every((stop) => knownStatuses[stop.id] === stop.status);
+    if (added.length === 0 && removed.length === 0 && areStatusesKnown) return;
+    const changedStops = stops.filter((stop) => knownStatuses?.[stop.id] && knownStatuses[stop.id] !== stop.status);
     // The first look of the day only learns the stops (they are not "new")
     const isFirstLook = day.knownStopIds.length === 0;
     const now = new Date().toISOString();
@@ -473,18 +499,25 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
                 {
                   id: `moved-${now}`,
                   kind: "route-change" as const,
-                  text: `Route change: ${removed.length} stop${removed.length === 1 ? "" : "s"} moved to another agent`,
+                  text: `Route change: ${removed.length} stop${removed.length === 1 ? "" : "s"} moved to another agent or cancelled`,
                   at: now,
                 },
               ]
             : []),
+          ...changedStops.map((stop) => ({
+            id: `status-${stop.id}-${stop.status}-${now}`,
+            kind: "status-change" as const,
+            text: `${stop.customerName}: now ${stop.status.toLowerCase()}`,
+            at: now,
+          })),
         ];
     saveDay(mobileNumber, (saved) => ({
       ...saved,
       knownStopIds: currentIds,
+      knownStopStatuses: Object.fromEntries(stops.map((stop) => [stop.id, stop.status])),
       notifications: [...notifications, ...saved.notifications].slice(0, 50),
     }));
-  }, [mobileNumber, agentName, deliveries.length, stops, day.knownStopIds]);
+  }, [mobileNumber, agentName, isLoaded, deliveries.length, stops, day.knownStopIds, day.knownStopStatuses]);
 
   return useMemo(() => {
     const finished = stops.filter((stop) => stop.outcome);
@@ -503,11 +536,12 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
       upNext: unfinished.slice(1),
       completed: finished,
       isOnDuty: day.isOnDuty,
+      isLoaded,
       requests: [...day.requests].sort((first, second) => second.raisedAt.localeCompare(first.raisedAt)),
       notifications: day.notifications,
       unseenNotificationCount: day.notifications.filter((notification) => notification.at > day.notificationsSeenAt).length,
     };
-  }, [stops, day]);
+  }, [stops, day, isLoaded]);
 }
 
 // ---------- Handing a stop to another agent (delivery exchange) ----------
@@ -656,7 +690,7 @@ export function markNotificationsSeen(mobileNumber: string) {
   saveDay(mobileNumber, (day) => ({ ...day, notificationsSeenAt: new Date().toISOString() }));
 }
 
-// The next step on the current stop; the panel shows it Out for delivery
+// The stop is picked up; the panel shows it Out for delivery
 export function setStopStep(mobileNumber: string, stopId: string, step: StopStep) {
   saveDay(mobileNumber, (day) => ({
     ...day,
@@ -741,13 +775,9 @@ export function raiseRequest(mobileNumber: string, stop: AgentStop, kind: AgentR
 
 // ---------- Helpers for the pages ----------
 
-// Indian mobile links: call, WhatsApp, text message
+// Indian mobile links: call, text message
 export function callLink(phone: string) {
   return `tel:+91${phone}`;
-}
-
-export function whatsAppLink(phone: string) {
-  return `https://wa.me/91${phone}`;
 }
 
 export function messageLink(phone: string) {
@@ -782,6 +812,16 @@ export function formatTime(iso: string | Date) {
 
 export function rupees(amount: number) {
   return `₹${amount.toLocaleString("en-IN")}`;
+}
+
+// The live camera's picture right now, made as small as shrinkPhoto's
+export function photoFromVideo(video: HTMLVideoElement) {
+  const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.7);
 }
 
 // A photo taken for proof, made small (longest side 480) so it fits in the browser's storage

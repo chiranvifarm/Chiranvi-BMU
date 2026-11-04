@@ -117,6 +117,11 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
   let isFollowing = false;
   // The seed key last tried (a new day's sample deliveries have a new one)
   let triedSeedKey: string | null = null;
+  // A read must not bring back old data over a change: while a change is being saved nothing is read, and a
+  // read that a change overtook is done again
+  let changesBeingSaved = 0;
+  let changesMade = 0;
+  let isReadWaiting = false;
   const listeners = new Set<() => void>();
 
   function announce() {
@@ -168,7 +173,12 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
 
   async function load() {
     if (isLoading) return;
+    if (changesBeingSaved > 0) {
+      isReadWaiting = true;
+      return;
+    }
     isLoading = true;
+    const changesBeforeReading = changesMade;
     const { data: login } = await createClient().auth.getSession();
     if (!login.session) {
       // Logged out: nothing to show (visitors may not read these lists at all)
@@ -182,6 +192,10 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
     if (rows && rows.length === 0 && (await seedOnce())) rows = await readRows();
     isLoading = false;
     if (!rows) return;
+    if (changesMade !== changesBeforeReading) {
+      void load();
+      return;
+    }
     const fromData = options.fromData ?? ((data: T) => data);
     records = rows.map((row) => fromData({ ...(row.data as T), id: row.id }));
     isLoaded = true;
@@ -216,15 +230,24 @@ export function createPanelRecordStore<T extends { id: string }>(options: StoreO
 
   // After a change: shown at once, then saved; the list is read again if the database refused it
   async function saveThenCheck(change: () => void, write: () => PromiseLike<{ error: unknown; count?: number | null }>) {
+    changesBeingSaved += 1;
+    changesMade += 1;
     change();
     announce();
-    const { error, count } = await write();
-    if (error || count === 0) {
+    let isSaved = false;
+    try {
+      const { error, count } = await write();
+      isSaved = !error && count !== 0;
       if (error) console.error(`The database did not accept the change to the panel's ${options.module}`, error);
-      void load();
-      return false;
+    } finally {
+      changesBeingSaved -= 1;
+      if (!isSaved) isReadWaiting = true;
+      if (isReadWaiting && changesBeingSaved === 0) {
+        isReadWaiting = false;
+        void load();
+      }
     }
-    return true;
+    return isSaved;
   }
 
   return {

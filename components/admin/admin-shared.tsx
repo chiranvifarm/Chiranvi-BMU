@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import { useCurrentStaffAccess, type PanelModule, type PermissionAction } from "@/store/staff-access-store";
-import { useNewOrders } from "@/store/admin-orders-store";
+import { useNewOrders, useOrderStepNews } from "@/store/admin-orders-store";
 import { useNewCustomers } from "@/store/admin-customers-store";
 import { useDeliveryTransferNews } from "@/store/admin-deliveries-store";
 import { usePanelSeenAt } from "@/store/account-state";
@@ -110,7 +110,8 @@ const NEW_ITEMS_SHOWN = 6;
 
 /*
   The bell next to the search (every panel page and the dashboard): the dot shows while there are new
-  website orders or new customers (since their page was last opened, as on the sidebar badges). Its
+  website orders, orders that moved to a new step, or new customers (since their page was last opened, as on
+  the sidebar badges). Its
   pop-up lists them newest first, each opening its page (which marks them seen), then the alerts.
 */
 export function AdminNotificationsBell() {
@@ -120,6 +121,7 @@ export function AdminNotificationsBell() {
   // Only what the person's role can open
   const newOrders = useNewOrders();
   const newCustomers = useNewCustomers();
+  const orderSteps = useOrderStepNews();
   // Transfers between agents since the Deliveries page was last opened
   const transfersSeenAt = usePanelSeenAt("delivery-transfers");
   const newTransfers = useDeliveryTransferNews().filter((news) => news.event.at > transfersSeenAt);
@@ -139,6 +141,14 @@ export function AdminNotificationsBell() {
       title: `New customer ${customer.name}`,
       detail: `${customer.id}${customer.area ? ` · ${customer.area}` : ""}`,
       icon: ["M12 11.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M4.5 20.5a7.5 7.5 0 0 1 15 0"],
+    })),
+    ...(access?.can("orders", "view") ? orderSteps : []).map(({ order, status, at }) => ({
+      key: `step-${order.orderNumber}-${status}`,
+      href: "/admin/orders",
+      time: at,
+      title: `${order.orderNumber} is now ${status.toLowerCase()}`,
+      detail: `${order.customerName}${order.area ? ` · ${order.area}` : ""}`,
+      icon: ["M9 3.5h6v3H9z", "M7 5H5.5v15.5h13V5H17", "M8.5 13l2.5 2.5 4.5-4.5"],
     })),
     ...(access?.can("deliveries", "view") ? newTransfers : []).map((news) => ({
       key: `transfer-${news.key}`,
@@ -168,7 +178,7 @@ export function AdminNotificationsBell() {
       {isOpen && (
         <div className={`${dashboardStyles["admin-popup"]} ${dashboardStyles["admin-notifications"]}`}>
           <p className={dashboardStyles["admin-popup-title"]}>New{newItems.length > 0 ? ` (${newItems.length})` : ""}</p>
-          {newItems.length === 0 && <p className={dashboardStyles["admin-notification-empty"]}>No new orders, customers or transfers</p>}
+          {newItems.length === 0 && <p className={dashboardStyles["admin-notification-empty"]}>No new orders, updates, customers or transfers</p>}
           {newItems.slice(0, NEW_ITEMS_SHOWN).map((item) => (
             <Link key={item.key} href={item.href} className={dashboardStyles["admin-notification-link"]} onClick={() => setIsOpen(false)}>
               <span className={`${dashboardStyles["admin-alert-icon"]} ${dashboardStyles["admin-alert-icon-green"]}`}>

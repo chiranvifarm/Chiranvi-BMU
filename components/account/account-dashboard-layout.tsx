@@ -8,7 +8,7 @@ import SiteNavigationPlacement from "@/components/navigation/site-navigation-pla
 import { logOut, rememberPageAfterLogin, useIsLoggedIn, useIsLoginStatusKnown } from "@/components/login/login-status";
 import { useCurrentStaffAccess } from "@/store/staff-access-store";
 import { useIsDeliveryAgent } from "@/store/delivery-agent-store";
-import { countActiveOrders, forgetAllOrders, useOrders } from "@/store/orders-store";
+import { countActiveOrders, forgetAllOrders, markOrderUpdatesSeen, useOrderUpdates, useOrders } from "@/store/orders-store";
 import { getNameInitials, useAccountProfile } from "./account-profile";
 import LogoutConfirmationDialog from "./logout-confirmation-dialog";
 import styles from "./account-dashboard-layout.module.css";
@@ -72,7 +72,12 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
   const accountProfile = useAccountProfile();
   // Orders still on their way: the yellow badge next to "Orders" (design); hidden when there are none.
   const activeOrderCount = countActiveOrders(useOrders());
+  // Status changes since My Orders was last opened: "New" next to "Orders"; opening My Orders clears it
+  const orderUpdateCount = useOrderUpdates().length;
   const pathname = usePathname();
+  useEffect(() => {
+    if (pathname === "/account/orders" && orderUpdateCount > 0) markOrderUpdatesSeen();
+  }, [pathname, orderUpdateCount]);
   const router = useRouter();
   // True after Logout, so the dashboard goes to the home page instead of asking for the login.
   const isLoggingOutRef = useRef(false);
@@ -140,6 +145,11 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
                       ))}
                     </svg>
                     {accountPage.label}
+                    {accountPage.href === "/account/orders" && orderUpdateCount > 0 && (
+                      <span className={styles["account-sidebar-link-new"]} aria-label="New order updates">
+                        New
+                      </span>
+                    )}
                     {accountPage.href === "/account/orders" && activeOrderCount > 0 && (
                       <span className={styles["account-sidebar-link-badge"]} aria-label={`${activeOrderCount} active`}>
                         {activeOrderCount}

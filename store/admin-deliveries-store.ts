@@ -174,6 +174,8 @@ const store = createPanelRecordStore<Delivery>({
   module: "deliveries",
   // Only today's (earlier days are made up from the date)
   filters: () => [["data->>date", toDateKey(new Date())]],
+  // Agents and the panel follow each other's stops within half a minute
+  refreshEveryMs: 30_000,
   seed: {
     seedKey: () => `deliveries:${toDateKey(new Date())}`,
     makeSamples: () => makeToday(toDateKey(new Date())),

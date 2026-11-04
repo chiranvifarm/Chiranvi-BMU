@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import {
   AGENT_REQUEST_KINDS,
@@ -18,9 +18,9 @@ import {
   rupees,
   saveStopLocation,
   setStopStep,
+  photoFromVideo,
   shrinkPhoto,
   useStopExchanges,
-  whatsAppLink,
   type AgentToAsk,
   type AgentRequestKind,
   type AgentStop,
@@ -39,12 +39,13 @@ import styles from "./delivery-ongoing-page.module.css";
 
 /*
   Deliveries → Ongoing (/delivery): the stop the agent is on now.
-  - The customer: name, phone, address, landmark, gate code; Call, WhatsApp and Message; Navigate (Google Maps:
+  - The customer: name, phone, address, landmark, gate code; Call and Message; Navigate (Google Maps:
     the address's exact pin when it has one, else the address text); "Save this spot as the customer's
     location" at the gate.
   - What to hand over (products and quantities), empty bottles to collect, cash to collect, the customer's note.
-  - Steps: Picked up → On the way → Reached → Delivered (one button for the next step).
+  - Steps: Picked up → Delivered (a button for Picked up; the Finish buttons do the rest).
   - Finish: Delivered (proof: the customer's OTP or a photo), Left at door (photo), Not delivered (reason).
+    The photo comes from the live camera or an upload (ProofCamera).
     The stop then moves to Completed and the next stop becomes Ongoing.
   - Raise a request to the manager (customer unavailable, wrong address, damaged product, missing item,
     reschedule, other); the stop's requests are listed with their status.
@@ -191,12 +192,6 @@ export default function DeliveryOngoingPage() {
                   <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z" />
                 </svg>
                 Call
-              </a>
-              <a href={whatsAppLink(stop.phone)} target="_blank" rel="noreferrer" className={styles["ongoing-contact-button"]}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 20l1.3-4A8 8 0 1 1 8 18.7L4 20Z" />
-                </svg>
-                WhatsApp
               </a>
               <a href={messageLink(stop.phone)} className={styles["ongoing-contact-button"]}>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -349,9 +344,10 @@ export default function DeliveryOngoingPage() {
   );
 }
 
-// Picked up → On the way → Reached → Delivered, the reached ones ticked
+// Picked up → Delivered, the reached ones ticked. Any saved step counts as picked up (stops started
+// before On the way and Reached were removed keep theirs until the day ends)
 function StatusSteps({ stop }: { stop: AgentStop }) {
-  const reachedIndex = stop.step ? STOP_STEPS.findIndex((step) => step.key === stop.step) : -1;
+  const reachedIndex = stop.step ? 0 : -1;
   const steps = [...STOP_STEPS.map((step) => step.label), "Delivered"];
   return (
     <ol className={styles["ongoing-steps"]}>
@@ -376,11 +372,10 @@ function StatusSteps({ stop }: { stop: AgentStop }) {
   );
 }
 
-// One button for the next step (after Reached, the stop is finished with the buttons below)
+// The button for Picked up (after it, the stop is finished with the buttons below)
 function NextStepButton({ stop, mobileNumber, canWork }: { stop: AgentStop; mobileNumber: string; canWork: boolean }) {
-  const reachedIndex = stop.step ? STOP_STEPS.findIndex((step) => step.key === stop.step) : -1;
-  const nextStep = STOP_STEPS[reachedIndex + 1];
-  if (!nextStep) return <p className={styles["ongoing-step-hint"]}>You&apos;ve reached the customer. Finish the stop below.</p>;
+  const nextStep = STOP_STEPS[0];
+  if (stop.step) return <p className={styles["ongoing-step-hint"]}>Picked up. Finish the stop below.</p>;
   return (
     <button
       type="button"
@@ -390,6 +385,98 @@ function NextStepButton({ stop, mobileNumber, canWork }: { stop: AgentStop; mobi
     >
       Mark as {nextStep.label.toLowerCase()}
     </button>
+  );
+}
+
+/*
+  The proof photo: Open camera shows the live camera (the back one on a phone) and Take photo keeps the picture;
+  Upload photo picks one from the phone or laptop. If the live camera won't open here (permission refused, or
+  a browser without it), a note points to Upload photo.
+*/
+function ProofCamera({
+  label,
+  photo,
+  onPhoto,
+  onPhotoFile,
+}: {
+  label: string;
+  photo: string;
+  onPhoto: (photo: string) => void;
+  onPhotoFile: (file: File | undefined) => void;
+}) {
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [isCameraBlocked, setIsCameraBlocked] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+
+  // Shows the camera; closing it (or the pop-up) switches the camera off
+  useEffect(() => {
+    if (!cameraStream) return;
+    if (videoRef.current) videoRef.current.srcObject = cameraStream;
+    return () => cameraStream.getTracks().forEach((track) => track.stop());
+  }, [cameraStream]);
+
+  async function openCamera() {
+    try {
+      setCameraStream(await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false }));
+      setIsCameraBlocked(false);
+    } catch {
+      setIsCameraBlocked(true);
+    }
+  }
+
+  function keepPicture() {
+    const video = videoRef.current;
+    if (!video?.videoWidth) return;
+    onPhoto(photoFromVideo(video));
+    setCameraStream(null);
+  }
+
+  return (
+    <div className={styles["ongoing-field"]}>
+      <span className={styles["ongoing-field-label"]}>{label}</span>
+      {cameraStream ? (
+        <>
+          <video ref={videoRef} autoPlay playsInline muted className={styles["ongoing-photo-preview"]} />
+          <div className={styles["ongoing-camera-buttons"]}>
+            <button type="button" className={deliveryButtonStyles.filled} onClick={keepPicture}>
+              Take photo
+            </button>
+            <button type="button" className={deliveryButtonStyles.outlined} onClick={() => setCameraStream(null)}>
+              Close camera
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element -- a photo just taken, not a site image */}
+          {photo && <img src={photo} alt="The delivery" className={styles["ongoing-photo-preview"]} />}
+          <div className={styles["ongoing-camera-buttons"]}>
+            <button type="button" className={deliveryButtonStyles.outlined} onClick={() => void openCamera()}>
+              {photo ? "Retake photo" : "Open camera"}
+            </button>
+            <button type="button" className={deliveryButtonStyles.outlined} onClick={() => uploadInputRef.current?.click()}>
+              Upload photo
+            </button>
+          </div>
+        </>
+      )}
+      <input
+        ref={uploadInputRef}
+        hidden
+        type="file"
+        accept="image/*"
+        aria-label={label}
+        onChange={(event) => {
+          onPhotoFile(event.target.files?.[0]);
+          // The same picture can be chosen again
+          event.target.value = "";
+        }}
+      />
+      {isCameraBlocked && !cameraStream && (
+        <p className={styles["ongoing-camera-problem"]}>The camera couldn&apos;t open. Allow the camera for this site, or use Upload photo.</p>
+      )}
+    </div>
   );
 }
 
@@ -509,20 +596,13 @@ function FinishStopSheet({
                 />
               </label>
             ) : (
-              <label key="proof-photo" className={styles["ongoing-field"]}>
-                <span className={styles["ongoing-field-label"]}>
-                  {outcome === "left-at-door" ? "Photo of what you left at the door" : "Photo of the delivery"}
-                </span>
-                <input
-                  className={styles["ongoing-photo-input"]}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={(event) => void takePhoto(event.target.files?.[0])}
-                />
-                {/* eslint-disable-next-line @next/next/no-img-element -- a photo just taken, not a site image */}
-                {photo && <img src={photo} alt="The delivery photo" className={styles["ongoing-photo-preview"]} />}
-              </label>
+              <ProofCamera
+                key="proof-photo"
+                label={outcome === "left-at-door" ? "Photo of what you left at the door" : "Photo of the delivery"}
+                photo={photo}
+                onPhoto={setPhoto}
+                onPhotoFile={(file) => void takePhoto(file)}
+              />
             )}
             <label className={styles["ongoing-field"]}>
               <span className={styles["ongoing-field-label"]}>Empty bottles collected</span>

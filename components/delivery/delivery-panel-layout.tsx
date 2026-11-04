@@ -208,7 +208,8 @@ function DeliveryPanelFrame({ login, children }: { login: AgentLogin; children: 
                         ))}
                       </svg>
                       <span className={styles["delivery-sidebar-link-label"]}>{page.label}</span>
-                      {count !== undefined && (
+                      {/* Not until the stops are read: no 0 that jumps to the real number */}
+                      {count !== undefined && stops.isLoaded && (
                         <span className={styles["delivery-sidebar-count"]} aria-label={`${count} stops`}>
                           {count}
                         </span>

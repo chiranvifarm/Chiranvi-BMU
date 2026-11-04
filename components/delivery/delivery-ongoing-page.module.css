@@ -32,6 +32,62 @@
   grid-column: 1 / -1;
 }
 
+/* Hand over: the up next card sits at the bottom of the box */
+.ongoing-hand-over-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.ongoing-next-stop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(10 * var(--delivery-pixel));
+  margin-top: auto;
+  padding: calc(11 * var(--delivery-pixel)) calc(14 * var(--delivery-pixel));
+  border-radius: calc(12 * var(--delivery-pixel));
+  background: #fbf3e1;
+}
+
+/* Keeps it off the list above when the box is full */
+.ongoing-hand-over-card > :has(+ .ongoing-next-stop) {
+  margin-bottom: calc(14 * var(--delivery-pixel));
+}
+
+.ongoing-next-stop .ongoing-slot {
+  flex: none;
+  white-space: nowrap;
+}
+
+.ongoing-next-stop-words {
+  display: flex;
+  flex-direction: column;
+  gap: calc(1 * var(--delivery-pixel));
+  min-width: 0;
+}
+
+.ongoing-next-stop-label {
+  font-size: calc(10.5 * var(--delivery-pixel));
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #8a6a1c;
+}
+
+.ongoing-next-stop-name {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14.5 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #1b2a20;
+  overflow-wrap: anywhere;
+}
+
+.ongoing-next-stop-address {
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #5c655e;
+  overflow-wrap: anywhere;
+}
+
 .ongoing-card-title {
   margin-bottom: calc(12 * var(--delivery-pixel));
   font-family: var(--font-ubuntu), sans-serif;

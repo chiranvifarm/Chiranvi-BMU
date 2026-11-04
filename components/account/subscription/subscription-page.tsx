@@ -131,11 +131,11 @@ function getToday() {
 }
 
 // Monday to Sunday of the week starting on the given Monday, each day marked against today:
-// earlier days "delivered", today "today", later days "upcoming".
+// earlier days "past", today "today", later days "upcoming". A day is green only if it was really delivered.
 function getWeekDays(monday: Date, today: Date) {
   return weekdayNames.map((weekdayName, dayIndex) => {
     const date = addDays(monday, dayIndex);
-    const dayState = date < today ? "delivered" : date.getTime() === today.getTime() ? "today" : "upcoming";
+    const dayState = date < today ? "past" : date.getTime() === today.getTime() ? "today" : "upcoming";
     return { weekdayName, dayOfMonth: date.getDate(), date, dateKey: toDateInputValue(date), dayState };
   });
 }
@@ -404,10 +404,18 @@ export default function SubscriptionPage() {
           <ul className={styles["delivery-calendar"]}>
             {shownWeek.map((day) => {
               const skipRequest = skipRequests.get(day.dateKey);
-              const isSkipped = Boolean(skipRequest);
+              // A day inside an approved pause of this plan (the agent's calendar shows it too)
+              const isPausedDay = pauseRequests.some(
+                (request) =>
+                  request.websiteOrderId === calendarPlan?.orderId &&
+                  request.status === "Approved" &&
+                  day.dateKey >= toDateInputValue(new Date(request.pauseFrom)) &&
+                  day.dateKey < toDateInputValue(new Date(request.resumeOn)),
+              );
+              const isSkipped = Boolean(skipRequest) || isPausedDay;
             // The agent marked it delivered (green, also today)
             const isDelivered = Boolean(calendarPlan?.deliveredDays.includes(day.dateKey));
-              const isApproved = skipRequest?.status === "Approved";
+              const isApproved = skipRequest?.status === "Approved" || isPausedDay;
               // This week's days from the first one still open; an approved skip stays
               const canTap = !isApproved && day.date >= earliestSkipDay && day.date <= sundayOfThisWeek;
               const dayLabel = `${day.weekdayName} ${day.dayOfMonth}`;
@@ -419,8 +427,8 @@ export default function SubscriptionPage() {
                     aria-pressed={canTap ? isSkipped : undefined}
                     aria-label={
                       day.dayState === "upcoming"
-                        ? `${dayLabel}, ${isApproved ? "skipped" : isSkipped ? "skip requested, tap to take it back" : canTap ? "upcoming, tap to ask to skip" : "upcoming"}`
-                        : `${dayLabel}, ${day.dayState === "today" ? "today" : "delivered"}`
+                        ? `${dayLabel}, ${isPausedDay ? "paused" : isApproved ? "skipped" : isSkipped ? "skip requested, tap to take it back" : canTap ? "upcoming, tap to ask to skip" : "upcoming"}`
+                        : `${dayLabel}, ${isDelivered ? "delivered" : day.dayState === "today" ? "today" : "no delivery"}`
                     }
                     className={`${styles["delivery-calendar-day"]} ${styles[`delivery-calendar-day-${isDelivered ? "delivered" : day.dayState}`]} ${
                       isSkipped ? styles["delivery-calendar-day-skipped"] : ""
@@ -429,7 +437,7 @@ export default function SubscriptionPage() {
                   >
                     <span className={styles["delivery-calendar-weekday"]}>{day.weekdayName}</span>
                     <span className={styles["delivery-calendar-date"]}>{day.dayOfMonth}</span>
-                    {isSkipped && <span className={styles["delivery-calendar-skipped-label"]}>{isApproved ? "Skipped" : "Requested"}</span>}
+                    {isSkipped && <span className={styles["delivery-calendar-skipped-label"]}>{isPausedDay ? "Paused" : isApproved ? "Skipped" : "Requested"}</span>}
                   {isDelivered && day.dayState === "today" && <span className={styles["delivery-calendar-skipped-label"]}>Delivered</span>}
                   </button>
                 </li>

@@ -1,20 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { reloadTodayDeliveries } from "@/store/admin-deliveries-store";
 import { useAssignedPlans, type AssignedPlan } from "@/store/delivery-agent-store";
-import { deliveryButtonStyles, useDeliveryPanel } from "./delivery-panel-layout";
+import { DeliverySheet, deliveryButtonStyles, useDeliveryPanel } from "./delivery-panel-layout";
+import ongoingStyles from "./delivery-ongoing-page.module.css";
 import styles from "./delivery-plan-calendar.module.css";
 
 /*
   Deliveries → Subscriptions: the calendar of each milk plan a manager gave this agent (my_assigned_plans(),
-  supabase/migrations/0035_… and 0036_…sql). The customers are listed; clicking one shows their calendar. It
-  opens on the running month; the arrows go to the month before or after.
+  supabase/migrations/0035_… and 0036_…sql). Two cards: the customers on the left; clicking one shows that
+  customer's own calendar on the right. It opens on the running month; the arrows go to the month before or after.
   Each day is a box like the customer's Delivery calendar (weekday over the date): delivered light green, today
-  pale yellow, upcoming grey, not delivered red, approved skips and pauses darker grey with the word.
+  pale yellow, upcoming white, not delivered red, approved skips and pauses grey with the word.
   Under the calendar: "Deliver today's milk", the time to deliver before (the customer's stop's slot, set on the
-  panel) and Delivered, which the database saves for the customer and the panel (mark_plan_day_delivered()).
+  panel) and Mark as delivered, which asks for the customer's OTP (the same 4-digit box as Ongoing) and then the
+  database saves it for the customer and the panel (mark_plan_day_delivered()). Once delivered, the button stays
+  as a greyed-out Delivered.
   A skipped or paused customer shows when the next delivery is instead (also on Ongoing: PlanDayNotices).
 */
 
@@ -33,6 +36,11 @@ const LEGEND: { state: DayState; label: string }[] = [
 // Said in the box, as colours alone don't tell these apart
 const DAY_WORDS: Partial<Record<DayState, string>> = { skipped: "Skipped", paused: "Paused", missed: "Missed" };
 
+// "Dec 3"
+function monthDayOf(date: Date) {
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 function dayKeyOf(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -46,14 +54,14 @@ function stateOf(plan: AssignedPlan, dayKey: string, todayKey: string): DayState
   return dayKey < todayKey ? "missed" : "upcoming";
 }
 
-// "6 Nov": the first day from tomorrow that isn't skipped or paused
-function nextDeliveryOf(plan: AssignedPlan, today: Date, todayKey: string) {
+// The first day from tomorrow that isn't skipped or paused
+function nextDeliveryDayOf(plan: AssignedPlan, today: Date, todayKey: string) {
   const day = new Date(today);
   for (let tries = 0; tries < 400; tries++) {
     day.setDate(day.getDate() + 1);
     const dayKey = dayKeyOf(day);
     if (dayKey > plan.lastDay) return null;
-    if (stateOf(plan, dayKey, todayKey) === "upcoming") return day.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    if (stateOf(plan, dayKey, todayKey) === "upcoming") return day;
   }
   return null;
 }
@@ -77,13 +85,60 @@ export function PlanDayNotices() {
 }
 
 function AwayText({ plan, today, todayKey, withName }: { plan: AssignedPlan; today: Date; todayKey: string; withName?: boolean }) {
-  const next = nextDeliveryOf(plan, today, todayKey);
-  const what = stateOf(plan, todayKey, todayKey) === "skipped" ? "Skipped today" : "Paused";
+  const next = nextDeliveryDayOf(plan, today, todayKey);
+  // The last day away is the day before the next delivery
+  const lastDayAway = next ? new Date(next.getFullYear(), next.getMonth(), next.getDate() - 1) : null;
+  const dontDeliver = !lastDayAway ? "Don\u2019t deliver." : dayKeyOf(lastDayAway) === todayKey ? "Don\u2019t deliver today." : `Don\u2019t deliver until ${monthDayOf(lastDayAway)}.`;
   return (
     <>
       {withName ? `${plan.customerName}: ` : ""}
-      {what}. {next ? `Next delivery from ${next}.` : "No more deliveries on this plan."}
+      {dontDeliver} {next ? `Next delivery is on ${monthDayOf(next)}.` : "No more deliveries on this plan."}
     </>
+  );
+}
+
+// Mark as delivered: the OTP the customer reads out, as on Ongoing
+function PlanOtpSheet({ plan, isSaving, onClose, onConfirm }: { plan: AssignedPlan; isSaving: boolean; onClose: () => void; onConfirm: () => void }) {
+  const [otp, setOtp] = useState("");
+  const [error, setError] = useState("");
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!/^\d{4}$/.test(otp)) {
+      setError("Enter the 4-digit OTP the customer reads out.");
+      return;
+    }
+    onConfirm();
+  }
+
+  return (
+    <DeliverySheet title="Mark as delivered" onClose={onClose}>
+      <form onSubmit={submit} className={ongoingStyles["ongoing-form"]}>
+        <p className={ongoingStyles["ongoing-form-stop"]}>
+          {plan.customerName} · {plan.bottles} {plan.milk}
+        </p>
+        <label className={ongoingStyles["ongoing-field"]}>
+          <span className={ongoingStyles["ongoing-field-label"]}>OTP from the customer</span>
+          <input
+            className={ongoingStyles["ongoing-input"]}
+            inputMode="numeric"
+            maxLength={4}
+            autoComplete="one-time-code"
+            placeholder="4 digits"
+            value={otp}
+            onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))}
+          />
+        </label>
+        {error && (
+          <p className={ongoingStyles["ongoing-form-error"]} role="alert">
+            {error}
+          </p>
+        )}
+        <button type="submit" className={deliveryButtonStyles.filled} disabled={isSaving}>
+          {isSaving ? "Saving…" : "Mark as delivered"}
+        </button>
+      </form>
+    </DeliverySheet>
   );
 }
 
@@ -93,6 +148,7 @@ export default function DeliveryPlanCalendar() {
   const [chosenOrder, setChosenOrder] = useState<string | null>(null);
   const [today] = useState(() => new Date());
   const [shownMonth, setShownMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
+  const [isOtpOpen, setIsOtpOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [problem, setProblem] = useState("");
 
@@ -106,6 +162,8 @@ export default function DeliveryPlanCalendar() {
   const days = Array.from({ length: daysInMonth }, (_, index) => new Date(shownMonth.getFullYear(), shownMonth.getMonth(), index + 1));
   // "6–7 AM" → "7 AM": the end of the slot set on the panel
   const deliverBefore = plan?.slot.split("–").pop()?.trim() || "7 AM";
+  // Today while it's still to deliver, else the next day that isn't skipped or paused
+  const nextDeliveryDay = plan ? (todayState === "today" && isDeliveryDay ? today : nextDeliveryDayOf(plan, today, todayKey)) : null;
 
   function moveMonth(change: number) {
     setShownMonth((month) => new Date(month.getFullYear(), month.getMonth() + change, 1));
@@ -120,20 +178,21 @@ export default function DeliveryPlanCalendar() {
     await loadPlans();
     await reloadTodayDeliveries();
     setIsSaving(false);
+    setIsOtpOpen(false);
   }
 
   return (
-    <section className={styles["plan-calendar-card"]} aria-labelledby="plan-calendar-heading">
-      <h2 id="plan-calendar-heading" className={styles["plan-calendar-heading"]}>
-        Customer calendars
-      </h2>
-      <p className={styles["plan-calendar-note"]}>The milk plans your manager gave you. Choose a customer to see their deliveries.</p>
+    <div className={styles["plan-calendar-columns"]}>
+      <section className={styles["plan-calendar-card"]} aria-labelledby="plan-calendar-heading">
+        <h2 id="plan-calendar-heading" className={styles["plan-calendar-heading"]}>
+          Subscription customers
+        </h2>
+        <p className={styles["plan-calendar-note"]}>The milk plans your manager gave you. Choose a customer to see their calendar.</p>
 
-      {hasProblem && <p className={styles["plan-calendar-note"]}>Couldn&rsquo;t read your plans. Please try again.</p>}
-      {plans?.length === 0 && !hasProblem && <p className={styles["plan-calendar-empty"]}>No milk plans given to you yet.</p>}
+        {hasProblem && <p className={styles["plan-calendar-note"]}>Couldn&rsquo;t read your plans. Please try again.</p>}
+        {plans?.length === 0 && !hasProblem && <p className={styles["plan-calendar-empty"]}>No milk plans given to you yet.</p>}
 
-      {plan && (
-        <div className={styles["plan-calendar-columns"]}>
+        {plan && (
           <ul className={styles["plan-calendar-customers"]}>
             {plans?.map((existing) => (
               <li key={existing.orderNumber}>
@@ -155,6 +214,21 @@ export default function DeliveryPlanCalendar() {
               </li>
             ))}
           </ul>
+        )}
+      </section>
+
+      {plan && (
+        <section className={styles["plan-calendar-card"]} aria-labelledby="plan-calendar-customer-heading">
+          <div className={styles["plan-calendar-customer-row"]}>
+            <h2 id="plan-calendar-customer-heading" className={styles["plan-calendar-heading"]}>
+              {plan.customerName}
+            </h2>
+            {nextDeliveryDay && (
+              <span className={styles["plan-calendar-next-delivery"]}>
+                Next delivery on {monthDayOf(nextDeliveryDay)}, {deliverBefore}
+              </span>
+            )}
+          </div>
 
           <div className={styles["plan-calendar-month-area"]}>
             <div className={styles["plan-calendar-month-row"]}>
@@ -204,7 +278,6 @@ export default function DeliveryPlanCalendar() {
             </ul>
 
             {/* Today, for this customer */}
-            {todayState === "delivered" && <p className={styles["plan-today-done"]}>Delivered today.</p>}
             {(todayState === "skipped" || todayState === "paused") && (
               <p className={styles["plan-day-away"]}>
                 <AwayText plan={plan} today={today} todayKey={todayKey} />
@@ -215,16 +288,21 @@ export default function DeliveryPlanCalendar() {
                 {todayKey < plan.firstDay ? `Deliveries start on ${new Date(`${plan.firstDay}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}.` : "This plan has ended."}
               </p>
             )}
-            {todayState === "today" && isDeliveryDay && (
-              <div className={styles["plan-today"]}>
+            {((todayState === "today" && isDeliveryDay) || todayState === "delivered") && (
+              <div className={`${styles["plan-today"]} ${todayState === "delivered" ? styles["plan-today-finished"] : ""}`}>
                 <div>
-                  <p className={styles["plan-today-title"]}>Deliver today&rsquo;s milk</p>
+                  <p className={styles["plan-today-title"]}>{todayState === "delivered" ? "Today\u2019s milk delivered" : "Deliver today\u2019s milk"}</p>
                   <p className={styles["plan-today-time"]}>
                     {plan.bottles} {plan.milk} · Deliver before {deliverBefore}
                   </p>
                 </div>
-                <button type="button" className={deliveryButtonStyles.filled} disabled={isSaving || !stops.isOnDuty} onClick={() => void markDelivered()}>
-                  {isSaving ? "Saving…" : "Delivered"}
+                <button
+                  type="button"
+                  className={deliveryButtonStyles.filled}
+                  disabled={isSaving || !stops.isOnDuty || todayState === "delivered"}
+                  onClick={() => setIsOtpOpen(true)}
+                >
+                  {todayState === "delivered" ? "Delivered" : "Mark as delivered"}
                 </button>
               </div>
             )}
@@ -234,8 +312,10 @@ export default function DeliveryPlanCalendar() {
               </p>
             )}
           </div>
-        </div>
+
+          {isOtpOpen && <PlanOtpSheet plan={plan} isSaving={isSaving} onClose={() => setIsOtpOpen(false)} onConfirm={() => void markDelivered()} />}
+        </section>
       )}
-    </section>
+    </div>
   );
 }

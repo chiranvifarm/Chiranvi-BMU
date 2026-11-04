@@ -151,7 +151,6 @@ function DeliveryPanelFrame({ login, children }: { login: AgentLogin; children: 
     };
   }, [isMenuOpen]);
 
-  const currentPage = DELIVERY_PANEL_PAGES.find((page) => page.href === pathname);
 
   return (
     <DeliveryPanelContext.Provider value={{ login, stops }}>
@@ -247,7 +246,6 @@ function DeliveryPanelFrame({ login, children }: { login: AgentLogin; children: 
         <main className={styles["delivery-content"]}>
           {/* Wide screens: duty switch and bell above the page */}
           <div className={styles["delivery-content-top-row"]}>
-            {currentPage && <span className={styles["delivery-content-page-name"]}>{currentPage.label}</span>}
             <div className={styles["delivery-topbar-actions"]}>
               <DutySwitch mobileNumber={login.mobileNumber} isOnDuty={stops.isOnDuty} />
               <NotificationsBell stops={stops} />

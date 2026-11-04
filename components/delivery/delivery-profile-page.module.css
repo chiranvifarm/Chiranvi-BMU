@@ -1,33 +1,292 @@
 /*
-  Me → Profile. Sizes in --delivery-pixel (set by the Delivery Panel frame).
+  Me → Profile, from the Figma design 01-profile. Sizes in --delivery-pixel (set by the Delivery Panel frame).
   Today's attendance: Present green, On leave yellow, Absent red (serious).
 */
 
-.delivery-profile-card {
-  padding: calc(18 * var(--delivery-pixel)) calc(22 * var(--delivery-pixel));
-  border: 1px solid #e7e8e2;
-  border-radius: calc(14 * var(--delivery-pixel));
-  background: #ffffff;
+.delivery-profile-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  align-items: stretch;
+  gap: calc(16 * var(--delivery-pixel));
 }
 
-.delivery-profile-top-row {
+/* The green card, with the gold ring at the top and the soft circle at the bottom */
+.delivery-profile-green-card {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: calc(8 * var(--delivery-pixel));
-  margin-bottom: calc(14 * var(--delivery-pixel));
+  overflow: hidden;
+  padding: calc(30 * var(--delivery-pixel)) calc(26 * var(--delivery-pixel)) calc(24 * var(--delivery-pixel));
+  border-radius: calc(20 * var(--delivery-pixel));
+  background: #2f6b3a;
+  color: #ffffff;
 }
 
-.delivery-profile-name {
+.delivery-profile-green-card::before {
+  content: "";
+  position: absolute;
+  top: calc(-90 * var(--delivery-pixel));
+  right: calc(-70 * var(--delivery-pixel));
+  width: calc(190 * var(--delivery-pixel));
+  height: calc(190 * var(--delivery-pixel));
+  border: calc(12 * var(--delivery-pixel)) solid rgba(245, 191, 44, 0.45);
+  border-radius: 50%;
+}
+
+.delivery-profile-green-card::after {
+  content: "";
+  position: absolute;
+  right: calc(-60 * var(--delivery-pixel));
+  bottom: calc(-80 * var(--delivery-pixel));
+  width: calc(190 * var(--delivery-pixel));
+  height: calc(190 * var(--delivery-pixel));
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.delivery-profile-green-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.delivery-profile-initials-ring {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(104 * var(--delivery-pixel));
+  height: calc(104 * var(--delivery-pixel));
+  border: 1px solid rgba(245, 191, 44, 0.55);
+  border-radius: 50%;
+}
+
+.delivery-profile-initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(88 * var(--delivery-pixel));
+  height: calc(88 * var(--delivery-pixel));
+  border-radius: 50%;
+  background: #f5bf2c;
   font-family: var(--font-ubuntu), sans-serif;
-  font-size: calc(20 * var(--delivery-pixel));
-  font-weight: 700;
+  font-size: calc(30 * var(--delivery-pixel));
+  font-weight: 500;
   color: #1f4d2e;
 }
 
+.delivery-profile-name {
+  margin-top: calc(14 * var(--delivery-pixel));
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(24 * var(--delivery-pixel));
+  font-weight: 500;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.delivery-profile-since {
+  margin-top: calc(3 * var(--delivery-pixel));
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #e6f0e1;
+}
+
+.delivery-profile-numbers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: calc(8 * var(--delivery-pixel));
+  width: 100%;
+  margin: calc(18 * var(--delivery-pixel)) 0 0;
+  padding: calc(16 * var(--delivery-pixel)) 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+  text-align: center;
+}
+
+.delivery-profile-number-value {
+  margin: 0;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(23 * var(--delivery-pixel));
+  font-weight: 500;
+}
+
+.delivery-profile-number-label {
+  margin-top: calc(2 * var(--delivery-pixel));
+  font-size: calc(10.5 * var(--delivery-pixel));
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #e6f0e1;
+}
+
+.delivery-profile-green-card > .delivery-profile-work-details {
+  z-index: 2;
+}
+
+.delivery-profile-work-details {
+  display: flex;
+  flex-direction: column;
+  gap: calc(12 * var(--delivery-pixel));
+  width: 100%;
+  margin: calc(16 * var(--delivery-pixel)) 0 calc(20 * var(--delivery-pixel));
+}
+
+.delivery-profile-work-details div {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(12 * var(--delivery-pixel));
+  font-size: calc(13 * var(--delivery-pixel));
+}
+
+.delivery-profile-work-details dt {
+  color: #e6f0e1;
+}
+
+.delivery-profile-work-details dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* Several routes: "2 routes" opens the list under it */
+.delivery-profile-routes {
+  position: relative;
+  min-width: 0;
+}
+
+.delivery-profile-routes-button {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4 * var(--delivery-pixel));
+  padding: calc(3 * var(--delivery-pixel)) calc(7 * var(--delivery-pixel)) calc(3 * var(--delivery-pixel)) calc(11 * var(--delivery-pixel));
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 9999px;
+  background: transparent;
+  font-family: inherit;
+  font-size: calc(12.5 * var(--delivery-pixel));
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.delivery-profile-routes-button:hover,
+.delivery-profile-routes-button[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.delivery-profile-routes-button svg {
+  width: calc(14 * var(--delivery-pixel));
+  height: calc(14 * var(--delivery-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Floats over the card, so the card keeps its height */
+.delivery-profile-routes-list {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 6 * var(--delivery-pixel));
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--delivery-pixel));
+  width: max-content;
+  max-width: calc(260 * var(--delivery-pixel));
+  max-height: calc(88 * var(--delivery-pixel));
+  margin: 0;
+  padding: calc(6 * var(--delivery-pixel));
+  overflow-y: auto;
+  border-radius: calc(12 * var(--delivery-pixel));
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(19, 37, 27, 0.3);
+  list-style: none;
+}
+
+.delivery-profile-routes-list li {
+  padding: calc(6 * var(--delivery-pixel)) calc(10 * var(--delivery-pixel));
+  border-radius: calc(8 * var(--delivery-pixel));
+  font-size: calc(12.5 * var(--delivery-pixel));
+  font-weight: 600;
+  text-align: left;
+  color: #1f4d2e;
+}
+
+.delivery-profile-routes-list li:nth-child(odd) {
+  background: #e6f0e1;
+}
+
+.delivery-profile-edit-button {
+  width: 100%;
+  margin-top: auto;
+  padding: calc(11 * var(--delivery-pixel));
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 9999px;
+  font-size: calc(13.5 * var(--delivery-pixel));
+  font-weight: 600;
+  text-align: center;
+  color: #ffffff;
+}
+
+.delivery-profile-edit-button:hover,
+.delivery-profile-edit-button:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.delivery-profile-right-column {
+  display: flex;
+  flex-direction: column;
+  gap: calc(16 * var(--delivery-pixel));
+  min-width: 0;
+}
+
+.delivery-profile-card {
+  padding: calc(22 * var(--delivery-pixel)) calc(26 * var(--delivery-pixel));
+  border: 1px solid #e7e8e2;
+  border-radius: calc(20 * var(--delivery-pixel));
+  background: #ffffff;
+}
+
+.delivery-profile-right-column .delivery-profile-card:last-child {
+  flex: 1;
+}
+
+.delivery-profile-card-title {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(15.5 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #1b2a20;
+}
+
+.delivery-profile-contact-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: calc(16 * var(--delivery-pixel)) calc(20 * var(--delivery-pixel));
+  margin: calc(16 * var(--delivery-pixel)) 0 0;
+}
+
+.delivery-profile-contact-details dt {
+  font-size: calc(12 * var(--delivery-pixel));
+  color: #6b736c;
+}
+
+.delivery-profile-contact-details dd {
+  margin: calc(3 * var(--delivery-pixel)) 0 0;
+  font-size: calc(14 * var(--delivery-pixel));
+  font-weight: 500;
+  color: #1b2a20;
+  overflow-wrap: anywhere;
+}
+
+.delivery-profile-today-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(10 * var(--delivery-pixel));
+}
+
 .delivery-profile-status {
-  padding: calc(3 * var(--delivery-pixel)) calc(10 * var(--delivery-pixel));
+  padding: calc(3 * var(--delivery-pixel)) calc(11 * var(--delivery-pixel));
   border-radius: 9999px;
   font-size: calc(12 * var(--delivery-pixel));
   font-weight: 600;
@@ -49,89 +308,69 @@
   color: #c0392b;
 }
 
-.delivery-profile-details {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: calc(14 * var(--delivery-pixel)) calc(18 * var(--delivery-pixel));
-  margin: 0;
-}
-
-.delivery-profile-details dt {
-  font-size: calc(12 * var(--delivery-pixel));
-  color: #6b736c;
-}
-
-.delivery-profile-details dd {
-  margin: calc(2 * var(--delivery-pixel)) 0 0;
-  font-size: calc(14 * var(--delivery-pixel));
-  font-weight: 600;
-  color: #1b2a20;
+.delivery-profile-today-route {
+  margin-top: calc(6 * var(--delivery-pixel));
+  font-size: calc(13 * var(--delivery-pixel));
+  color: #5c655e;
   overflow-wrap: anywhere;
 }
 
-.delivery-profile-note {
-  margin-top: calc(16 * var(--delivery-pixel));
-  padding-top: calc(12 * var(--delivery-pixel));
-  border-top: 1px solid #f1f1ec;
-  font-size: calc(12.5 * var(--delivery-pixel));
-  color: #6b736c;
-}
-
-.delivery-profile-link {
-  font-weight: 600;
-  color: #2f6b3a;
-  text-decoration: underline;
-}
-
-.delivery-profile-numbers {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: calc(12 * var(--delivery-pixel));
-  margin: calc(16 * var(--delivery-pixel)) 0;
-}
-
-.delivery-profile-number {
+.delivery-profile-stops-row {
   display: flex;
-  flex-direction: column;
-  gap: calc(2 * var(--delivery-pixel));
-  padding: calc(14 * var(--delivery-pixel)) calc(16 * var(--delivery-pixel));
-  border: 1px solid #e7e8e2;
-  border-radius: calc(14 * var(--delivery-pixel));
-  background: #ffffff;
+  align-items: baseline;
+  gap: calc(8 * var(--delivery-pixel));
+  margin-top: calc(18 * var(--delivery-pixel));
 }
 
-.delivery-profile-number-value {
+.delivery-profile-stops-value {
   font-family: var(--font-ubuntu), sans-serif;
-  font-size: calc(22 * var(--delivery-pixel));
-  font-weight: 700;
-  color: #1f4d2e;
+  font-size: calc(32 * var(--delivery-pixel));
+  font-weight: 500;
+  color: #1b2a20;
 }
 
-.delivery-profile-number-label {
-  font-size: calc(12 * var(--delivery-pixel));
+.delivery-profile-stops-total {
+  font-size: calc(18 * var(--delivery-pixel));
   color: #6b736c;
+}
+
+.delivery-profile-stops-label {
+  font-size: calc(13 * var(--delivery-pixel));
+  color: #6b736c;
+}
+
+.delivery-profile-progress {
+  height: calc(8 * var(--delivery-pixel));
+  margin-top: calc(10 * var(--delivery-pixel));
+  overflow: hidden;
+  border-radius: 9999px;
+  background: #ecece6;
+}
+
+.delivery-profile-progress-done {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+  background: #f5bf2c;
 }
 
 @media (max-width: 900px) {
+  .delivery-profile-columns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .delivery-profile-right-column {
+    gap: 12px;
+  }
+
   .delivery-profile-card {
     padding: 18px;
-  }
-
-  .delivery-profile-details {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .delivery-profile-numbers {
-    gap: 8px;
-  }
-
-  .delivery-profile-number {
-    padding: 12px;
   }
 }
 
 @media (max-width: 480px) {
-  .delivery-profile-numbers {
-    grid-template-columns: repeat(2, 1fr);
+  .delivery-profile-contact-details {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

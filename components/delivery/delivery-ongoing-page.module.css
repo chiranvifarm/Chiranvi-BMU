@@ -1,12 +1,14 @@
 /*
   Deliveries → Ongoing. Sizes in --delivery-pixel (set by the Delivery Panel frame: Chiranvi Panel size on
-  wide screens, plain pixels on phones). Two columns on wide screens (customer, hand over), the status card
-  under them; one column on phones, big tap targets.
+  wide screens, plain pixels on phones). Wide screens: the page fills the screen, the customer on the left, hand
+  over and status on the right. One column on phones, big tap targets.
 */
 
 .ongoing-columns {
   display: grid;
+  flex: 1;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto 1fr;
   gap: calc(14 * var(--delivery-pixel));
 }
 
@@ -18,8 +20,12 @@
   background: #ffffff;
 }
 
-.ongoing-card-wide {
-  grid-column: 1 / -1;
+.ongoing-card-customer {
+  grid-row: span 2;
+}
+
+.ongoing-card-status {
+  grid-column: 2;
 }
 
 .ongoing-card-title {
@@ -112,11 +118,10 @@
 
 .ongoing-contact-button {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: calc(4 * var(--delivery-pixel));
-  min-height: calc(58 * var(--delivery-pixel));
+  gap: calc(6 * var(--delivery-pixel));
+  min-height: calc(34 * var(--delivery-pixel));
   border: 1px solid #d9e6d3;
   border-radius: calc(12 * var(--delivery-pixel));
   background: #e6f0e1;
@@ -133,8 +138,8 @@
 
 .ongoing-contact-button svg,
 .ongoing-navigate-icon {
-  width: calc(20 * var(--delivery-pixel));
-  height: calc(20 * var(--delivery-pixel));
+  width: calc(16 * var(--delivery-pixel));
+  height: calc(16 * var(--delivery-pixel));
   fill: none;
   stroke: currentColor;
   stroke-width: 1.9;
@@ -519,11 +524,24 @@
 @media (max-width: 900px) {
   .ongoing-columns {
     grid-template-columns: 1fr;
+    grid-template-rows: none;
     gap: 12px;
   }
 
   .ongoing-card {
     padding: 16px;
+  }
+
+  .ongoing-card-customer {
+    grid-row: auto;
+  }
+
+  .ongoing-card-status {
+    grid-column: auto;
+  }
+
+  .ongoing-contact-button {
+    min-height: 48px;
   }
 
   .ongoing-finish-buttons {
@@ -539,95 +557,11 @@
   }
 }
 
-/* "Ask another agent to deliver" next to "Raise a request to the manager" */
+/* "Raise a request to the manager" */
 .ongoing-request-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: calc(8 * var(--delivery-pixel));
-}
-
-/* Asked another agent: waiting for their answer (light yellow) */
-.ongoing-exchange-waiting {
-  margin-top: calc(10 * var(--delivery-pixel));
-  padding: calc(10 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
-  border-radius: calc(10 * var(--delivery-pixel));
-  background: #fbf3e1;
-  font-size: calc(12.5 * var(--delivery-pixel));
-  color: #8a6a1c;
-}
-
-/* At the top: requests from other agents, and how this agent's requests ended */
-.ongoing-exchanges {
-  display: flex;
-  flex-direction: column;
-  gap: calc(10 * var(--delivery-pixel));
-  margin-bottom: calc(16 * var(--delivery-pixel));
-}
-
-.ongoing-exchange-request {
-  display: flex;
-  flex-direction: column;
-  gap: calc(4 * var(--delivery-pixel));
-  padding: calc(14 * var(--delivery-pixel)) calc(16 * var(--delivery-pixel));
-  border: 1.5px solid #c99a1e;
-  border-radius: calc(14 * var(--delivery-pixel));
-  background: #ffffff;
-}
-
-.ongoing-exchange-title {
-  font-family: var(--font-ubuntu), sans-serif;
-  font-size: calc(15 * var(--delivery-pixel));
-  font-weight: 700;
-  color: #1f4d2e;
-}
-
-.ongoing-exchange-detail {
-  font-size: calc(12.5 * var(--delivery-pixel));
-  color: #4d5a50;
-  overflow-wrap: anywhere;
-}
-
-.ongoing-exchange-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: calc(8 * var(--delivery-pixel));
-  margin-top: calc(6 * var(--delivery-pixel));
-}
-
-.ongoing-exchange-done,
-.ongoing-exchange-not-done {
-  padding: calc(10 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
-  border-radius: calc(10 * var(--delivery-pixel));
-  font-size: calc(12.5 * var(--delivery-pixel));
-}
-
-.ongoing-exchange-done {
-  background: #e6f0e1;
-  color: #1f4d2e;
-}
-
-.ongoing-exchange-not-done {
-  background: #fbf3e1;
-  color: #8a6a1c;
-}
-
-.ongoing-exchange-agents {
-  display: flex;
-  flex-direction: column;
-  gap: calc(8 * var(--delivery-pixel));
-  margin: 0;
-  padding: 0;
-  border: none;
-}
-
-.ongoing-exchange-agent-name {
-  flex: 1;
-}
-
-.ongoing-exchange-agent-stops {
-  font-size: calc(12 * var(--delivery-pixel));
-  font-weight: 400;
-  color: #6b736c;
 }
 
 @media (max-width: 900px) {

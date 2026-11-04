@@ -42,7 +42,7 @@
 
 .up-next-card {
   min-width: 0;
-  padding: calc(18 * var(--delivery-pixel));
+  padding: calc(18 * var(--delivery-pixel)) calc(22 * var(--delivery-pixel));
   border: 1px solid #e7e8e2;
   border-radius: calc(14 * var(--delivery-pixel));
   background: #ffffff;
@@ -51,7 +51,7 @@
 .up-next-card-title {
   margin-bottom: calc(10 * var(--delivery-pixel));
   font-family: var(--font-ubuntu), sans-serif;
-  font-size: calc(16 * var(--delivery-pixel));
+  font-size: calc(15.5 * var(--delivery-pixel));
   font-weight: 700;
 }
 
@@ -338,6 +338,10 @@
 }
 
 @media (max-width: 900px) {
+  .up-next-card {
+    padding: 18px;
+  }
+
   .up-next-totals {
     gap: 8px;
   }

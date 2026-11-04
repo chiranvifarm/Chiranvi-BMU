@@ -114,11 +114,22 @@
   stroke-linecap: round;
 }
 
+/* An order's status changed: the same card near the top, so it never covers the reminder at the bottom */
+.order-update-toast {
+  top: 96px;
+  bottom: auto;
+}
+
 /* Phones: across the bottom, inside the 16px side margins */
 @media (max-width: 600px) {
   .profile-reminder-toast {
     right: 16px;
     bottom: 16px;
+  }
+
+  .order-update-toast {
+    top: 76px;
+    bottom: auto;
   }
 }
 

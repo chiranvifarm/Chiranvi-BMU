@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo } from "react";
 import { useIsLoginStatusKnown, useLoggedInMobileNumber } from "@/components/login/login-status";
 import { useIsStaffAccessKnown, useStaffMembers } from "./staff-access-store";
 import {
   reloadTodayDeliveries,
   setDeliveryStatus,
   toDateKey,
+  useAreTodayDeliveriesLoaded,
   useTodayDeliveries,
   type Delivery,
   type DeliverySlot,
-  type DeliveryTransferRequest,
+  type DeliveryStatus,
 } from "./admin-deliveries-store";
 import { useDeliveryAgents, useDeliveryRoutes, type DeliveryAgent, type DeliveryRoute } from "./admin-routes-store";
 import { createPanelRecordStore } from "./panel-records";
@@ -21,7 +22,7 @@ import { createClient } from "@/lib/supabase/client";
   deliveries the Chiranvi Panel gives that agent (store/admin-deliveries-store.ts).
   What the agent adds is kept per agent and day in the database (panel_records, "agent-days", one record per
   agent and day; only that agent, and staff with Deliveries → View, can read it): their stop order, the step each stop is at
-  (Picked up → On the way → Reached), how it ended (Delivered / Left at door / Not delivered) with its proof
+  (Picked up), how it ended (Delivered / Left at door / Not delivered) with its proof
   (customer's OTP or a photo), bottles and cash collected, requests raised to the manager, on / off duty and
   notifications. Finishing a stop also marks it on the panel's Deliveries page (Delivered, or Missed), and
   starting one marks it Out for delivery.
@@ -32,12 +33,8 @@ import { createClient } from "@/lib/supabase/client";
   Completed the finished ones (including those the panel already shows as Delivered or Missed).
 */
 
-export type StopStep = "picked-up" | "on-the-way" | "reached";
-export const STOP_STEPS: { key: StopStep; label: string }[] = [
-  { key: "picked-up", label: "Picked up" },
-  { key: "on-the-way", label: "On the way" },
-  { key: "reached", label: "Reached" },
-];
+export type StopStep = "picked-up";
+export const STOP_STEPS: { key: StopStep; label: string }[] = [{ key: "picked-up", label: "Picked up" }];
 
 export type StopOutcome = "delivered" | "left-at-door" | "not-delivered";
 export const STOP_OUTCOME_LABELS: Record<StopOutcome, string> = {
@@ -80,7 +77,7 @@ export type AgentRequest = {
 
 export type AgentNotification = {
   id: string;
-  kind: "new-stop" | "route-change" | "request-update" | "manager-message";
+  kind: "new-stop" | "route-change" | "status-change" | "request-update" | "manager-message";
   text: string;
   at: string; // ISO
 };
@@ -89,6 +86,7 @@ export type StopItem = { name: string; packSize: string; quantity: number; price
 
 export type AgentStop = {
   id: string; // the panel's delivery ID, "D-20261030-0004"
+  status: DeliveryStatus; // as on the panel's Deliveries page
   customerName: string;
   phone: string; // 10 digits
   address: string;
@@ -113,7 +111,6 @@ export type AgentStop = {
   bottlesCollected?: number;
   cashCollected?: number;
   requests: AgentRequest[];
-  transferRequest?: DeliveryTransferRequest; // asked another agent to take it, waiting for their answer
 };
 
 type StopProgress = {
@@ -133,6 +130,7 @@ type AgentDay = {
   progress: Record<string, StopProgress>;
   requests: AgentRequest[];
   knownStopIds: string[]; // the stops seen so far today (new ones and removed ones become notifications)
+  knownStopStatuses?: Record<string, DeliveryStatus>; // each stop's status when last seen (a change becomes a notification)
   notifications: AgentNotification[];
   notificationsSeenAt: string; // ISO, when the bell was last opened
 };
@@ -321,6 +319,25 @@ function outcomeFromPanel(delivery: Delivery): StopProgress | null {
   return null;
 }
 
+/*
+  Where a stop stands. Its status on the Deliveries list decides, the same for the agent and the panel: finished
+  there (Delivered, Missed) is finished here, and reopened there is reopened here. What the agent saved adds the
+  details (proof, bottles, cash) when it agrees.
+*/
+function progressOf(delivery: Delivery, saved: StopProgress | undefined): StopProgress {
+  const fromPanel = outcomeFromPanel(delivery);
+  if (!fromPanel) {
+    return {
+      ...saved,
+      step: saved?.step ?? (delivery.status === "Out for delivery" ? "picked-up" : undefined),
+      outcome: undefined,
+      finishedAt: undefined,
+    };
+  }
+  if (saved?.outcome && (saved.outcome === "not-delivered") === (delivery.status === "Missed")) return saved;
+  return { ...saved, ...fromPanel };
+}
+
 // ---------- Distances ----------
 
 // Road distance between two stops: straight line × 1.3 (Bengaluru roads), in km
@@ -350,6 +367,7 @@ export type AgentStops = {
   upNext: AgentStop[];
   completed: AgentStop[]; // newest first
   isOnDuty: boolean;
+  isLoaded: boolean; // the stops and the agent's day have been read (the sidebar's counts wait for it)
   requests: AgentRequest[]; // newest first
   notifications: AgentNotification[]; // newest first
   unseenNotificationCount: number;
@@ -363,6 +381,9 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
   const deliveries = useTodayDeliveries();
   const routes = useDeliveryRoutes();
   const day = useAgentDay(mobileNumber);
+  const areDeliveriesLoaded = useAreTodayDeliveriesLoaded();
+  const isDayLoaded = dayStore.useIsLoaded();
+  const isLoaded = areDeliveriesLoaded && isDayLoaded;
 
   const stops = useMemo(() => {
     if (!agentName) return [];
@@ -370,10 +391,10 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
     return mine.map((delivery): AgentStop => {
       const route = routes.find((existing) => existing.id === delivery.routeId);
       const details = stopDetails(delivery, route);
-      // What the agent did wins; otherwise what the panel shows
-      const progress = day.progress[delivery.id] ?? outcomeFromPanel(delivery) ?? {};
+      const progress = progressOf(delivery, day.progress[delivery.id]);
       return {
         id: delivery.id,
+        status: delivery.status,
         customerName: delivery.customerName,
         phone: delivery.phone,
         address: delivery.address,
@@ -381,20 +402,22 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
         ...details,
         ...progress,
         requests: day.requests.filter((request) => request.deliveryId === delivery.id),
-        transferRequest: delivery.transferRequest ?? undefined,
       };
     });
   }, [agentName, deliveries, routes, day]);
 
   // New stops and stops moved away since the agent last looked: notifications
   useEffect(() => {
-    if (!mobileNumber || !agentName || deliveries.length === 0) return;
+    if (!mobileNumber || !agentName || !isLoaded || deliveries.length === 0) return;
     const currentIds = stops.map((stop) => stop.id);
     const known = new Set(day.knownStopIds);
     const current = new Set(currentIds);
     const added = stops.filter((stop) => !known.has(stop.id));
     const removed = day.knownStopIds.filter((id) => !current.has(id));
-    if (added.length === 0 && removed.length === 0) return;
+    const knownStatuses = day.knownStopStatuses;
+    const areStatusesKnown = knownStatuses !== undefined && stops.every((stop) => knownStatuses[stop.id] === stop.status);
+    if (added.length === 0 && removed.length === 0 && areStatusesKnown) return;
+    const changedStops = stops.filter((stop) => knownStatuses?.[stop.id] && knownStatuses[stop.id] !== stop.status);
     // The first look of the day only learns the stops (they are not "new")
     const isFirstLook = day.knownStopIds.length === 0;
     const now = new Date().toISOString();
@@ -412,18 +435,25 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
                 {
                   id: `moved-${now}`,
                   kind: "route-change" as const,
-                  text: `Route change: ${removed.length} stop${removed.length === 1 ? "" : "s"} moved to another agent`,
+                  text: `Route change: ${removed.length} stop${removed.length === 1 ? "" : "s"} moved to another agent or cancelled`,
                   at: now,
                 },
               ]
             : []),
+          ...changedStops.map((stop) => ({
+            id: `status-${stop.id}-${stop.status}-${now}`,
+            kind: "status-change" as const,
+            text: `${stop.customerName}: now ${stop.status.toLowerCase()}`,
+            at: now,
+          })),
         ];
     saveDay(mobileNumber, (saved) => ({
       ...saved,
       knownStopIds: currentIds,
+      knownStopStatuses: Object.fromEntries(stops.map((stop) => [stop.id, stop.status])),
       notifications: [...notifications, ...saved.notifications].slice(0, 50),
     }));
-  }, [mobileNumber, agentName, deliveries.length, stops, day.knownStopIds]);
+  }, [mobileNumber, agentName, isLoaded, deliveries.length, stops, day.knownStopIds, day.knownStopStatuses]);
 
   return useMemo(() => {
     const finished = stops.filter((stop) => stop.outcome);
@@ -442,131 +472,12 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
       upNext: unfinished.slice(1),
       completed: finished,
       isOnDuty: day.isOnDuty,
+      isLoaded,
       requests: [...day.requests].sort((first, second) => second.raisedAt.localeCompare(first.raisedAt)),
       notifications: day.notifications,
       unseenNotificationCount: day.notifications.filter((notification) => notification.at > day.notificationsSeenAt).length,
     };
-  }, [stops, day]);
-}
-
-// ---------- Handing a stop to another agent (delivery exchange) ----------
-/*
-  Checked by the database (supabase/migrations/0026_agent_stop_exchange.sql): the agent asks someone on duty
-  today to deliver one of their open stops; it stays theirs until that agent accepts. Declined, or no
-  answer: they deliver it themselves. Requests to me and how mine ended are read every 30 seconds (and when
-  the window comes back into focus).
-*/
-
-export type AgentToAsk = { name: string; stopsToGo: number };
-export type IncomingStopExchange = {
-  stopId: string;
-  customerName: string;
-  address: string;
-  slot: string;
-  orderNumber: string | null;
-  items: StopItem[];
-  fromAgent: string;
-  reason: string;
-  requestedAt: string;
-};
-export type SentStopExchange = {
-  stopId: string;
-  customerName: string;
-  orderNumber: string | null;
-  toAgent: string;
-  outcome: "waiting" | "accepted" | "declined" | "cancelled";
-  at: string;
-};
-
-type StopExchanges = { incoming: IncomingStopExchange[]; sent: SentStopExchange[] };
-
-const NO_EXCHANGES: StopExchanges = { incoming: [], sent: [] };
-let exchanges = NO_EXCHANGES;
-let isFollowingExchanges = false;
-const exchangeListeners = new Set<() => void>();
-
-async function loadStopExchanges() {
-  const supabase = createClient();
-  const { data: login } = await supabase.auth.getSession();
-  if (!login.session) return;
-  const [incoming, sent] = await Promise.all([supabase.rpc("my_stop_exchange_requests"), supabase.rpc("my_sent_stop_exchanges")]);
-  // Not a delivery agent: nothing to show
-  if (incoming.error || sent.error) return;
-  const before = exchangeKeyOf(exchanges);
-  exchanges = {
-    incoming: (incoming.data as Record<string, unknown>[]).map((row) => ({
-      stopId: String(row.stop_id),
-      customerName: String(row.customer_name ?? ""),
-      address: String(row.address ?? ""),
-      slot: String(row.slot ?? ""),
-      orderNumber: (row.order_number as string | null) ?? null,
-      items: (row.items as StopItem[]) ?? [],
-      fromAgent: String(row.from_agent ?? ""),
-      reason: String(row.reason ?? ""),
-      requestedAt: String(row.requested_at ?? ""),
-    })),
-    sent: (sent.data as Record<string, unknown>[]).map((row) => ({
-      stopId: String(row.stop_id),
-      customerName: String(row.customer_name ?? ""),
-      orderNumber: (row.order_number as string | null) ?? null,
-      toAgent: String(row.to_agent ?? ""),
-      outcome: row.outcome as SentStopExchange["outcome"],
-      at: String(row.at ?? ""),
-    })),
-  };
-  // Something new (a request, or an answer to mine): my stops may have changed too
-  if (exchangeKeyOf(exchanges) === before) return;
-  void reloadTodayDeliveries();
-  exchangeListeners.forEach((onChange) => onChange());
-}
-
-function exchangeKeyOf(list: StopExchanges) {
-  return [...list.incoming.map((request) => request.stopId), ...list.sent.map((sentOne) => `${sentOne.stopId}:${sentOne.outcome}`)].join();
-}
-
-function subscribeToExchanges(onChange: () => void) {
-  exchangeListeners.add(onChange);
-  if (!isFollowingExchanges && typeof window !== "undefined") {
-    isFollowingExchanges = true;
-    void loadStopExchanges();
-    window.addEventListener("focus", () => void loadStopExchanges());
-    window.setInterval(() => {
-      if (document.visibilityState === "visible") void loadStopExchanges();
-    }, 30_000);
-  }
-  return () => {
-    exchangeListeners.delete(onChange);
-  };
-}
-
-// Requests waiting for me, and the stops I asked someone to take today (with how it ended)
-export function useStopExchanges() {
-  return useSyncExternalStore(subscribeToExchanges, () => exchanges, () => NO_EXCHANGES);
-}
-
-// The other agents on duty today (or a problem to show)
-export async function fetchAgentsToAsk(): Promise<AgentToAsk[] | string> {
-  const { data, error } = await createClient().rpc("delivery_agents_to_ask");
-  if (error) return "Couldn't read the agents on duty. Try again.";
-  return ((data ?? []) as { agent_name: string; stops_to_go: number }[]).map((row) => ({ name: row.agent_name, stopsToGo: row.stops_to_go }));
-}
-
-// Asks another agent to deliver the stop; answers a problem to show, or null when asked
-export async function askAgentToTakeStop(stopId: string, agentName: string, reason: string) {
-  const { error } = await createClient().rpc("ask_agent_to_take_stop", { stop_id: stopId, to_agent: agentName, reason });
-  await reloadTodayDeliveries();
-  await loadStopExchanges();
-  if (error) return error.message || "Couldn't send the request. Try again.";
-  return null;
-}
-
-// Accept (the stop is mine) or decline (it stays with the agent who asked)
-export async function answerStopExchange(stopId: string, accept: boolean) {
-  const { data, error } = await createClient().rpc("answer_stop_exchange", { stop_id: stopId, accept });
-  await reloadTodayDeliveries();
-  await loadStopExchanges();
-  if (error) return { problem: error.message || "Couldn't answer. Try again." };
-  return { outcome: data as "accepted" | "declined" | "finished" };
+  }, [stops, day, isLoaded]);
 }
 
 // ---------- What the agent does ----------
@@ -595,7 +506,7 @@ export function markNotificationsSeen(mobileNumber: string) {
   saveDay(mobileNumber, (day) => ({ ...day, notificationsSeenAt: new Date().toISOString() }));
 }
 
-// The next step on the current stop; the panel shows it Out for delivery
+// The stop is picked up; the panel shows it Out for delivery
 export function setStopStep(mobileNumber: string, stopId: string, step: StopStep) {
   saveDay(mobileNumber, (day) => ({
     ...day,
@@ -680,13 +591,9 @@ export function raiseRequest(mobileNumber: string, stop: AgentStop, kind: AgentR
 
 // ---------- Helpers for the pages ----------
 
-// Indian mobile links: call, WhatsApp, text message
+// Indian mobile links: call, text message
 export function callLink(phone: string) {
   return `tel:+91${phone}`;
-}
-
-export function whatsAppLink(phone: string) {
-  return `https://wa.me/91${phone}`;
 }
 
 export function messageLink(phone: string) {
@@ -721,6 +628,16 @@ export function formatTime(iso: string | Date) {
 
 export function rupees(amount: number) {
   return `₹${amount.toLocaleString("en-IN")}`;
+}
+
+// The live camera's picture right now, made as small as shrinkPhoto's
+export function photoFromVideo(video: HTMLVideoElement) {
+  const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.7);
 }
 
 // A photo taken for proof, made small (longest side 480) so it fits in the browser's storage

@@ -71,6 +71,8 @@ const store = createPanelRecordStore<Delivery>({
   module: "deliveries",
   // Only today's
   filters: () => [["data->>date", toDateKey(new Date())]],
+  // Agents and the panel follow each other's stops within half a minute
+  refreshEveryMs: 30_000,
 });
 
 // When this browser last changed today's list (the "Updated 2 minutes ago" line)

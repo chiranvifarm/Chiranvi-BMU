@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import {
   followSavedOrders,
   getSavedOrders,
@@ -294,6 +294,23 @@ export function markOrdersSeen() {
     // Storage blocked: nothing kept to delete.
   }
   markPanelPageSeen("orders");
+  markPanelPageSeen("order-steps");
+}
+
+// Orders that moved to a new step since the Orders page was last opened, for the bell (the last 24 hours at
+// most, so the first look isn't a long list). Placed isn't one: new orders have their own line in the bell.
+export function useOrderStepNews() {
+  const allOrders = useAdminOrders();
+  const lastSeen = usePanelSeenAt("order-steps");
+  const [dayAgo] = useState(() => new Date(Date.now() - 86400000).toISOString());
+  return useMemo(() => {
+    const since = lastSeen > dayAgo ? lastSeen : dayAgo;
+    return allOrders.flatMap((order) =>
+      Object.entries(order.statusChangedAt ?? {})
+        .filter(([status, at]) => status !== "Placed" && at > since)
+        .map(([status, at]) => ({ order, status, at })),
+    );
+  }, [allOrders, lastSeen, dayAgo]);
 }
 
 export function useAdminOrders() {

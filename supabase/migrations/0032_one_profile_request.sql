@@ -1,13 +1,13 @@
 -- =====================================================================================================
--- 0031 · One request for any change to a team member's Profile
---   0029 asked only for the number and the Profile address. Now a team member asks for any change (name,
+-- 0032 · One request for any change to a team member's Profile
+--   0030 asked only for the number and the Profile address. Now a team member asks for any change (name,
 --   numbers, email, addresses, location, pincode, "More about you") in one request, from "Edit details":
 --   - request_profile_change(details, reason): keeps only what changed, each with its old and new value;
 --   - decide_profile_change(): anyone with Staff → Edit, never for themselves;
 --   - apply_my_profile_change(): after it is accepted they press Save, and the accepted values (from the
 --     request, not the browser) are saved everywhere. A new number is then confirmed by the OTP.
 --   - clear_my_profile_change(): takes it back, or clears a rejected one.
---   Replaces 0029's number_change / address_change (no requests were in them). Customers and the owner
+--   Replaces 0030's number_change / address_change (no requests were in them). Customers and the owner
 --   change their details as before. The database refuses a team member's direct change. No new table.
 -- Safe to run again.
 -- =====================================================================================================
@@ -204,7 +204,7 @@ end;
 $$;
 
 
--- The number move (0029) now reads the one request
+-- The number move (0030) now reads the one request
 create or replace function public.finish_my_number_change()
 returns text
 language plpgsql security definer

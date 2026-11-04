@@ -65,7 +65,7 @@ export type StaffMember = {
   roleId: string | null; // null: on the Staff section without a login role (a farm worker …)
   title?: string; // "Hub manager"
   deleteRequestedAt?: string; // they asked the admin to delete their account (Profile → Delete account → Request)
-  profileChange?: ProfileChangeRequest; // asking to change their Profile (supabase/migrations/0031_one_profile_request.sql)
+  profileChange?: ProfileChangeRequest; // asking to change their Profile (supabase/migrations/0032_one_profile_request.sql)
 };
 
 // What changed, by the Profile's field names (primaryMobile: the new login number)
@@ -357,7 +357,7 @@ export async function giveTeamRole(mobileNumber: string, role: "staff" | "delive
 /*
   A team member changing their Profile (any detail): they ask with a reason, anyone with Staff → Edit answers
   on the Staff section or Roles & permissions (never for themselves), then they press Save and the accepted
-  values are saved. All checked by the database (0031_…sql). Each answers a problem to show, or null.
+  values are saved. All checked by the database (0032_…sql). Each answers a problem to show, or null.
 */
 async function afterStaffRequest(error: { message?: string } | null, fallback: string) {
   if (error) return error.message || fallback;

@@ -6,7 +6,7 @@ import { confirmNewNumberOtp, sendNewNumberOtp } from "@/store/staff-access-stor
 import styles from "./profile-details-page.module.css";
 
 /*
-  Changing the login number with an OTP sent to the new one (0029_… and 0031_…sql).
+  Changing the login number with an OTP sent to the new one (0030_… and 0032_…sql).
   - Customers: from "Edit details" → "Change number": type the new number, confirm the OTP.
   - Team members: their new number is part of their Profile request; once it is accepted and saved they
     confirm the OTP here (inside the Edit details pop-up).

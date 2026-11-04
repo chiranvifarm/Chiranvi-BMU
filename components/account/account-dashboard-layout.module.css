@@ -142,6 +142,21 @@
   color: #1e2a22;
 }
 
+/* "New" beside it: an order's status changed since My Orders was last opened */
+.account-sidebar-link-new {
+  margin-left: auto;
+  padding: calc(2 * var(--account-design-pixel)) calc(7 * var(--account-design-pixel));
+  border-radius: 9999px;
+  background: #1f4d2e;
+  font-size: calc(10.5 * var(--account-design-pixel));
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.account-sidebar-link-new + .account-sidebar-link-badge {
+  margin-left: calc(6 * var(--account-design-pixel));
+}
+
 .account-sidebar-link-icon {
   flex-shrink: 0;
   width: calc(18 * var(--account-design-pixel));

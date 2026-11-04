@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo } from "react";
 import { useIsLoginStatusKnown, useLoggedInMobileNumber } from "@/components/login/login-status";
 import { useIsStaffAccessKnown, useStaffMembers } from "./staff-access-store";
 import {
@@ -10,7 +10,6 @@ import {
   type Delivery,
   type DeliverySlot,
   type DeliveryStatus,
-  type DeliveryTransferRequest,
 } from "./admin-deliveries-store";
 import { useDeliveryAgents, useDeliveryRoutes, type DeliveryAgent, type DeliveryRoute } from "./admin-routes-store";
 import { createPanelRecordStore } from "./panel-records";
@@ -114,7 +113,6 @@ export type AgentStop = {
   bottlesCollected?: number;
   cashCollected?: number;
   requests: AgentRequest[];
-  transferRequest?: DeliveryTransferRequest; // asked another agent to take it, waiting for their answer
 };
 
 type StopProgress = {
@@ -465,7 +463,6 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
         ...details,
         ...progress,
         requests: day.requests.filter((request) => request.deliveryId === delivery.id),
-        transferRequest: delivery.transferRequest ?? undefined,
       };
     });
   }, [agentName, deliveries, routes, day]);
@@ -542,126 +539,6 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
       unseenNotificationCount: day.notifications.filter((notification) => notification.at > day.notificationsSeenAt).length,
     };
   }, [stops, day, isLoaded]);
-}
-
-// ---------- Handing a stop to another agent (delivery exchange) ----------
-/*
-  Checked by the database (supabase/migrations/0026_agent_stop_exchange.sql): the agent asks someone on duty
-  today to deliver one of their open stops; it stays theirs until that agent accepts. Declined, or no
-  answer: they deliver it themselves. Requests to me and how mine ended are read every 30 seconds (and when
-  the window comes back into focus).
-*/
-
-export type AgentToAsk = { name: string; stopsToGo: number };
-export type IncomingStopExchange = {
-  stopId: string;
-  customerName: string;
-  address: string;
-  slot: string;
-  orderNumber: string | null;
-  items: StopItem[];
-  fromAgent: string;
-  reason: string;
-  requestedAt: string;
-};
-export type SentStopExchange = {
-  stopId: string;
-  customerName: string;
-  orderNumber: string | null;
-  toAgent: string;
-  outcome: "waiting" | "accepted" | "declined" | "cancelled";
-  at: string;
-};
-
-type StopExchanges = { incoming: IncomingStopExchange[]; sent: SentStopExchange[] };
-
-const NO_EXCHANGES: StopExchanges = { incoming: [], sent: [] };
-let exchanges = NO_EXCHANGES;
-let isFollowingExchanges = false;
-const exchangeListeners = new Set<() => void>();
-
-async function loadStopExchanges() {
-  const supabase = createClient();
-  const { data: login } = await supabase.auth.getSession();
-  if (!login.session) return;
-  const [incoming, sent] = await Promise.all([supabase.rpc("my_stop_exchange_requests"), supabase.rpc("my_sent_stop_exchanges")]);
-  // Not a delivery agent: nothing to show
-  if (incoming.error || sent.error) return;
-  const before = exchangeKeyOf(exchanges);
-  exchanges = {
-    incoming: (incoming.data as Record<string, unknown>[]).map((row) => ({
-      stopId: String(row.stop_id),
-      customerName: String(row.customer_name ?? ""),
-      address: String(row.address ?? ""),
-      slot: String(row.slot ?? ""),
-      orderNumber: (row.order_number as string | null) ?? null,
-      items: (row.items as StopItem[]) ?? [],
-      fromAgent: String(row.from_agent ?? ""),
-      reason: String(row.reason ?? ""),
-      requestedAt: String(row.requested_at ?? ""),
-    })),
-    sent: (sent.data as Record<string, unknown>[]).map((row) => ({
-      stopId: String(row.stop_id),
-      customerName: String(row.customer_name ?? ""),
-      orderNumber: (row.order_number as string | null) ?? null,
-      toAgent: String(row.to_agent ?? ""),
-      outcome: row.outcome as SentStopExchange["outcome"],
-      at: String(row.at ?? ""),
-    })),
-  };
-  // Something new (a request, or an answer to mine): my stops may have changed too
-  if (exchangeKeyOf(exchanges) === before) return;
-  void reloadTodayDeliveries();
-  exchangeListeners.forEach((onChange) => onChange());
-}
-
-function exchangeKeyOf(list: StopExchanges) {
-  return [...list.incoming.map((request) => request.stopId), ...list.sent.map((sentOne) => `${sentOne.stopId}:${sentOne.outcome}`)].join();
-}
-
-function subscribeToExchanges(onChange: () => void) {
-  exchangeListeners.add(onChange);
-  if (!isFollowingExchanges && typeof window !== "undefined") {
-    isFollowingExchanges = true;
-    void loadStopExchanges();
-    window.addEventListener("focus", () => void loadStopExchanges());
-    window.setInterval(() => {
-      if (document.visibilityState === "visible") void loadStopExchanges();
-    }, 30_000);
-  }
-  return () => {
-    exchangeListeners.delete(onChange);
-  };
-}
-
-// Requests waiting for me, and the stops I asked someone to take today (with how it ended)
-export function useStopExchanges() {
-  return useSyncExternalStore(subscribeToExchanges, () => exchanges, () => NO_EXCHANGES);
-}
-
-// The other agents on duty today (or a problem to show)
-export async function fetchAgentsToAsk(): Promise<AgentToAsk[] | string> {
-  const { data, error } = await createClient().rpc("delivery_agents_to_ask");
-  if (error) return "Couldn't read the agents on duty. Try again.";
-  return ((data ?? []) as { agent_name: string; stops_to_go: number }[]).map((row) => ({ name: row.agent_name, stopsToGo: row.stops_to_go }));
-}
-
-// Asks another agent to deliver the stop; answers a problem to show, or null when asked
-export async function askAgentToTakeStop(stopId: string, agentName: string, reason: string) {
-  const { error } = await createClient().rpc("ask_agent_to_take_stop", { stop_id: stopId, to_agent: agentName, reason });
-  await reloadTodayDeliveries();
-  await loadStopExchanges();
-  if (error) return error.message || "Couldn't send the request. Try again.";
-  return null;
-}
-
-// Accept (the stop is mine) or decline (it stays with the agent who asked)
-export async function answerStopExchange(stopId: string, accept: boolean) {
-  const { data, error } = await createClient().rpc("answer_stop_exchange", { stop_id: stopId, accept });
-  await reloadTodayDeliveries();
-  await loadStopExchanges();
-  if (error) return { problem: error.message || "Couldn't answer. Try again." };
-  return { outcome: data as "accepted" | "declined" | "finished" };
 }
 
 // ---------- What the agent does ----------

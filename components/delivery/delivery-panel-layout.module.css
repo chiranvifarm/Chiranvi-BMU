@@ -221,7 +221,9 @@
 /* ---------- Page area ---------- */
 
 .delivery-content {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 0;
   padding: calc(26 * var(--delivery-pixel)) calc(28 * var(--delivery-pixel)) calc(40 * var(--delivery-pixel));
 }
@@ -474,11 +476,11 @@
   align-items: center;
   justify-content: center;
   gap: calc(7 * var(--delivery-pixel));
-  min-height: calc(42 * var(--delivery-pixel));
-  padding: 0 calc(18 * var(--delivery-pixel));
+  min-height: calc(34 * var(--delivery-pixel));
+  padding: 0 calc(14 * var(--delivery-pixel));
   border-radius: 9999px;
   font-family: inherit;
-  font-size: calc(13.5 * var(--delivery-pixel));
+  font-size: calc(12.5 * var(--delivery-pixel));
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -528,9 +530,9 @@
 }
 
 .delivery-button-small {
-  min-height: calc(34 * var(--delivery-pixel));
-  padding: 0 calc(13 * var(--delivery-pixel));
-  font-size: calc(12.5 * var(--delivery-pixel));
+  min-height: calc(28 * var(--delivery-pixel));
+  padding: 0 calc(11 * var(--delivery-pixel));
+  font-size: calc(11.5 * var(--delivery-pixel));
 }
 
 /* Pop-up: centred on wide screens, from the bottom on phones */
@@ -693,6 +695,19 @@
 
   .delivery-content {
     padding: 14px 14px 32px;
+  }
+
+  /* Phones: buttons stay easy to tap */
+  .delivery-button-filled,
+  .delivery-button-outlined,
+  .delivery-button-danger {
+    min-height: 42px;
+    font-size: 13.5px;
+  }
+
+  .delivery-button-small {
+    min-height: 36px;
+    font-size: 12.5px;
   }
 
   .delivery-page-title {

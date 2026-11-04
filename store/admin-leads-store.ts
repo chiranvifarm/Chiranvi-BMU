@@ -135,3 +135,8 @@ export function removeLead(id: string) {
 export function useAdminLeads() {
   return store.useRecords();
 }
+
+// Without the sample leads (Reports)
+export function useRealAdminLeads() {
+  return store.useRealRecords();
+}

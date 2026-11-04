@@ -428,6 +428,31 @@ export function useDeliveriesUpdatedAt() {
   return lastChangedAt > openedAt ? lastChangedAt : openedAt;
 }
 
+// Earlier days' stops in the chosen dates, from the database (today's are in the live list). Reports.
+export async function readEarlierDeliveries(from: Date, to: Date) {
+  const rows: { id: string; data: Delivery }[] = [];
+  const pageSize = 1000;
+  for (let start = 0; ; start += pageSize) {
+    const { data, error } = await createClient()
+      .from("panel_records")
+      .select("id, data")
+      .eq("module", "deliveries")
+      .eq("is_sample", false)
+      .gte("data->>date", toDateKey(from))
+      .lte("data->>date", toDateKey(to))
+      .lt("data->>date", toDateKey(new Date()))
+      .order("id")
+      .range(start, start + pageSize - 1);
+    if (error) {
+      console.error("Could not read the earlier deliveries", error);
+      break;
+    }
+    rows.push(...((data ?? []) as { id: string; data: Delivery }[]));
+    if (!data || data.length < pageSize) break;
+  }
+  return rows.map((row) => ({ ...row.data, id: row.id }));
+}
+
 // Deliveries for the chosen dates: today's live list (nothing for other days yet)
 export function getDeliveriesForRange(from: Date, to: Date, todaysDeliveries: Delivery[]) {
   const todayKey = toDateKey(new Date());

@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useAdminOrders } from "@/store/admin-orders-store";
-import { useAdminSubscriptions } from "@/store/admin-subscriptions-store";
-import { useAdminCustomers } from "@/store/admin-customers-store";
-import { useAdminLeads } from "@/store/admin-leads-store";
+import { useRealAdminOrders } from "@/store/admin-orders-store";
+import { useRealSubscriptions } from "@/store/admin-subscriptions-store";
+import { useRealAdminCustomers } from "@/store/admin-customers-store";
+import { useRealAdminLeads } from "@/store/admin-leads-store";
 import { useAdminPayments } from "@/store/admin-payments-store";
-import { useShopProducts } from "@/store/products-store";
-import { getDeliveriesForRange, useTodayDeliveries } from "@/store/admin-deliveries-store";
+import { getDeliveriesForRange, readEarlierDeliveries, useTodayDeliveries, type Delivery } from "@/store/admin-deliveries-store";
 import { useDeliveryAgents, useDeliveryRoutes } from "@/store/admin-routes-store";
 import { useStaffList } from "@/store/admin-staff-store";
 import {
@@ -34,6 +33,7 @@ import {
   useAdminToast,
 } from "./admin-shared";
 import { REPORTS, buildReport, reportToCsvRows, type ReportData, type ReportKey } from "./admin-reports-data";
+import { useWebsiteProducts } from "./admin-dashboard-data";
 import dashboardStyles from "./admin-dashboard.module.css";
 import sharedStyles from "./admin-shared.module.css";
 import styles from "./admin-reports-page.module.css";
@@ -47,8 +47,9 @@ import styles from "./admin-reports-page.module.css";
                CSV file (opens in Excel / Google Sheets). Payments replaces the design's "Wallet &
                payments" (no wallet).
     table      scheduled reports: frequency, who gets it, next run, format, Active / Paused; "..." pauses,
-               resumes or removes. Sending needs the backend; for now the list is kept in this browser.
-  The reports are worked out in admin-reports-data.ts from the same data as the other panel pages.
+               resumes or removes. Sending needs the backend; for now this is the list of what will be sent.
+  The reports are worked out in admin-reports-data.ts from real data only: the database's records without the
+  samples, so new orders, plans, customers and leads count by themselves.
 */
 
 const SEND_TO_OPTIONS = ["Owner", "Owner (WhatsApp)", "Manager", "Owner, Manager"];
@@ -71,12 +72,12 @@ export default function AdminReportsPage() {
 }
 
 function ReportsPage() {
-  const orders = useAdminOrders();
-  const subscriptions = useAdminSubscriptions();
-  const customers = useAdminCustomers();
-  const leads = useAdminLeads();
+  const orders = useRealAdminOrders();
+  const subscriptions = useRealSubscriptions();
+  const customers = useRealAdminCustomers();
+  const leads = useRealAdminLeads();
   const payments = useAdminPayments();
-  const products = useShopProducts();
+  const products = useWebsiteProducts();
   const todaysDeliveries = useTodayDeliveries();
   const routes = useDeliveryRoutes();
   const agents = useDeliveryAgents();
@@ -97,6 +98,18 @@ function ReportsPage() {
   });
   const { showToast, toast } = useAdminToast();
 
+  // Earlier days' stops in the chosen dates (today's come from the live list)
+  const [earlierDeliveries, setEarlierDeliveries] = useState<Delivery[]>([]);
+  useEffect(() => {
+    let isStillWanted = true;
+    void readEarlierDeliveries(rangeFrom, rangeTo).then((deliveries) => {
+      if (isStillWanted) setEarlierDeliveries(deliveries);
+    });
+    return () => {
+      isStillWanted = false;
+    };
+  }, [rangeFrom, rangeTo]);
+
   const rangeText = formatDateRange(rangeFrom, rangeTo);
   const data: ReportData = useMemo(
     () => ({
@@ -108,12 +121,12 @@ function ReportsPage() {
       leads,
       payments,
       products,
-      deliveries: getDeliveriesForRange(rangeFrom, rangeTo, todaysDeliveries),
+      deliveries: [...getDeliveriesForRange(rangeFrom, rangeTo, todaysDeliveries), ...earlierDeliveries],
       routes,
       agents,
       staff,
     }),
-    [rangeFrom, rangeTo, orders, subscriptions, customers, leads, payments, products, todaysDeliveries, routes, agents, staff],
+    [rangeFrom, rangeTo, orders, subscriptions, customers, leads, payments, products, todaysDeliveries, earlierDeliveries, routes, agents, staff],
   );
 
   const words = searchText.trim().toLowerCase();

@@ -157,6 +157,11 @@ export function useAdminCustomers() {
   return store.useRecords();
 }
 
+// Without the sample customers (Reports)
+export function useRealAdminCustomers() {
+  return store.useRealRecords();
+}
+
 // Customers who signed up on the website since the Customers page was last opened (sidebar badge and bell)
 export function useNewCustomers() {
   const allCustomers = useAdminCustomers();

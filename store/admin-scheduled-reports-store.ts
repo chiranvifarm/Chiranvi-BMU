@@ -89,7 +89,8 @@ export function removeScheduledReport(id: string) {
   void store.remove(id);
 }
 
+// The reports people scheduled (the starting examples are left out)
 export function useScheduledReports() {
-  const reports = store.useRecords();
+  const reports = store.useRealRecords();
   return useMemo(() => inAddedOrder(reports), [reports]);
 }

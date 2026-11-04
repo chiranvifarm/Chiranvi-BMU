@@ -1,4 +1,4 @@
-import { getCancelledThisWeek, getPlanLength, getSubscriptionStatus, PLAN_LENGTHS, type AdminSubscription } from "@/store/admin-subscriptions-store";
+import { getPlanEnd, getPlanLength, getSubscriptionStatus, PLAN_LENGTHS, type AdminSubscription } from "@/store/admin-subscriptions-store";
 import { getCustomerStatus, type AdminCustomer } from "@/store/admin-customers-store";
 import { LEAD_SOURCES, LEAD_STAGES, type AdminLead } from "@/store/admin-leads-store";
 import { PAYMENT_METHODS, type AdminPayment } from "@/store/admin-payments-store";
@@ -9,11 +9,11 @@ import { type DeliveryAgent, type DeliveryRoute } from "@/store/admin-routes-sto
 import { getDaysPresent, type StaffPerson } from "@/store/admin-staff-store";
 
 /*
-  The nine reports on the Reports page (admin-reports-page.tsx), worked out from the same data the other
-  panel pages use. Each report has a few headline numbers and one or more tables; View shows them,
-  Export saves them as a CSV file.
-  Profit & loss expenses are estimates until expenses are recorded (it says so in its note). Staff
-  attendance and payroll come from the Staff page.
+  The nine reports on the Reports page (admin-reports-page.tsx), worked out from real data only: the page
+  hands them the database's records without the samples. Each report has a few headline numbers and one or
+  more tables; View shows them, Export saves them as a CSV file.
+  Profit & loss shows what is recorded (revenue, staff salaries): other expenses aren't recorded anywhere, so
+  it doesn't work out a profit. Staff attendance and payroll come from the Staff page.
 */
 
 export type ReportKey =
@@ -39,7 +39,7 @@ export type ReportData = {
   from: Date;
   to: Date;
   orders: AdminOrder[];
-  subscriptions: AdminSubscription[];
+  subscriptions: AdminSubscription[]; // the cancelled ones too
   customers: AdminCustomer[];
   leads: AdminLead[];
   payments: AdminPayment[];
@@ -63,7 +63,7 @@ export const REPORTS: { key: ReportKey; title: string; description: string; icon
   { key: "payments", title: "Payments", description: "Collections, refunds, failures", icon: ["M3 6h18v12H3z", "M3 10h18", "M7 14.5h4"] },
   { key: "products", title: "Products", description: "Best sellers, prices, stock", icon: ["M3 12V4h8l10 10-8 8L3 12Z", "M7.5 7.5h.01"] },
   { key: "leads", title: "Leads & conversion", description: "New leads, trials, converted", icon: ["M10 11.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M3 20.5a7 7 0 0 1 14 0", "M19 8v6", "M16 11h6"] },
-  { key: "profit", title: "Profit & loss", description: "Revenue minus all expenses", icon: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M9 8h6M9 11h6M13 8c2 0 2 6-4 6l5 3"] },
+  { key: "profit", title: "Profit & loss", description: "Revenue and recorded expenses", icon: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M9 8h6M9 11h6M13 8c2 0 2 6-4 6l5 3"] },
   {
     key: "attendance",
     title: "Staff attendance",
@@ -106,7 +106,8 @@ export function buildReport(key: ReportKey, data: ReportData): BuiltReport {
 
   switch (key) {
     case "sales": {
-      const orders = data.orders.filter((order) => isInRange(order.placedAt, from, to));
+      // Milk plans are in the Payments report
+      const orders = data.orders.filter((order) => isInRange(order.placedAt, from, to) && order.bottlesPerDay === undefined);
       const sold = orders.filter((order) => order.status !== "Cancelled");
       const revenue = sold.reduce((sum, order) => sum + order.amount, 0);
       const byDay = groupBy(sold, (order) => new Date(order.placedAt).toDateString(), (order) => order.amount).sort(
@@ -123,18 +124,19 @@ export function buildReport(key: ReportKey, data: ReportData): BuiltReport {
         tables: [
           { title: "Revenue by day", columns: ["Day", "Orders", "Revenue"], rows: byDay.map(([day, total]) => [dayLabel(new Date(day)), ordersOn(day), rupees(total)]) },
           { title: "Revenue by product", columns: ["Items", "Revenue"], rows: groupBy(sold, (order) => order.items, (order) => order.amount).slice(0, 10).map(([items, total]) => [items, rupees(total)]) },
-          { title: "Revenue by area", columns: ["Area", "Revenue"], rows: groupBy(sold, (order) => order.area, (order) => order.amount).map(([area, total]) => [area, rupees(total)]) },
+          { title: "Revenue by area", columns: ["Area", "Revenue"], rows: groupBy(sold, (order) => order.area || "Not given", (order) => order.amount).map(([area, total]) => [area, rupees(total)]) },
         ],
         note: "One-time orders. Subscription money is in the Payments report.",
       };
     }
 
     case "subscriptions": {
-      const subscriptions = data.subscriptions;
+      const subscriptions = data.subscriptions.filter((subscription) => !subscription.cancelledAt && getPlanEnd(subscription) >= new Date());
       const active = subscriptions.filter((subscription) => getSubscriptionStatus(subscription) === "Active");
       const paused = subscriptions.length - active.length;
-      const started = subscriptions.filter((subscription) => isInRange(subscription.since, from, to)).length;
-      const cancelled = getCancelledThisWeek();
+      const started = data.subscriptions.filter((subscription) => isInRange(subscription.since, from, to)).length;
+      const weekAgo = Date.now() - 7 * 86400000;
+      const cancelled = data.subscriptions.filter((subscription) => subscription.cancelledAt && new Date(subscription.cancelledAt).getTime() > weekAgo).length;
       return {
         headline: [
           { label: "Active", value: active.length.toLocaleString("en-IN") },
@@ -266,28 +268,43 @@ export function buildReport(key: ReportKey, data: ReportData): BuiltReport {
     }
 
     case "products": {
-      const products = [...data.products].sort((first, second) => second.unitsPerDay - first.unitsPerDay);
+      const products = data.products;
+      // What was really sold in these dates, from the orders' items
+      const sold = new Map<string, { name: string; packSize: string; units: number; sales: number }>();
+      for (const order of data.orders) {
+        if (order.status === "Cancelled" || !isInRange(order.placedAt, from, to)) continue;
+        for (const item of order.itemList ?? []) {
+          const key = `${item.name}|${item.packSize}`;
+          const line = sold.get(key) ?? { name: item.name, packSize: item.packSize, units: 0, sales: 0 };
+          sold.set(key, { ...line, units: line.units + item.quantity, sales: line.sales + item.quantity * item.price });
+        }
+      }
+      const bestSellers = [...sold.values()].sort((first, second) => second.units - first.units);
       return {
         headline: [
           { label: "Products", value: String(products.length) },
-          { label: "Best seller", value: products[0] ? `${products[0].name} ${products[0].packSize}` : "—" },
+          { label: "Best seller", value: bestSellers[0] ? `${bestSellers[0].name} ${bestSellers[0].packSize}` : "No sales yet" },
           { label: "Low stock", value: String(products.filter((product) => product.stock === "low").length) },
           { label: "Out of stock", value: String(products.filter((product) => product.stock === "out").length) },
         ],
         tables: [
           {
-            title: "Products by sales",
-            columns: ["Product", "Pack", "Price", "Units a day", "Sales a day", "Stock"],
+            title: "Sold in these dates",
+            columns: ["Product", "Pack", "Units sold", "Sales"],
+            rows: bestSellers.map((line) => [line.name, line.packSize, line.units, rupees(line.sales)]),
+          },
+          {
+            title: "Prices and stock",
+            columns: ["Product", "Pack", "Price", "Stock"],
             rows: products.map((product) => [
               product.name,
               product.packSize,
               rupees(product.price),
-              product.unitsPerDay,
-              rupees(product.unitsPerDay * product.price),
               product.stock === "in" ? "In stock" : product.stock === "low" ? "Low stock" : "Out of stock",
             ]),
           },
         ],
+        note: "A milk plan counts all the bottles of the plan.",
       };
     }
 
@@ -320,32 +337,23 @@ export function buildReport(key: ReportKey, data: ReportData): BuiltReport {
       const revenue = data.payments
         .filter((payment) => isInRange(payment.paidAt, from, to) && payment.status === "Success")
         .reduce((sum, payment) => sum + payment.amount, 0);
-      // Estimates until expenses are recorded: shares of revenue, plus agents' pay for the days
-      const expenses: [string, number][] = [
-        ["Milk from farmers", revenue * 0.52],
-        ["Packaging (pouches, bottles)", revenue * 0.06],
-        // The month's salaries, for the days chosen
-        ["Staff salaries", (data.staff.reduce((sum, person) => sum + person.salary, 0) / 30) * days],
-        ["Fuel", data.routes.length * 180 * days],
-        ["Other (rent, power, phone)", 1500 * days],
-      ];
-      const totalExpenses = expenses.reduce((sum, [, amount]) => sum + amount, 0);
-      const profit = revenue - totalExpenses;
+      // The month's salaries, for the days chosen
+      const salaries = (data.staff.reduce((sum, person) => sum + person.salary, 0) / 30) * days;
       return {
         headline: [
           { label: "Revenue", value: rupees(revenue) },
-          { label: "Expenses", value: rupees(totalExpenses) },
-          { label: profit >= 0 ? "Profit" : "Loss", value: rupees(Math.abs(profit)) },
-          { label: "Margin", value: percent(profit, revenue) },
+          { label: "Staff salaries", value: rupees(salaries) },
+          { label: "Profit", value: "Not known yet" },
+          { label: "Margin", value: "Not known yet" },
         ],
         tables: [
           {
-            title: "Expenses",
+            title: "Recorded expenses",
             columns: ["Expense", "Amount", "Share of revenue"],
-            rows: expenses.map(([name, amount]) => [name, rupees(amount), percent(amount, revenue)]),
+            rows: [["Staff salaries", rupees(salaries), percent(salaries, revenue)]],
           },
         ],
-        note: "Revenue is all money collected less refunds. Expenses are estimates until they are recorded in the panel.",
+        note: "Revenue is all money collected less refunds. Milk, packaging, fuel and other costs aren't recorded in the panel, so profit can't be worked out yet.",
       };
     }
 

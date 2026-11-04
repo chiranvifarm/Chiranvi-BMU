@@ -5,7 +5,10 @@ import { useArePaymentsLoaded, useAdminPayments, type AdminPayment } from "@/sto
 import { useRealPauseRequests } from "@/store/admin-pause-requests-store";
 import { useDeliveryRoutes } from "@/store/admin-routes-store";
 import { getPlanEnd, getSubscriptionStatus, useAreSubscriptionsLoaded, useRealSubscriptions } from "@/store/admin-subscriptions-store";
-import { useHaveProductsLoaded, useShopProducts } from "@/store/products-store";
+import { useProductPages } from "@/store/product-pages-store";
+import { useHaveProductsLoaded, useShopProducts, type ShopProduct } from "@/store/products-store";
+import { POWDER_PRODUCT_IDS } from "@/components/product/all-products-page";
+import type { ProductPage } from "@/components/product/product-page-data";
 
 /*
   The Chiranvi Panel dashboard's numbers, worked out from the database. The sample records the panel's lists
@@ -41,12 +44,39 @@ function rupees(amount: number) {
   return `₹${Math.round(amount).toLocaleString("en-IN")}`;
 }
 
+// The pack and price a product's website page opens on
+function packOfPage(page: ProductPage) {
+  if (page.kind === "subscription") return { packSize: page.packSize, price: page.price };
+  const pack = page.packs.find((onePack) => onePack.packId === page.defaultPackId) ?? page.packs[0];
+  return { packSize: pack ? `${pack.label} ${page.cartPackWord}` : "", price: pack?.price ?? 0 };
+}
+
+/*
+  The products the website sells, the same list as Products & pricing: one card per product page, and the
+  powders. Old sample cards the website doesn't have are left out. Empty until the cards have been read.
+*/
+export function useWebsiteProducts(): ShopProduct[] {
+  const cards = useShopProducts();
+  const pages = useProductPages();
+  const haveLoaded = useHaveProductsLoaded();
+  return useMemo(() => {
+    if (!haveLoaded) return [];
+    const pagesShown = new Set<string>();
+    return cards.flatMap((card) => {
+      const page = pages.find((onePage) => onePage.panelCardIds?.includes(card.productId) || onePage.slug === card.productId);
+      if (!page) return POWDER_PRODUCT_IDS.includes(card.productId) ? [card] : [];
+      if (pagesShown.has(page.slug)) return [];
+      pagesShown.add(page.slug);
+      return [{ ...card, ...packOfPage(page), name: page.name }];
+    });
+  }, [cards, pages, haveLoaded]);
+}
+
 // The alerts that have something to act on (nothing missed, low or waiting: no alert)
 export function useDashboardAlerts(): DashboardAlert[] {
   const deliveries = useTodayDeliveries();
   const routes = useDeliveryRoutes();
-  const products = useShopProducts();
-  const haveProductsLoaded = useHaveProductsLoaded();
+  const products = useWebsiteProducts();
   const pauseRequests = useRealPauseRequests();
 
   return useMemo(() => {
@@ -67,7 +97,7 @@ export function useDashboardAlerts(): DashboardAlert[] {
       });
     }
 
-    const lowProducts = haveProductsLoaded ? products.filter((product) => product.stock === "low") : [];
+    const lowProducts = products.filter((product) => product.stock === "low");
     if (lowProducts.length > 0) {
       const names = [...new Set(lowProducts.map((product) => product.name))];
       alerts.push({
@@ -93,7 +123,7 @@ export function useDashboardAlerts(): DashboardAlert[] {
     }
 
     return alerts;
-  }, [deliveries, routes, products, haveProductsLoaded, pauseRequests]);
+  }, [deliveries, routes, products, pauseRequests]);
 }
 
 // Money received on each of the seven days from firstDay; refunds are negative, so they take it back off

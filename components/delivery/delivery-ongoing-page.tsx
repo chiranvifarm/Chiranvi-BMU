@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import {
   AGENT_REQUEST_KINDS,
@@ -30,11 +30,13 @@ import {
   deliveryButtonStyles,
   useDeliveryPanel,
 } from "./delivery-panel-layout";
+import DeliveryPlanCalendar, { PlanDayNotices } from "./delivery-plan-calendar";
 import styles from "./delivery-ongoing-page.module.css";
 
 /*
-  Deliveries → Ongoing (/delivery): the stops the agent is on now, one-time orders on the left and
-  subscriptions (daily milk) on the right. Each column has its own stop:
+  Deliveries → Ongoing (/delivery): the one-time order the agent is on now; Deliveries → Subscriptions
+  (/delivery/subscriptions): the same for daily milk, with the customers' calendars below. Each page has its own stop, filling the width (the customer
+  beside what to hand over, the status under them):
   - The customer: name, phone, address, landmark, gate code; Call and Message; Navigate (Google Maps:
     the address's exact pin when it has one, else the address text); "Save this spot as the customer's
     location" at the gate.
@@ -42,7 +44,7 @@ import styles from "./delivery-ongoing-page.module.css";
   - Steps: Picked up → Delivered (a button for Picked up; the Finish buttons do the rest).
   - Finish: Delivered (proof: the customer's OTP or a photo), Left at door (photo), Not delivered (reason).
     The photo comes from the live camera or an upload (ProofCamera).
-    The stop then moves to Completed and the next stop of that kind comes into its column.
+    The stop then moves to Completed and the next stop of that kind comes here.
   - Raise a request to the manager (customer unavailable, wrong address, damaged product, missing item,
     reschedule, other); the stop's requests are listed with their status.
   Off duty: everything shows, but nothing can be changed until the agent goes on duty.
@@ -121,46 +123,71 @@ function SaveStopSpot({ stop, canWork }: { stop: AgentStop; canWork: boolean }) 
 }
 
 export default function DeliveryOngoingPage() {
+  return (
+    <StopsPage
+      title="Ongoing"
+      description="The one-time order you're on now. Finish it to move on: the next one comes here by itself."
+      columnId="one-time"
+      emptyText="No one-time orders left today."
+      isSubscription={false}
+    >
+      <PlanDayNotices />
+    </StopsPage>
+  );
+}
+
+export function DeliverySubscriptionsPage() {
+  return (
+    <StopsPage
+      title="Subscriptions"
+      description="The daily milk delivery you're on now. Finish it to move on: the next one comes here by itself."
+      columnId="subscription"
+      emptyText="No subscription deliveries left today."
+      isSubscription
+    >
+      <DeliveryPlanCalendar />
+    </StopsPage>
+  );
+}
+
+function StopsPage({
+  title,
+  description,
+  columnId,
+  emptyText,
+  isSubscription,
+  children,
+}: {
+  title: string;
+  description: string;
+  columnId: string;
+  emptyText: string;
+  isSubscription: boolean;
+  children?: ReactNode;
+}) {
   const { login, stops } = useDeliveryPanel();
 
   return (
     <>
-      <DeliveryPageHeading
-        title="Ongoing"
-        description="The stops you're on now. Finish one to move on: the next one comes here by itself."
-      />
+      <DeliveryPageHeading title={title} description={description} />
       <DeliveryShiftNotices />
 
-      {login.route && stops.ongoing.length === 0 && (
+      {login.route && stops.ongoing.length === 0 ? (
         <DeliveryNotice title="All stops done for today" text="Well done! Every stop on your list is finished.">
           <Link href="/delivery/completed" className={deliveryButtonStyles.filled}>
             See completed stops
           </Link>
         </DeliveryNotice>
+      ) : (
+        <OngoingStop columnId={columnId} emptyText={emptyText} isSubscription={isSubscription} />
       )}
-
-      {stops.ongoing.length > 0 && (
-        <div className={styles["ongoing-columns"]}>
-          <OngoingColumn columnId="one-time" title="One-time orders" emptyText="No one-time orders left today." isSubscription={false} />
-          <OngoingColumn columnId="subscription" title="Subscriptions" emptyText="No subscription deliveries left today." isSubscription />
-        </div>
-      )}
+      {children}
     </>
   );
 }
 
 // One kind of stop: its ongoing stop's customer, what to hand over and status
-function OngoingColumn({
-  columnId,
-  title,
-  emptyText,
-  isSubscription,
-}: {
-  columnId: string;
-  title: string;
-  emptyText: string;
-  isSubscription: boolean;
-}) {
+function OngoingStop({ columnId, emptyText, isSubscription }: { columnId: string; emptyText: string; isSubscription: boolean }) {
   const { login, stops } = useDeliveryPanel();
   const [openSheet, setOpenSheet] = useState<OpenSheet>(null);
   const stop = stops.ongoing.find((ongoingStop) => ongoingStop.isSubscription === isSubscription);
@@ -169,8 +196,7 @@ function OngoingColumn({
   const canWork = stops.isOnDuty;
 
   return (
-    <div className={styles["ongoing-column"]}>
-      <h2 className={styles["ongoing-column-title"]}>{title}</h2>
+    <div className={styles["ongoing-stop"]}>
       {!stop && <p className={`${styles["ongoing-card"]} ${styles["ongoing-column-empty"]}`}>{emptyText}</p>}
 
       {stop && (

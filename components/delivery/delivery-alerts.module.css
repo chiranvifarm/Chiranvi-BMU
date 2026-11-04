@@ -1,0 +1,171 @@
+/*
+  The Delivery Panel's notifications: the card over the page, and the rows also used in the bell's list.
+  Sizes in --delivery-pixel. Chiranvi colours by kind: green stops, yellow skips and messages, gold changes,
+  grey pauses.
+*/
+
+.delivery-alerts {
+  position: fixed;
+  z-index: 55;
+  top: calc(78 * var(--delivery-pixel));
+  right: calc(28 * var(--delivery-pixel));
+  display: flex;
+  flex-direction: column;
+  width: min(calc(400 * var(--delivery-pixel)), calc(100vw - 24px));
+  max-height: min(70svh, calc(560 * var(--delivery-pixel)));
+  overflow: hidden;
+  border-radius: calc(16 * var(--delivery-pixel));
+  background: #ffffff;
+  box-shadow: 0 18px 44px rgba(19, 37, 27, 0.28);
+}
+
+.delivery-alerts-heading {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(10 * var(--delivery-pixel));
+  padding: calc(12 * var(--delivery-pixel)) calc(16 * var(--delivery-pixel));
+  background: #1f4d2e;
+}
+
+.delivery-alerts-title {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(15 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.delivery-alerts-read-all {
+  flex: none;
+  padding: calc(5 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
+  border: none;
+  border-radius: 9999px;
+  background: #f5bf2c;
+  font-family: inherit;
+  font-size: calc(12 * var(--delivery-pixel));
+  font-weight: 600;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.delivery-alerts-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--delivery-pixel));
+  margin: 0;
+  padding: calc(10 * var(--delivery-pixel));
+  overflow-y: auto;
+  list-style: none;
+}
+
+/* One notification: icon, words, then OK */
+.delivery-alert-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: calc(10 * var(--delivery-pixel));
+  padding: calc(10 * var(--delivery-pixel)) calc(12 * var(--delivery-pixel));
+  border-left: calc(4 * var(--delivery-pixel)) solid transparent;
+  border-radius: calc(10 * var(--delivery-pixel));
+}
+
+.delivery-alert-row-green {
+  border-left-color: #2f6b3a;
+  background: #e6f0e1;
+}
+
+.delivery-alert-row-yellow {
+  border-left-color: #f5bf2c;
+  background: #fbf3e1;
+}
+
+.delivery-alert-row-gold {
+  border-left-color: #c99a1e;
+  background: #fbf3e1;
+}
+
+.delivery-alert-row-grey {
+  border-left-color: #8a948c;
+  background: #ecece6;
+}
+
+.delivery-alert-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(34 * var(--delivery-pixel));
+  height: calc(34 * var(--delivery-pixel));
+  border-radius: 50%;
+  color: #ffffff;
+}
+
+.delivery-alert-icon svg {
+  width: calc(17 * var(--delivery-pixel));
+  height: calc(17 * var(--delivery-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.delivery-alert-icon-green {
+  background: #2f6b3a;
+}
+
+.delivery-alert-icon-yellow {
+  background: #f5bf2c;
+  color: #1f4d2e;
+}
+
+.delivery-alert-icon-gold {
+  background: #c99a1e;
+}
+
+.delivery-alert-icon-grey {
+  background: #6b736c;
+}
+
+.delivery-alert-text {
+  display: flex;
+  flex-direction: column;
+  gap: calc(1 * var(--delivery-pixel));
+  min-width: 0;
+}
+
+.delivery-alert-title {
+  font-size: calc(13.5 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #1b2a20;
+}
+
+.delivery-alert-detail {
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #3f4a42;
+  overflow-wrap: anywhere;
+}
+
+.delivery-alert-time {
+  font-size: calc(11.5 * var(--delivery-pixel));
+  color: #6b736c;
+}
+
+.delivery-alert-ok {
+  padding: calc(5 * var(--delivery-pixel)) calc(14 * var(--delivery-pixel));
+  border: none;
+  border-radius: 9999px;
+  background: #1f4d2e;
+  font-family: inherit;
+  font-size: calc(12.5 * var(--delivery-pixel));
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .delivery-alerts {
+    top: 72px;
+    right: 12px;
+  }
+}

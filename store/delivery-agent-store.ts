@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useIsLoginStatusKnown, useLoggedInMobileNumber } from "@/components/login/login-status";
 import { useIsStaffAccessKnown, useStaffMembers } from "./staff-access-store";
 import {
@@ -78,7 +78,7 @@ export type AgentRequest = {
 
 export type AgentNotification = {
   id: string;
-  kind: "new-stop" | "route-change" | "status-change" | "request-update" | "manager-message";
+  kind: "new-stop" | "route-change" | "status-change" | "request-update" | "manager-message" | "skip" | "pause";
   text: string;
   at: string; // ISO
 };
@@ -135,6 +135,8 @@ type AgentDay = {
   knownStopStatuses?: Record<string, DeliveryStatus>; // each stop's status when last seen (a change becomes a notification)
   notifications: AgentNotification[];
   notificationsSeenAt: string; // ISO, when the bell was last opened
+  readNotificationIds?: string[]; // pressed OK or Mark all as read
+  knownPlanEvents?: string[]; // approved skips and pauses seen so far today (new ones become notifications)
 };
 
 // ---------- Who is logged in ----------
@@ -373,6 +375,8 @@ export type AgentStops = {
   requests: AgentRequest[]; // newest first
   notifications: AgentNotification[]; // newest first
   unseenNotificationCount: number;
+  unreadNotifications: AgentNotification[]; // on the dashboard until OK or Mark all as read
+  knownPlanEvents?: string[];
 };
 
 const SLOT_ORDER: DeliverySlot[] = ["5–6 AM", "6–7 AM", "7–8 AM"];
@@ -480,9 +484,87 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
       isLoaded,
       requests: [...day.requests].sort((first, second) => second.raisedAt.localeCompare(first.raisedAt)),
       notifications: day.notifications,
-      unseenNotificationCount: day.notifications.filter((notification) => notification.at > day.notificationsSeenAt).length,
+      unseenNotificationCount: day.notifications.filter((notification) => !day.readNotificationIds?.includes(notification.id)).length,
+      unreadNotifications: day.notifications.filter((notification) => !day.readNotificationIds?.includes(notification.id)),
+      knownPlanEvents: day.knownPlanEvents,
     };
   }, [stops, day, isLoaded]);
+}
+
+// ---------- The milk plans given to this agent (0035_… and 0036_…sql) ----------
+
+export type AssignedPlan = {
+  orderNumber: string;
+  customerName: string;
+  area: string;
+  milk: string;
+  bottles: string; // "1 × 1 L"
+  firstDay: string; // YYYY-MM-DD
+  lastDay: string;
+  skips: string[]; // approved
+  pauses: { from: string; to: string }[]; // approved; "to" is the day it resumes
+  stops: Record<string, string>; // day → "Delivered", "Missed", ...
+  slot: string; // "6–7 AM"
+};
+
+// Read now, when the window comes back into focus, and every minute (staff approve skips while the agent is out)
+export function useAssignedPlans() {
+  const [plans, setPlans] = useState<AssignedPlan[] | null>(null);
+  const [hasProblem, setHasProblem] = useState(false);
+
+  async function loadPlans() {
+    const { data, error } = await createClient().rpc("my_assigned_plans");
+    setHasProblem(Boolean(error));
+    if (!error) setPlans((data ?? []) as AssignedPlan[]);
+  }
+
+  useEffect(() => {
+    const reload = () => void loadPlans();
+    const firstRead = window.setTimeout(reload, 0);
+    window.addEventListener("focus", reload);
+    const timer = window.setInterval(reload, 60_000);
+    return () => {
+      window.clearTimeout(firstRead);
+      window.removeEventListener("focus", reload);
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  return { plans, hasProblem, loadPlans };
+}
+
+const shortDay = (dayKey: string) => new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+// New approved skips and pauses become notifications; the first look of the day only learns them
+export function learnPlanEvents(mobileNumber: string, plans: AssignedPlan[], known: string[] | undefined) {
+  const events = plans.flatMap((plan) => [
+    ...plan.skips.map((day) => ({
+      key: `skip-${plan.orderNumber}-${day}`,
+      kind: "skip" as const,
+      text: `Skip approved: ${plan.customerName}, no delivery on ${shortDay(day)}`,
+    })),
+    ...plan.pauses.map((pause) => ({
+      key: `pause-${plan.orderNumber}-${pause.from}`,
+      kind: "pause" as const,
+      text: `Pause approved: ${plan.customerName}, no delivery from ${shortDay(pause.from)}, back on ${shortDay(pause.to)}`,
+    })),
+  ]);
+  const added = events.filter((event) => !known?.includes(event.key));
+  if (known !== undefined && added.length === 0) return;
+  const now = new Date().toISOString();
+  saveDay(mobileNumber, (day) => ({
+    ...day,
+    knownPlanEvents: events.map((event) => event.key),
+    notifications: [
+      ...(known === undefined ? [] : added.map((event) => ({ id: event.key, kind: event.kind, text: event.text, at: now }))),
+      ...day.notifications,
+    ].slice(0, 50),
+  }));
+}
+
+// OK or Mark all as read: they leave the dashboard and stay in the bell's list
+export function markNotificationsRead(mobileNumber: string, ids: string[]) {
+  saveDay(mobileNumber, (day) => ({ ...day, readNotificationIds: [...new Set([...(day.readNotificationIds ?? []), ...ids])] }));
 }
 
 // ---------- What the agent does ----------
@@ -505,10 +587,6 @@ export async function saveStopLocation(stopId: string, pin: { latitude: number; 
 
 export function setOnDuty(mobileNumber: string, isOnDuty: boolean) {
   saveDay(mobileNumber, (day) => ({ ...day, isOnDuty }));
-}
-
-export function markNotificationsSeen(mobileNumber: string) {
-  saveDay(mobileNumber, (day) => ({ ...day, notificationsSeenAt: new Date().toISOString() }));
 }
 
 // The stop is picked up; the panel shows it Out for delivery

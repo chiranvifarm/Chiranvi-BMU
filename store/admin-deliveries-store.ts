@@ -395,13 +395,22 @@ export function useAgentOnDutyReader() {
   }, [days]);
 }
 
+// The owner or Deliveries → Edit: changes only that request in the agent's day, in the database
+// (0033_resolve_agent_request.sql). Answers a problem to show, or null.
+export async function resolveAgentRequest(dayId: string, requestId: string) {
+  const { error } = await createClient().rpc("resolve_agent_request", { day_id: dayId, request_id: requestId });
+  if (error) return error.message || "Couldn't mark it resolved. Please try again.";
+  await agentDayStore.reload();
+  return null;
+}
+
 // What the agents asked the manager for today, newest first (agentMobile: who raised it)
 export function useAgentRequestsToday() {
   const days = agentDayStore.useRecords();
   return useMemo(
     () =>
       days
-        .flatMap((day) => (day.requests ?? []).map((request) => ({ ...request, agentMobile: day.id.split(":")[0] })))
+        .flatMap((day) => (day.requests ?? []).map((request) => ({ ...request, dayId: day.id, agentMobile: day.id.split(":")[0] })))
         .sort((first, second) => second.raisedAt.localeCompare(first.raisedAt)),
     [days],
   );

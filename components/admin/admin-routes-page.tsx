@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   getDeliveriesForRange,
   addAgentStopsToRoute,
+  useAgentRequestsToday,
   moveRouteToAgent,
   toDateKey,
   useTodayDeliveries,
@@ -101,6 +102,7 @@ export default function AdminRoutesPage() {
 
 function RoutesPage() {
   const access = useCurrentStaffAccess();
+  const agentRequests = useAgentRequestsToday();
   // The owner or a manager makes someone an agent (from the staff list; not managers or the owner)
   const canGiveRoles = Boolean(access?.isOwner || access?.roleId === "manager");
   const staffToMakeAgents = useStaffList().filter((person) => person.roleId === null || person.roleId === "staff");
@@ -376,65 +378,100 @@ function RoutesPage() {
           </section>
         </div>
 
-        <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-agents-heading">
-          <div className={dashboardStyles["admin-card-heading-row"]}>
-            <div>
-              <h2 id="admin-agents-heading" className={dashboardStyles["admin-card-title"]}>
-                Delivery agents
-              </h2>
-              <p className={dashboardStyles["admin-card-subtitle"]}>
-                {onDuty.length} on duty {isOnlyToday ? "today" : ""}
-              </p>
+        <div className={styles["admin-routes-left-column"]}>
+          <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-agents-heading">
+            <div className={dashboardStyles["admin-card-heading-row"]}>
+              <div>
+                <h2 id="admin-agents-heading" className={dashboardStyles["admin-card-title"]}>
+                  Delivery agents
+                </h2>
+                <p className={dashboardStyles["admin-card-subtitle"]}>
+                  {onDuty.length} on duty {isOnlyToday ? "today" : ""}
+                </p>
+              </div>
+              {canGiveRoles && (
+                <button type="button" className={styles["admin-routes-text-button"]} onClick={() => setIsNewAgentOpen(true)}>
+                  + Add agent
+                </button>
+              )}
             </div>
-            {canGiveRoles && (
-              <button type="button" className={styles["admin-routes-text-button"]} onClick={() => setIsNewAgentOpen(true)}>
-                + Add agent
-              </button>
-            )}
-          </div>
 
-          <ul className={styles["admin-agent-list"]}>
-            {shownAgentRows.map(({ agent, stops, done, status, routeText }, index) => (
-              <li key={agent.name} className={styles["admin-agent-row"]}>
-                <span className={`${sharedStyles["admin-initials"]} ${index % 2 ? sharedStyles["admin-initials-yellow"] : ""}`} aria-hidden="true">
-                  {initialsOf(agent.name)}
-                </span>
-                <div className={styles["admin-agent-details"]}>
-                  <div className={styles["admin-agent-top-row"]}>
-                    <span>
-                      <span className={styles["admin-agent-name"]}>{agent.name}</span>
-                      <span className={styles["admin-agent-route"]}>
-                        {routeText} · Bike {agent.bike}
+            <ul className={styles["admin-agent-list"]}>
+              {shownAgentRows.map(({ agent, stops, done, status, routeText }, index) => (
+                <li key={agent.name} className={styles["admin-agent-row"]}>
+                  <span className={`${sharedStyles["admin-initials"]} ${index % 2 ? sharedStyles["admin-initials-yellow"] : ""}`} aria-hidden="true">
+                    {initialsOf(agent.name)}
+                  </span>
+                  <div className={styles["admin-agent-details"]}>
+                    <div className={styles["admin-agent-top-row"]}>
+                      <span>
+                        <span className={styles["admin-agent-name"]}>{agent.name}</span>
+                        <span className={styles["admin-agent-route"]}>
+                          {routeText} · Bike {agent.bike}
+                        </span>
                       </span>
-                    </span>
-                    <span className={`${dashboardStyles["admin-status"]} ${AGENT_STATUS_CLASS_NAMES[status]}`}>{status}</span>
-                    <a
-                      href={`tel:+91${agent.phone}`}
-                      className={styles["admin-agent-call"]}
-                      aria-label={`Call ${agent.name}`}
-                      title={`Call ${agent.phone.replace(/(\d{5})(\d{5})/, "$1 $2")}`}
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M6.5 3.5h3l1.5 4-2 1.5a11 11 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 4.5 5.5a2 2 0 0 1 2-2Z" />
-                      </svg>
-                    </a>
+                      <span className={`${dashboardStyles["admin-status"]} ${AGENT_STATUS_CLASS_NAMES[status]}`}>{status}</span>
+                      <a
+                        href={`tel:+91${agent.phone}`}
+                        className={styles["admin-agent-call"]}
+                        aria-label={`Call ${agent.name}`}
+                        title={`Call ${agent.phone.replace(/(\d{5})(\d{5})/, "$1 $2")}`}
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M6.5 3.5h3l1.5 4-2 1.5a11 11 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 4.5 5.5a2 2 0 0 1 2-2Z" />
+                        </svg>
+                      </a>
+                    </div>
+                    {stops > 0 && (
+                      <div className={styles["admin-agent-progress-row"]}>
+                        <span className={styles["admin-agent-progress-bar"]} aria-hidden="true">
+                          <span style={{ width: `${(done / stops) * 100}%` }} />
+                        </span>
+                        <span className={styles["admin-agent-stops"]}>
+                          {done.toLocaleString("en-IN")} / {stops.toLocaleString("en-IN")} stops
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  {stops > 0 && (
-                    <div className={styles["admin-agent-progress-row"]}>
-                      <span className={styles["admin-agent-progress-bar"]} aria-hidden="true">
-                        <span style={{ width: `${(done / stops) * 100}%` }} />
-                      </span>
-                      <span className={styles["admin-agent-stops"]}>
-                        {done.toLocaleString("en-IN")} / {stops.toLocaleString("en-IN")} stops
+                </li>
+              ))}
+              {shownAgentRows.length === 0 && <li className={styles["admin-agent-empty"]}>No agents match this search.</li>}
+            </ul>
+          </section>
+
+          {/* What the agents asked the manager for today (Delivery Panel → Raise a request) */}
+          <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-agent-requests-heading">
+            <h2 id="admin-agent-requests-heading" className={dashboardStyles["admin-card-title"]}>
+              Agent requests
+            </h2>
+            <p className={dashboardStyles["admin-card-subtitle"]}>
+              {agentRequests.filter((request) => request.status === "Pending").length} waiting today
+            </p>
+            {agentRequests.length === 0 ? (
+              <p className={styles["admin-agent-empty"]}>No requests from agents today.</p>
+            ) : (
+              <ul className={styles["admin-agent-request-list"]}>
+                {agentRequests.map((request) => (
+                  <li key={request.id} className={styles["admin-agent-request"]}>
+                    <div className={styles["admin-agent-request-top-row"]}>
+                      <span className={styles["admin-agent-request-kind"]}>{request.kind}</span>
+                      <span
+                        className={`${styles["admin-agent-request-status"]} ${request.status === "Resolved" ? styles["admin-agent-request-status-resolved"] : ""}`}
+                      >
+                        {request.status === "Resolved" ? "Resolved" : "Waiting"}
                       </span>
                     </div>
-                  )}
-                </div>
-              </li>
-            ))}
-            {shownAgentRows.length === 0 && <li className={styles["admin-agent-empty"]}>No agents match this search.</li>}
-          </ul>
-        </section>
+                    <p className={styles["admin-agent-request-detail"]}>
+                      {agents.find((agent) => agent.phone === request.agentMobile)?.name ?? request.agentMobile} · {request.customerName} ·{" "}
+                      {new Date(request.raisedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}
+                    </p>
+                    {request.note && <p className={styles["admin-agent-request-note"]}>{request.note}</p>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
       </div>
 
       {isEditOpen && (

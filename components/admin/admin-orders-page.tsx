@@ -19,6 +19,7 @@ import {
   isDeliveryOpen,
   removeOrderDelivery,
   useAgentOnDutyReader,
+  useAgentRequestsToday,
   useAreOrderStopsCarriedOver,
   useAreTodayDeliveriesLoaded,
   useCarryOverOrderDeliveries,
@@ -880,8 +881,7 @@ function AgentAreasPopup({
   - Assign: "Assign agent" on each row gives them the order at once (from another agent, it moves). The agent
     who has it shows a green "Assigned", with a red X to take them off (asks first). Not once the stop is out
     for delivery: the agent is already on the way.
-  - Reassign: after one agent handed the order to another (Delivery Panel), "Reassigned to Harry" on the first
-    agent's row and "Reassigned from Somu" on the second's.
+  - Agent request: what the agent asked the manager for on this order's stop (Delivery Panel → Raise a request).
 */
 function AssignAgentDialog({
   order,
@@ -908,8 +908,8 @@ function AssignAgentDialog({
   // The agent whose areas pop-up is open, and where it goes
   const [openAreas, setOpenAreas] = useState<({ agentName: string } & AreasPopupPlace) | null>(null);
   const [isConfirmingCancel, setIsConfirmingCancel] = useState(false);
-  // The last time one agent handed this order to another
-  const exchange = [...(delivery?.history ?? [])].reverse().find((event) => event.kind === "transfer-accepted");
+  // What agents asked the manager for on this order's stop
+  const stopRequests = useAgentRequestsToday().filter((request) => request.deliveryId === delivery?.id);
 
   const choices: AgentChoice[] = useMemo(() => {
     const list = agents.map((agent): AgentChoice => {
@@ -984,7 +984,7 @@ function AssignAgentDialog({
                     <th scope="col">Today</th>
                     <th scope="col">Areas today</th>
                     <th scope="col">Assign</th>
-                    <th scope="col">Reassign</th>
+                    <th scope="col">Agent request</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1084,12 +1084,15 @@ function AssignAgentDialog({
                             </button>
                           )}
                         </td>
-                        <td className={dashboardStyles["admin-assign-agent-reassign"]}>
-                          {agent.name === exchange?.fromAgent
-                            ? `Reassigned to ${exchange.toAgent}`
-                            : agent.name === exchange?.toAgent
-                              ? `Reassigned from ${exchange.fromAgent}`
-                              : "—"}
+                        <td className={dashboardStyles["admin-assign-agent-request"]}>
+                          {stopRequests
+                            .filter((request) => request.agentMobile === agent.phone)
+                            .map((request) => (
+                              <span key={request.id} className={dashboardStyles["admin-assign-agent-request-line"]}>
+                                {request.kind} · {request.status === "Resolved" ? "Resolved" : "Waiting"}
+                              </span>
+                            ))}
+                          {!stopRequests.some((request) => request.agentMobile === agent.phone) && "—"}
                         </td>
                       </tr>
                     );

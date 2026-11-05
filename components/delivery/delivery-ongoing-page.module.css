@@ -28,30 +28,69 @@
   background: #ffffff;
 }
 
-.ongoing-card-status {
-  grid-column: 1 / -1;
-}
-
-/* Hand over: the up next card sits at the bottom of the box */
-.ongoing-hand-over-card {
-  display: flex;
-  flex-direction: column;
-}
-
 .ongoing-next-stop {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: calc(10 * var(--delivery-pixel));
-  margin-top: auto;
   padding: calc(11 * var(--delivery-pixel)) calc(14 * var(--delivery-pixel));
   border-radius: calc(12 * var(--delivery-pixel));
   background: #fbf3e1;
 }
 
-/* Keeps it off the list above when the box is full */
-.ongoing-hand-over-card > :has(+ .ongoing-next-stop) {
-  margin-bottom: calc(14 * var(--delivery-pixel));
+/* Left: the customer and Status in one card. Right: Hand over, then Priority */
+.ongoing-status-part {
+  margin-top: calc(18 * var(--delivery-pixel));
+  padding-top: calc(16 * var(--delivery-pixel));
+  border-top: 1px solid #ecece6;
+}
+
+.ongoing-right-column {
+  display: flex;
+  flex-direction: column;
+  gap: calc(14 * var(--delivery-pixel));
+  min-width: 0;
+}
+
+.ongoing-next-stop-tags {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(6 * var(--delivery-pixel));
+}
+
+.ongoing-priority-tag {
+  padding: calc(3 * var(--delivery-pixel)) calc(10 * var(--delivery-pixel));
+  border-radius: 9999px;
+  background: #1f4d2e;
+  font-size: calc(11.5 * var(--delivery-pixel));
+  font-weight: 600;
+  white-space: nowrap;
+  color: #ffffff;
+}
+
+/* Up next: the waiting customers */
+.ongoing-waiting-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(10 * var(--delivery-pixel));
+}
+
+.ongoing-waiting-empty {
+  font-size: calc(13 * var(--delivery-pixel));
+  color: #6b736c;
+}
+
+/* Subscription or One-time, at the right of the stop being delivered */
+.ongoing-stop-kind {
+  margin-left: auto;
+  padding: calc(3 * var(--delivery-pixel)) calc(10 * var(--delivery-pixel));
+  border-radius: 9999px;
+  background: #fbf3e1;
+  font-size: calc(11.5 * var(--delivery-pixel));
+  font-weight: 600;
+  color: #8a6a1c;
 }
 
 .ongoing-next-stop .ongoing-slot {

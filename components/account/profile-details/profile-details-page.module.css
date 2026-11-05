@@ -5,6 +5,16 @@
 
 /* Welcome banner: 1076 x 120, green #2F6B3F, gold ring (#F5B82E at 35%, 22 thick) and softer circles */
 
+/* A paused plan restarting today or tomorrow */
+.profile-restart-notice {
+  margin: 0 0 calc(14 * var(--account-design-pixel));
+  padding: calc(11 * var(--account-design-pixel)) calc(16 * var(--account-design-pixel));
+  border-radius: calc(12 * var(--account-design-pixel));
+  background: #e6f0e1;
+  font-size: calc(14 * var(--account-design-pixel));
+  color: #1f4d2e;
+}
+
 .profile-welcome-banner {
   position: relative;
   display: flex;

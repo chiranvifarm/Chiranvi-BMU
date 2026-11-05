@@ -17,6 +17,7 @@ import {
   type CustomerProfile,
   type CustomerProfileDetails,
 } from "@/store/customer-profiles-store";
+import { usePauseRequests } from "@/store/admin-pause-requests-store";
 import { useOrders, type Order } from "@/store/orders-store";
 import { addProductToCart, useCartItems, useCartSubscription } from "@/store/cart-store";
 import {
@@ -113,6 +114,16 @@ function toForm(profile: CustomerProfile | null): ProfileForm {
 }
 
 export default function ProfileDetailsPage() {
+  const pauseRequests = usePauseRequests();
+  const [restartToday] = useState(() => {
+    const day = new Date();
+    day.setHours(0, 0, 0, 0);
+    return day;
+  });
+  const restartTomorrowEnd = new Date(restartToday.getTime() + 2 * 86400000);
+  const restartingPlans = pauseRequests.filter(
+    (request) => request.status === "Approved" && new Date(request.resumeOn) >= restartToday && new Date(request.resumeOn) < restartTomorrowEnd,
+  );
   const accountProfile = useAccountProfile();
   const savedProfile = accountProfile.savedProfile;
   // The saved details come from the database: "Please fill in" waits until they have been read
@@ -143,6 +154,13 @@ export default function ProfileDetailsPage() {
   return (
     <>
       <AccountPageHeading title="My Profile" description="Your details, used for delivery and order updates." />
+
+      {/* A paused plan restarts by itself: the customer is told the day before and on the day */}
+      {restartingPlans.map((request) => (
+        <p key={request.id} className={styles["profile-restart-notice"]} role="status">
+          <strong>Your milk restarts {new Date(request.resumeOn) <= restartToday ? "today" : "tomorrow"}.</strong> {request.plan}: your pause ends and delivery starts again.
+        </p>
+      ))}
 
       {/* A new customer who has not saved their details yet */}
       {isProfileKnown && !savedProfile && (

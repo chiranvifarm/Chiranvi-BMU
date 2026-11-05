@@ -167,10 +167,8 @@ function CustomersPage() {
         "First name",
         "Last name",
         "Primary mobile",
-        "Secondary mobile",
         "Email",
         "Primary address",
-        "Secondary address",
         "Location",
         "Pincode",
         "Plan",
@@ -187,10 +185,8 @@ function CustomersPage() {
           profile?.firstName ?? customer.name,
           profile?.lastName ?? "",
           customer.phone,
-          profile?.secondaryMobile ?? "",
           profile?.email ?? "",
           profile?.primaryAddress ?? "",
-          profile?.secondaryAddress ?? "",
           customer.area,
           profile?.pincode ?? customer.pincode ?? "",
           getCustomerPlanKind(customer),
@@ -526,10 +522,6 @@ function CustomerDetailsDialog({ customer, onClose }: { customer: AdminCustomer;
           <dt>Primary mobile</dt>
           <dd>{phoneLink(customer.phone)}</dd>
         </div>
-        <div>
-          <dt>Secondary mobile</dt>
-          <dd>{profile?.secondaryMobile ? phoneLink(`${profile.secondaryMobile.slice(0, 5)} ${profile.secondaryMobile.slice(5)}`) : "—"}</dd>
-        </div>
         <div className={leadStyles["admin-lead-details-wide"]}>
           <dt>Email</dt>
           <dd>{profile?.email ? <a href={`mailto:${profile.email}`}>{profile.email}</a> : "—"}</dd>
@@ -537,10 +529,6 @@ function CustomerDetailsDialog({ customer, onClose }: { customer: AdminCustomer;
         <div className={leadStyles["admin-lead-details-wide"]}>
           <dt>Primary address</dt>
           <dd>{shown(profile?.primaryAddress)}</dd>
-        </div>
-        <div className={leadStyles["admin-lead-details-wide"]}>
-          <dt>Secondary address</dt>
-          <dd>{shown(profile?.secondaryAddress)}</dd>
         </div>
         <div>
           <dt>Location</dt>

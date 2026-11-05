@@ -216,23 +216,6 @@
   background: #e6f0e1;
 }
 
-.delivery-profile-edit-button {
-  width: 100%;
-  margin-top: auto;
-  padding: calc(11 * var(--delivery-pixel));
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  border-radius: 9999px;
-  font-size: calc(13.5 * var(--delivery-pixel));
-  font-weight: 600;
-  text-align: center;
-  color: #ffffff;
-}
-
-.delivery-profile-edit-button:hover,
-.delivery-profile-edit-button:focus-visible {
-  background: rgba(255, 255, 255, 0.12);
-}
-
 .delivery-profile-right-column {
   display: flex;
   flex-direction: column;

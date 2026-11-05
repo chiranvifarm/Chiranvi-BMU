@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AddressFormDialog, { type ProfileDetailsFromAddress } from "@/components/account/address/address-form-dialog";
+import { useMyTeamRecord } from "@/store/staff-access-store";
 import { CART_ICON_CLICKED_ON_CART_PAGE_EVENT } from "@/components/navigation/site-navigation-bar";
 import SiteNavigationPlacement from "@/components/navigation/site-navigation-placement";
 import BestSellersSection from "@/components/landing/best-sellers/best-sellers-section";
@@ -356,6 +357,7 @@ export default function CartView() {
   const isProfileKnown = useIsCustomerProfileKnown(loggedInMobile);
   const isProfileMissing = Boolean(loggedInMobile) && isProfileKnown && !customerProfile;
   const { addresses, defaultAddressId } = useAddressBook();
+  const isTeamMember = Boolean(useMyTeamRecord());
   // The saved cart has been read from the database (until then nothing is drawn, so it never flashes "empty")
   const isCartLoaded = useIsCartLoaded();
   const router = useRouter();
@@ -1312,6 +1314,13 @@ export default function CartView() {
                       <dd>{rupees(platformFee)}</dd>
                     </div>
                   )}
+                  {/* No coupon yet: shown at ₹0, so the customer knows one can be used */}
+                  {!appliedCoupon && (
+                    <div>
+                      <dt>Applied coupon</dt>
+                      <dd>{rupees(0)}</dd>
+                    </div>
+                  )}
                 </dl>
                 {/* One-time orders: free delivery from the owner's amount (₹500 → "above ₹499") */}
                 {!cartSubscription && (
@@ -1412,20 +1421,6 @@ export default function CartView() {
                     </svg>
                     Secure payment
                   </li>
-                  <li>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M20 12a8 8 0 1 1-2.3-5.6" />
-                      <path d="M20 4v4h-4" />
-                    </svg>
-                    Easy refunds
-                  </li>
-                  <li>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path className={styles["checkout-promise-icon-filled"]} d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14Z" />
-                      <path className={styles["checkout-promise-icon-vein"]} d="M5 19l7-7" />
-                    </svg>
-                    Freshness promise
-                  </li>
                 </ul>
               </aside>
             </div>
@@ -1434,7 +1429,7 @@ export default function CartView() {
       </main>
 
       {/* Address pop-up: the My Addresses cards; picking one confirms it (closes, ticks Select address) */}
-      {isAddressPickerOpen && (
+      {isAddressPickerOpen && !isAddressFormOpen && (
         <CheckoutPopupFrame labelledBy="checkout-address-heading" isWide onClose={closeAddressPicker}>
           <div>
             <div className={styles["address-pick-heading-row"]}>
@@ -1499,28 +1494,31 @@ export default function CartView() {
                       <p className={styles["address-pick-name"]}>{address.name}</p>
                       <p className={styles["address-pick-line"]}>{formatAddressLine(address)}</p>
                       <p className={styles["address-pick-line"]}>{address.mobileNumber}</p>
-                      <div className={styles["address-pick-actions"]}>
-                        <button
-                          type="button"
-                          className={styles["address-pick-action-button"]}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openAddressForm(address);
-                          }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className={`${styles["address-pick-action-button"]} ${styles["address-pick-remove-button"]}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            removeSavedAddress(address.id);
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </div>
+                      {/* A team member's Profile address can't be changed; the addresses they add can */}
+                      {!(address.isProfileAddress && isTeamMember) && (
+                        <div className={styles["address-pick-actions"]}>
+                          <button
+                            type="button"
+                            className={styles["address-pick-action-button"]}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openAddressForm(address);
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className={`${styles["address-pick-action-button"]} ${styles["address-pick-remove-button"]}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              removeSavedAddress(address.id);
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
                     </li>
                   );
                 })}
@@ -1549,6 +1547,11 @@ export default function CartView() {
           addressToEdit={addressBeingEdited}
           isDefaultAtStart={addressBeingEdited ? addressBeingEdited.id === defaultAddressId : addresses.length === 0}
           asksProfileDetails={isProfileMissing}
+          savedAddresses={addresses}
+          onPickSaved={(address) => {
+            setIsAddressFormOpen(false);
+            pickAddress(address.id, address);
+          }}
           onSave={saveAddress}
           onClose={closeAddressForm}
         />

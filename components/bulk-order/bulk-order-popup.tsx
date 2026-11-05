@@ -39,7 +39,7 @@ export const POPUP_PAGE = "/";
 const BAND_PICTURES = [
   { imageSource: "/images/products/desi-cow-milk-bottle-chiranvi-farm.webp", imageWidth: 1188, imageHeight: 2312, alt: "A2 Desi Cow Milk" },
   { imageSource: "/images/products/desi-ghee-jar-chiranvi-farm.webp", imageWidth: 1524, imageHeight: 2204, alt: "A2 Desi Ghee" },
-  { imageSource: "/images/products/fresh-paneer-box-chiranvi-farm.webp", imageWidth: 3712, imageHeight: 2728, alt: "Fresh Paneer" },
+  { imageSource: "/images/products/a2-desi-gir-paneer-box.webp", imageWidth: 3712, imageHeight: 2728, alt: "Fresh Paneer" },
   { imageSource: "/images/products/whole-wheat-atta-pack.webp", imageWidth: 1984, imageHeight: 1806, alt: "Whole Wheat Atta" },
   { imageSource: "/images/categories/flours-category-chiranvi-farm.webp", imageWidth: 412, imageHeight: 276, alt: "Ragi and Jowar Flour" },
 ];

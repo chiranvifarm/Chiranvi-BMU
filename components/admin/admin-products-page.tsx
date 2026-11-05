@@ -1159,17 +1159,33 @@ function ProductPopup({
               {product && (
                 <>
                   <div className={`${styles["admin-product-field-grid"]} ${styles["admin-product-stock-count-grid"]}`}>
-                    {stockSizes.map((size) => (
-                      <PopupField key={size.key} label={`${size.label} in stock`}>
-                        <input
-                          className={adminInputClassName}
-                          inputMode="numeric"
-                          placeholder="Not counted"
-                          value={countTexts[size.key] ?? ""}
-                          onChange={(changeEvent) => setCountTexts({ ...countTexts, [size.key]: onlyDigits(changeEvent.target.value) })}
-                        />
-                      </PopupField>
-                    ))}
+                    {stockSizes.map((size) => {
+                      // Off: stock 0, so the website shows this pack as Out of stock
+                      const isPackOn = countTexts[size.key] !== "0";
+                      return (
+                        <PopupField key={size.key} label={`${size.label} in stock`}>
+                          <input
+                            className={adminInputClassName}
+                            inputMode="numeric"
+                            placeholder="Not counted"
+                            value={countTexts[size.key] ?? ""}
+                            onChange={(changeEvent) => setCountTexts({ ...countTexts, [size.key]: onlyDigits(changeEvent.target.value) })}
+                          />
+                          {page && "packs" in page && (
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={isPackOn}
+                              aria-label={`${size.label} on the website`}
+                              className={`${styles["admin-product-pack-switch"]} ${isPackOn ? styles["admin-product-pack-switch-on"] : ""}`}
+                              onClick={() => setCountTexts({ ...countTexts, [size.key]: isPackOn ? "0" : "" })}
+                            >
+                              {isPackOn ? "On" : "Off"}
+                            </button>
+                          )}
+                        </PopupField>
+                      );
+                    })}
                   </div>
                   <p className={styles["admin-product-stock-count-note"]}>
                     With a number, paid orders lower it and the stock label above follows it (Low at 5 or less). Leave it empty to set the label by hand.

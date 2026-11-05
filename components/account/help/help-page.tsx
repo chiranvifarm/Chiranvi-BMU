@@ -22,13 +22,8 @@ const helpTopics = [
 const frequentlyAskedQuestions = [
   {
     topicId: "subscription",
-    question: "How do I pause delivery for a day?",
-    answer: "Go to Subscription, tap the date and choose Pause. Changes before 9 PM apply next morning.",
-  },
-  {
-    topicId: "payments",
-    question: "When is my wallet charged?",
-    answer: "Your wallet is charged each morning after your milk is delivered, only for what was delivered.",
+    question: "How do I pause my delivery?",
+    answer: "Go to Subscription and press Pause subscription. A pause is for 8 days or more. Ask before 8 PM; our team approves it, and your plan ends later by those days.",
   },
   {
     topicId: "delivery",

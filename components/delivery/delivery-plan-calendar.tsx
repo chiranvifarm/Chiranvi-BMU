@@ -13,16 +13,16 @@ import styles from "./delivery-plan-calendar.module.css";
   supabase/migrations/0035_… and 0036_…sql). Two cards: the customers on the left; clicking one shows that
   customer's own calendar on the right. It opens on the running month; the arrows go to the month before or after.
   Each day is a box like the customer's Delivery calendar (weekday over the date): delivered light green, today
-  pale yellow, upcoming white, not delivered red, approved skips and pauses grey with the word.
+  pale yellow, upcoming white, not delivered red, approved pauses grey with the word.
   Under the calendar: "Deliver today's milk", the time to deliver before (the customer's stop's slot, set on the
   panel) and Mark as delivered, which asks for the customer's OTP (the same 4-digit box as Ongoing) and then the
   database saves it for the customer and the panel (mark_plan_day_delivered()). Once delivered, the button stays
   as a greyed-out Delivered.
-  A skipped or paused customer shows when the next delivery is instead (also on Ongoing: PlanDayNotices).
+  A paused customer shows when the next delivery is instead (also on Ongoing: PlanDayNotices).
   A pause running or still to come is said under the calendar as soon as it is approved: PauseNote.
 */
 
-type DayState = "upcoming" | "today" | "delivered" | "missed" | "skipped" | "paused" | "none";
+type DayState = "upcoming" | "today" | "delivered" | "missed" | "paused" | "none";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -31,11 +31,11 @@ const LEGEND: { state: DayState; label: string }[] = [
   { state: "missed", label: "Not delivered" },
   { state: "today", label: "Today" },
   { state: "upcoming", label: "Upcoming" },
-  { state: "skipped", label: "Skipped or paused" },
+  { state: "paused", label: "Paused" },
 ];
 
 // Said in the box, as colours alone don't tell these apart
-const DAY_WORDS: Partial<Record<DayState, string>> = { skipped: "Skipped", paused: "Paused", missed: "Missed" };
+const DAY_WORDS: Partial<Record<DayState, string>> = { paused: "Paused", missed: "Missed" };
 
 // "Dec 3"
 function monthDayOf(date: Date) {
@@ -49,13 +49,12 @@ function dayKeyOf(date: Date) {
 function stateOf(plan: AssignedPlan, dayKey: string, todayKey: string): DayState {
   if (plan.stops[dayKey] === "Delivered") return "delivered";
   if (dayKey < plan.firstDay || dayKey > plan.lastDay) return dayKey === todayKey ? "today" : "none";
-  if (plan.skips.includes(dayKey)) return "skipped";
   if (plan.pauses.some((pause) => dayKey >= pause.from && dayKey < pause.to)) return "paused";
   if (dayKey === todayKey) return "today";
   return dayKey < todayKey ? "missed" : "upcoming";
 }
 
-// The first day from tomorrow that isn't skipped or paused
+// The first day from tomorrow that isn't paused
 function nextDeliveryDayOf(plan: AssignedPlan, today: Date, todayKey: string) {
   const day = new Date(today);
   for (let tries = 0; tries < 400; tries++) {
@@ -72,7 +71,7 @@ export function PlanDayNotices() {
   const { plans } = useAssignedPlans();
   const [today] = useState(() => new Date());
   const todayKey = dayKeyOf(today);
-  const away = (plans ?? []).filter((plan) => ["skipped", "paused"].includes(stateOf(plan, todayKey, todayKey)));
+  const away = (plans ?? []).filter((plan) => stateOf(plan, todayKey, todayKey) === "paused");
   if (away.length === 0) return null;
   return (
     <ul className={styles["plan-day-notices"]}>
@@ -177,7 +176,7 @@ export default function DeliveryPlanCalendar() {
   const days = Array.from({ length: daysInMonth }, (_, index) => new Date(shownMonth.getFullYear(), shownMonth.getMonth(), index + 1));
   // "6–7 AM" → "7 AM": the end of the slot set on the panel
   const deliverBefore = plan?.slot.split("–").pop()?.trim() || "7 AM";
-  // Today while it's still to deliver, else the next day that isn't skipped or paused
+  // Today while it's still to deliver, else the next day that isn't paused
   const nextDeliveryDay = plan ? (todayState === "today" && isDeliveryDay ? today : nextDeliveryDayOf(plan, today, todayKey)) : null;
 
   function moveMonth(change: number) {
@@ -294,11 +293,6 @@ export default function DeliveryPlanCalendar() {
 
             {/* Today, for this customer */}
             {comingPause && <PauseNote plan={plan} pause={comingPause} todayKey={todayKey} />}
-            {todayState === "skipped" && (
-              <p className={styles["plan-day-away"]}>
-                <AwayText plan={plan} today={today} todayKey={todayKey} />
-              </p>
-            )}
             {todayState === "today" && !isDeliveryDay && (
               <p className={styles["plan-calendar-note"]}>
                 {todayKey < plan.firstDay ? `Deliveries start on ${new Date(`${plan.firstDay}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}.` : "This plan has ended."}

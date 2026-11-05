@@ -440,6 +440,21 @@
 }
 
 /* Keyboard focus on the hidden radio shows on its card */
+/* Turned off on Products & pricing, or sold out: can't be chosen */
+.one-time-pack-size-option-off,
+.one-time-pack-size-option-off:hover {
+  border-color: #e3e2da;
+  background: #f4f4f0;
+  color: #9a9f97;
+  cursor: not-allowed;
+}
+
+.one-time-pack-size-out-of-stock {
+  font-size: calc(11 * var(--one-time-product-design-pixel));
+  font-weight: 600;
+  color: #6e7a72;
+}
+
 .one-time-pack-size-option:has(input:focus-visible) {
   outline: 2px solid #285c3a;
   outline-offset: 2px;
@@ -1172,7 +1187,8 @@
     font-size: calc(16 * var(--one-time-phone-pixel));
   }
 
-  .one-time-pack-size-breakdown {
+  .one-time-pack-size-breakdown,
+  .one-time-pack-size-out-of-stock {
     font-size: calc(10.5 * var(--one-time-phone-pixel));
   }
 

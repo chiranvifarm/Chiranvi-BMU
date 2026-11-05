@@ -54,7 +54,7 @@ import styles from "./admin-product-page-form.module.css";
       1. kind      Subscription (like milk: plans + one-time tab) or One-time purchase (like ghee: pack
                    sizes), and the category the product card goes under (Add only)
       2. details   the form for that kind: texts, pictures, prices, packs or plans, delivery steps, review,
-                   product information and nutrition (one-time), draft or published
+                   product information and nutrition, draft or published
       3. saved     links to open (or preview) /products/<address>
   - ProductPageCardActions: the page's Open, Edit page, Delete page (and Restore) buttons, inside its card's
     pop-up on Products & pricing (the cards themselves look as before).
@@ -653,9 +653,9 @@ export function ProductPageForm({
   const [noteText, setNoteText] = useState(oneTimeEditing?.note.text ?? "");
   const [noteTone, setNoteTone] = useState<"fresh" | "warning">(oneTimeEditing?.note.tone ?? "fresh");
   const [freeDeliveryKind, setFreeDeliveryKind] = useState<"from" | "always">(oneTimeEditing?.freeDelivery.kind ?? "from");
-  const [informationRows, setInformationRows] = useState<InformationRow[]>(oneTimeEditing?.productInformation ?? startingInformationRows);
-  const [nutritionRows, setNutritionRows] = useState<InformationRow[]>(oneTimeEditing?.nutritionFacts ?? startingNutritionRows);
-  const [nutritionBasis, setNutritionBasis] = useState(oneTimeEditing?.nutritionBasis ?? "per 100 g (approx.)");
+  const [informationRows, setInformationRows] = useState<InformationRow[]>(oneTimeEditing?.productInformation ?? subscriptionEditing?.productInformation ?? startingInformationRows);
+  const [nutritionRows, setNutritionRows] = useState<InformationRow[]>(oneTimeEditing?.nutritionFacts ?? subscriptionEditing?.nutritionFacts ?? startingNutritionRows);
+  const [nutritionBasis, setNutritionBasis] = useState(oneTimeEditing?.nutritionBasis ?? subscriptionEditing?.nutritionBasis ?? "per 100 g (approx.)");
 
   // ---- Subscription ----
   const [timingsStripText, setTimingsStripText] = useState(
@@ -895,6 +895,9 @@ export function ProductPageForm({
         oneTimeDeliveryCharge: Number(deliveryCharge) || 0,
         orderCutoffHour: Math.min(23, Math.max(0, Number(cutoffHour) || 21)),
         deliveryByTime: deliveryByTime.trim(),
+        productInformation: informationRows.map((row) => ({ label: row.label.trim(), value: row.value.trim() })).filter((row) => row.label && row.value),
+        nutritionFacts: nutritionRows.map((row) => ({ label: row.label.trim(), value: row.value.trim() })).filter((row) => row.label && row.value),
+        nutritionBasis: nutritionBasis.trim(),
         review: { quote: reviewQuote.trim(), name: reviewName.trim(), area: reviewArea.trim(), subscriberSince: subscriberSince.trim() },
       };
       page = subscriptionPage;
@@ -1403,8 +1406,7 @@ export function ProductPageForm({
         </AdminDialogField>
       </FormSection>
 
-      {isOneTime && (
-        <>
+      <>
           <FormSection number={nextSection()} title="Product information">
             <InformationRowsEditor rows={informationRows} onChange={setInformationRows} groupLabel="Product information" addLabel="Add information row" />
           </FormSection>
@@ -1415,8 +1417,7 @@ export function ProductPageForm({
             </AdminDialogField>
             <InformationRowsEditor rows={nutritionRows} onChange={setNutritionRows} groupLabel="Nutrition" addLabel="Add nutrition row" />
           </FormSection>
-        </>
-      )}
+      </>
 
       <FormSection number={nextSection()} title={`Product row on this page (${noodlesPageOf(slug) ? "You may also like" : "Fast selling products"})`}>
         <AdminDialogField label="Products and order" isWide>

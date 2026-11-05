@@ -54,7 +54,7 @@ export const POWDER_PRODUCT_IDS = ["moringa-powder"];
 // Small picture on each filter button (pictures the site already has)
 const FILTER_PICTURES: Record<ShopCategory, { imageSource: string; imageWidth: number; imageHeight: number }> = {
   Milk: { imageSource: "/images/products/desi-cow-milk-bottle-chiranvi-farm.webp", imageWidth: 1188, imageHeight: 2312 },
-  Paneer: { imageSource: "/images/products/fresh-paneer-box-chiranvi-farm.webp", imageWidth: 3712, imageHeight: 2728 },
+  Paneer: { imageSource: "/images/products/a2-desi-gir-paneer-box.webp", imageWidth: 3712, imageHeight: 2728 },
   Ghee: { imageSource: "/images/products/desi-ghee-jar-chiranvi-farm.webp", imageWidth: 1524, imageHeight: 2204 },
   Butter: { imageSource: "/images/categories/butter-category.webp", imageWidth: 412, imageHeight: 272 },
   Flours: { imageSource: "/images/products/whole-wheat-atta-pack.webp", imageWidth: 1984, imageHeight: 1806 },

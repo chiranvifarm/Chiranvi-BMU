@@ -552,6 +552,27 @@
   margin-top: calc(12 * var(--admin-pixel));
 }
 
+/* A pack size on or off on the website (off: stock 0, shown as Out of stock) */
+.admin-product-pack-switch {
+  align-self: flex-start;
+  margin-top: calc(6 * var(--admin-pixel));
+  padding: calc(3 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border: 1px solid #e0e2da;
+  border-radius: 9999px;
+  background: #f4f4f0;
+  font: inherit;
+  font-size: calc(12 * var(--admin-pixel));
+  font-weight: 600;
+  color: #6e7a72;
+  cursor: pointer;
+}
+
+.admin-product-pack-switch-on {
+  border-color: #2f6b3a;
+  background: #e6f0e1;
+  color: #1f4d2e;
+}
+
 .admin-product-stock-count-note {
   margin-top: calc(8 * var(--admin-pixel));
   font-size: calc(12 * var(--admin-pixel));

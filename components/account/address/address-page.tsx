@@ -86,10 +86,8 @@ export default function AddressPage() {
                 <p className={styles["address-line"]}>{formatAddressLine(address)}</p>
                 <p className={styles["address-line"]}>{address.mobileNumber}</p>
 
-                {/* A team member's Profile addresses change by a request (Profile → Edit details) */}
-                {address.isProfileAddress && isTeamMember ? (
-                  <p className={styles["address-line"]}>To change this address, use Edit details on your Profile.</p>
-                ) : (
+                {/* A team member can't change their Profile addresses */}
+                {address.isProfileAddress && isTeamMember ? null : (
                   <div className={styles["address-actions"]}>
                     <button
                       type="button"

@@ -319,7 +319,7 @@ function NotificationsBell({ stops }: { stops: AgentStops }) {
             <p className={styles["delivery-bell-list-title"]}>Notifications</p>
             {stops.notifications.length === 0 ? (
               <p className={styles["delivery-bell-empty"]}>
-                Nothing yet. New stops, skips, pauses and route changes show here.
+                Nothing yet. New stops, pauses and route changes show here.
               </p>
             ) : (
               <ul className={styles["delivery-bell-items"]}>

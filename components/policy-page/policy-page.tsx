@@ -117,7 +117,7 @@ export default function PolicyPage({
             />
           </span>
           <span className={`${styles["policy-hero-product-circle"]} ${styles["policy-hero-product-paneer"]}`}>
-            <Image src="/images/products/fresh-paneer-200g-box.webp" alt="" width={604} height={444} sizes="140px" />
+            <Image src="/images/products/a2-desi-gir-paneer-box.webp" alt="" width={604} height={444} sizes="140px" />
           </span>
           <span className={`${styles["policy-hero-product-circle"]} ${styles["policy-hero-product-ghee"]}`}>
             <Image src="/images/products/desi-ghee-jar-chiranvi-farm.webp" alt="" width={1524} height={2204} sizes="100px" />

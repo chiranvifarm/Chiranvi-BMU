@@ -8,7 +8,7 @@ import { useIsLoggedIn } from "@/components/login/login-status";
 import SiteFooter from "@/components/footer/site-footer";
 import SiteNavigationPlacement from "@/components/navigation/site-navigation-placement";
 import { addProductToCart, changeCartItemQuantity, rememberPendingCartProduct, useCartItems, type CartProduct } from "@/store/cart-store";
-import { getDiscountPercent } from "@/store/products-store";
+import { getDiscountPercent, useShopProducts } from "@/store/products-store";
 import { ROW_SIZE, productRowFor, useProductRows } from "@/store/admin-product-rows-store";
 import { FREE_DELIVERY_FROM } from "./product-page-data";
 import type { DeliveryStepIcon, OneTimePack, OneTimeProductPage as OneTimePageData, PictureFit } from "./product-page-data";
@@ -186,7 +186,13 @@ export function FastSellingRow({ currentSlug, override }: { currentSlug: string;
 
 export default function OneTimeProductPage({ page }: { page: OneTimePageData }) {
   const [chosenPackId, setChosenPackId] = useState(page.defaultPackId);
-  const chosenPack = page.packs.find((pack) => pack.packId === chosenPackId) ?? page.packs[0];
+  // A pack turned off on Products & pricing, or sold out: its stock count is 0. It shows Out of stock
+  const shopProducts = useShopProducts();
+  const isPackOff = (packId: string) => shopProducts.some((product) => product.stockCounts?.[`${page.slug}-${packId}`] === 0);
+  const chosenPack =
+    page.packs.find((pack) => pack.packId === chosenPackId && !isPackOff(pack.packId)) ??
+    page.packs.find((pack) => !isPackOff(pack.packId)) ??
+    page.packs[0];
   /*
     Quantity: the chosen pack's number in the cart. Not in the cart: "Add to cart" (adds one); then
     "− n +" changes the cart, and − at 1 takes it out, back to "Add to cart". Not logged in, Add to cart
@@ -345,19 +351,21 @@ export default function OneTimeProductPage({ page }: { page: OneTimePageData }) 
               </>
             )}
 
-            {/* Choose Your Pack Size (not shown for a product sold in one pack only: nothing to choose) */}
-            {page.packs.length > 1 && (
+            {/* Choose Your Pack Size */}
             <fieldset className={styles["one-time-pack-sizes"]}>
               <legend className={styles["one-time-section-label"]}>Choose Your Pack Size</legend>
               <div className={styles["one-time-pack-size-options"]}>
                 {page.packs.map((pack) => {
-                  const isChosen = pack.packId === chosenPack?.packId;
+                  const isOff = isPackOff(pack.packId);
+                  const isChosen = pack.packId === chosenPack?.packId && !isOff;
                   return (
                     <label
                       key={pack.packId}
-                      className={`${styles["one-time-pack-size-option"]} ${isChosen ? styles["one-time-pack-size-option-chosen"] : ""}`}
+                      className={`${styles["one-time-pack-size-option"]} ${isChosen ? styles["one-time-pack-size-option-chosen"] : ""} ${
+                        isOff ? styles["one-time-pack-size-option-off"] : ""
+                      }`}
                     >
-                      {pack.tag && (
+                      {pack.tag && !isOff && (
                         <span
                           className={`${styles["one-time-pack-tag"]} ${pack.tag === "Best value" ? styles["one-time-pack-tag-best-value"] : ""}`}
                         >
@@ -369,18 +377,22 @@ export default function OneTimeProductPage({ page }: { page: OneTimePageData }) 
                         name="one-time-pack-size"
                         value={pack.packId}
                         checked={isChosen}
+                        disabled={isOff}
                         onChange={() => setChosenPackId(pack.packId)}
                         className={styles["one-time-visually-hidden"]}
                       />
                       <span className={styles["one-time-pack-size-label"]}>{pack.label}</span>
                       <span className={styles["one-time-pack-size-price"]}>{formatRupees(pack.price)}</span>
-                      <span className={styles["one-time-pack-size-breakdown"]}>{describePackCardBreakdown(page, pack)}</span>
+                      {isOff ? (
+                        <span className={styles["one-time-pack-size-out-of-stock"]}>Out of stock</span>
+                      ) : (
+                        <span className={styles["one-time-pack-size-breakdown"]}>{describePackCardBreakdown(page, pack)}</span>
+                      )}
                     </label>
                   );
                 })}
               </div>
             </fieldset>
-            )}
 
             {page.note.text && (
               <p className={`${styles["one-time-note"]} ${page.note.tone === "warning" ? styles["one-time-note-warning"] : ""}`}>

@@ -12,10 +12,10 @@ import {
 import styles from "./delivery-alerts.module.css";
 
 /*
-  The Delivery Panel's notifications on the dashboard: a manager gave a stop, a route changed, a skip or pause was
+  The Delivery Panel's notifications on the dashboard: a manager gave a stop, a route changed, a pause was
   approved. They drop in at the top centre, on every page, and stay until the agent presses Mark as read (one) or
   Mark all as read; then they are in the bell's list. Each kind has its own colour and icon. Read ones are kept in the agent's day
-  (the database). Skips and pauses come from the plans given to this agent (my_assigned_plans()).
+  (the database). Pauses come from the plans given to this agent (my_assigned_plans()).
   A paused plan's restart (the day before and the day itself) is an alarm: it beeps and vibrates every 30 seconds
   until the agent presses Mark as read. It works while the panel is open; a browser may keep it silent until the first tap.
 */
@@ -28,7 +28,6 @@ const LOOK_OF_KIND: Record<AgentNotification["kind"], { tone: Tone; iconPaths: s
   "status-change": { tone: "green", iconPaths: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M8 12.5l2.5 2.5 5.5-5.5"] },
   "request-update": { tone: "gold", iconPaths: ["M9 3.5h6v3H9z", "M7 5H5.5v15.5h13V5H17"] },
   "manager-message": { tone: "yellow", iconPaths: ["M4 5h16v11H8l-4 4V5Z"] },
-  skip: { tone: "yellow", iconPaths: ["M5 5l8 7-8 7V5Z", "M18 5v14"] },
   pause: { tone: "grey", iconPaths: ["M9 5v14", "M15 5v14"] },
   "delivery-restart": { tone: "yellow", iconPaths: ["M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16Z", "M10 20.5a2 2 0 0 0 4 0"] },
 };
@@ -87,7 +86,7 @@ export function NotificationRow({ notification, children }: { notification: Agen
 export default function DeliveryAlerts({ mobileNumber, stops }: { mobileNumber: string; stops: AgentStops }) {
   const { plans } = useAssignedPlans();
 
-  // New skips and pauses on this agent's plans become notifications
+  // New pauses on this agent's plans become notifications
   useEffect(() => {
     if (plans && stops.isLoaded) learnPlanEvents(mobileNumber, plans, stops.knownPlanEvents);
   }, [mobileNumber, plans, stops.isLoaded, stops.knownPlanEvents]);

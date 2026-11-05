@@ -38,14 +38,19 @@
   padding: 0 calc(40 * var(--account-design-pixel));
 }
 
-/* Sidebar card: 260 x 520, white */
+/* Sidebar card: 260 x 520, white. It stays exactly where it starts while the page on the right scrolls: its "top"
+   is the room for the navigation bar (27 above it + 100 tall) + the 24 above this card, so it never shifts */
 
 .account-sidebar {
+  position: sticky;
+  top: calc(27 * var(--landing-page-vertical-design-pixel) + 100 * var(--landing-page-design-pixel) + 24 * var(--account-design-pixel));
   display: flex;
   flex-shrink: 0;
   flex-direction: column;
   width: calc(260 * var(--account-design-pixel));
   min-height: calc(520 * var(--account-design-pixel));
+  max-height: calc(100svh - 27 * var(--landing-page-vertical-design-pixel) - 100 * var(--landing-page-design-pixel) - 40 * var(--account-design-pixel));
+  overflow-y: auto;
   padding: calc(18 * var(--account-design-pixel)) calc(16 * var(--account-design-pixel));
   border-radius: calc(16 * var(--account-design-pixel));
   background: #ffffff;
@@ -257,11 +262,13 @@
   }
 
   .account-sidebar {
+    position: static;
     flex-direction: row;
     align-items: center;
     gap: 6px;
     width: auto;
     min-height: 0;
+    max-height: none;
     padding: 8px;
     border-radius: 14px;
     overflow-x: auto;

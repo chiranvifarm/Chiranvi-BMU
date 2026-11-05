@@ -78,7 +78,7 @@ export type AgentRequest = {
 
 export type AgentNotification = {
   id: string;
-  kind: "new-stop" | "route-change" | "status-change" | "request-update" | "manager-message" | "skip" | "pause" | "delivery-restart";
+  kind: "new-stop" | "route-change" | "status-change" | "request-update" | "manager-message" | "pause" | "delivery-restart";
   text: string;
   at: string; // ISO
 };
@@ -136,7 +136,7 @@ type AgentDay = {
   notifications: AgentNotification[];
   notificationsSeenAt: string; // ISO, when the bell was last opened
   readNotificationIds?: string[]; // pressed OK or Mark all as read
-  knownPlanEvents?: string[]; // approved skips and pauses seen so far today (new ones become notifications)
+  knownPlanEvents?: string[]; // approved pauses seen so far today (new ones become notifications)
 };
 
 // ---------- Who is logged in ----------
@@ -511,13 +511,12 @@ export type AssignedPlan = {
   bottles: string; // "1 × 1 L"
   firstDay: string; // YYYY-MM-DD
   lastDay: string;
-  skips: string[]; // approved
   pauses: { from: string; to: string }[]; // approved; "to" is the day it resumes
   stops: Record<string, string>; // day → "Delivered", "Missed", ...
   slot: string; // "6–7 AM"
 };
 
-// Read now, when the window comes back into focus, and every minute (staff approve skips while the agent is out)
+// Read now, when the window comes back into focus, and every minute (staff approve pauses while the agent is out)
 export function useAssignedPlans() {
   const [plans, setPlans] = useState<AssignedPlan[] | null>(null);
   const [hasProblem, setHasProblem] = useState(false);
@@ -555,8 +554,8 @@ function planRestartReminders(plans: AssignedPlan[]) {
   const tomorrow = `${tomorrowDate.getFullYear()}-${String(tomorrowDate.getMonth() + 1).padStart(2, "0")}-${String(tomorrowDate.getDate()).padStart(2, "0")}`;
   return plans.flatMap((plan) =>
     plan.pauses
-      // Not when that day is skipped or paused too
-      .filter((pause) => !plan.skips.includes(pause.to) && !plan.pauses.some((other) => pause.to >= other.from && pause.to < other.to))
+      // Not when that day is paused too
+      .filter((pause) => !plan.pauses.some((other) => pause.to >= other.from && pause.to < other.to))
       .flatMap((pause) => {
         const planText = `${plan.customerName}, next delivery on ${monthDay(pause.to)}`;
         if (pause.to === tomorrow) return [{ key: `restart-eve-${plan.orderNumber}-${pause.to}`, text: `Delivery restarts tomorrow: ${planText}` }];
@@ -566,15 +565,10 @@ function planRestartReminders(plans: AssignedPlan[]) {
   );
 }
 
-// New approved skips and pauses become notifications; the first look of the day only learns them.
+// New approved pauses become notifications; the first look of the day only learns them.
 // A restart alarm always shows, also on the first look of the day
 export function learnPlanEvents(mobileNumber: string, plans: AssignedPlan[], known: string[] | undefined) {
   const events = plans.flatMap((plan) => [
-    ...plan.skips.map((day) => ({
-      key: `skip-${plan.orderNumber}-${day}`,
-      kind: "skip" as const,
-      text: `Skip approved: ${plan.customerName}, no delivery on ${shortDay(day)}`,
-    })),
     ...plan.pauses.map((pause) => ({
       key: `pause-${plan.orderNumber}-${pause.from}`,
       kind: "pause" as const,

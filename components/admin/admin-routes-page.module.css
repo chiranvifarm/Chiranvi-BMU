@@ -36,6 +36,36 @@
   text-decoration: underline;
 }
 
+/* ---------- Primary hub ---------- */
+.admin-hub-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: calc(14 * var(--admin-pixel));
+  margin-top: calc(10 * var(--admin-pixel));
+}
+
+.admin-hub-limit {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--admin-pixel));
+  width: calc(130 * var(--admin-pixel));
+  font-size: calc(12 * var(--admin-pixel));
+  color: #5c655e;
+}
+
+.admin-hub-note {
+  margin-top: calc(8 * var(--admin-pixel));
+  font-size: calc(12 * var(--admin-pixel));
+  color: #7a837c;
+}
+
+.admin-hub-problem {
+  margin-top: calc(6 * var(--admin-pixel));
+  font-size: calc(12 * var(--admin-pixel));
+  color: #c0392b;
+}
+
 /* ---------- Route map ---------- */
 
 .admin-route-map {
@@ -88,8 +118,93 @@
   border-radius: 50%;
 }
 
+.admin-route-row {
+  cursor: pointer;
+}
+
 .admin-route-row-highlighted td {
   background: #f7f9f3;
+}
+
+/* The route's name in the table: a button, so the keyboard can open the overview too */
+.admin-route-open-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.admin-route-open-button:hover,
+.admin-route-open-button:focus-visible {
+  text-decoration: underline;
+}
+
+/* ---------- A route's overview (pop-up) ---------- */
+.admin-route-overview-agent {
+  margin-bottom: calc(14 * var(--admin-pixel));
+}
+
+.admin-route-overview-title {
+  margin-bottom: calc(6 * var(--admin-pixel));
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14 * var(--admin-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+.admin-route-overview-agent-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(12 * var(--admin-pixel));
+  font-size: calc(13 * var(--admin-pixel));
+  color: #5c655e;
+}
+
+.admin-route-overview-agent-line strong {
+  color: #1f4d2e;
+}
+
+.admin-route-overview-agent-line a {
+  color: #1f4d2e;
+  font-weight: 600;
+}
+
+.admin-route-overview-counts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: calc(10 * var(--admin-pixel));
+  margin-bottom: calc(16 * var(--admin-pixel));
+}
+
+.admin-route-overview-count {
+  display: flex;
+  flex-direction: column;
+  padding: calc(10 * var(--admin-pixel)) calc(12 * var(--admin-pixel));
+  border-radius: calc(10 * var(--admin-pixel));
+  background: #f7f9f3;
+  font-size: calc(12 * var(--admin-pixel));
+  color: #5c655e;
+}
+
+.admin-route-overview-count strong {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(20 * var(--admin-pixel));
+  color: #1f4d2e;
+}
+
+.admin-route-overview-empty {
+  padding: calc(14 * var(--admin-pixel)) 0;
+  font-size: calc(13 * var(--admin-pixel));
+  color: #7a837c;
+}
+
+@media (max-width: 640px) {
+  .admin-route-overview-counts {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .admin-route-progress-cell {

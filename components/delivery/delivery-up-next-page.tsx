@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { RouteMap } from "@/components/admin/admin-routes-page";
-import { useDeliveryRoutes } from "@/store/admin-routes-store";
+import { useDeliveryRoutes, useDeliveryService } from "@/store/admin-routes-store";
 import {
   distanceBetween,
   formatTime,
+  hubNavigationLink,
   minutesFor,
   moveStop,
   optimiseRoute,
@@ -25,9 +26,10 @@ import styles from "./delivery-up-next-page.module.css";
 /*
   Deliveries → Up next (/delivery/up-next): the stops after the ongoing ones, in route order.
   - Totals: stops left, distance left and the estimated finish time (riding plus a few minutes per stop).
-  - Optimise route (nearest stop next, each time slot kept together) and Open route in Google Maps.
+  - Optimise route (nearest stop next, each time slot kept together) and Open route in Google Maps (from the
+    farm hub until the first stop of the day is finished; after that, from wherever the agent is).
   - Route map: the same map as Routes & agents on the panel, with only this agent's routes. A route changed on
-    the panel changes here.
+    the panel changes here. Under it, the farm hub (the pick-up point) with Navigate to hub, once its spot is saved.
   - Load check: the products needed for the stops still to go (the ongoing ones too), bottles to collect and
     cash to collect.
   - Each stop: number, time slot, distance from the stop before, customer, address, items, and tags for a
@@ -38,6 +40,7 @@ export default function DeliveryUpNextPage() {
   const { login, stops } = useDeliveryPanel();
   const { ongoing, upNext } = stops;
   const routes = useDeliveryRoutes();
+  const hub = useDeliveryService()?.hub ?? null;
   const myRouteIds = routes.filter((route) => route.agent === login.agent?.name).map((route) => route.id);
   const [highlightedRoute, setHighlightedRoute] = useState<string | null>(null);
   // The ongoing stops and everything after them, in order
@@ -93,7 +96,7 @@ export default function DeliveryUpNextPage() {
         )}
         {stopsLeft.length > 0 && (
           <a
-            href={routeLink(stopsLeft)}
+            href={routeLink(stopsLeft, stops.completed.length === 0 ? hub : null)}
             target="_blank"
             rel="noreferrer"
             className={`${deliveryButtonStyles.filled} ${deliveryButtonStyles.small}`}
@@ -135,6 +138,22 @@ export default function DeliveryUpNextPage() {
                 Farm hub → {myRouteIds.length} delivery route{myRouteIds.length === 1 ? "" : "s"}
               </p>
               <RouteMap routes={routes} shownRouteIds={myRouteIds} highlightedRoute={highlightedRoute} onHighlight={setHighlightedRoute} />
+              {/* The pick-up point */}
+              {hub && (
+                <p className={styles["up-next-hub-row"]}>
+                  <span>
+                    Pick-up point: <strong>{hub.name}</strong>
+                  </span>
+                  <a
+                    href={hubNavigationLink(hub)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`${deliveryButtonStyles.outlined} ${deliveryButtonStyles.small}`}
+                  >
+                    Navigate to hub
+                  </a>
+                </p>
+              )}
             </section>
 
             <section className={styles["up-next-card"]} aria-labelledby="up-next-load-title">

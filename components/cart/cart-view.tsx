@@ -48,7 +48,9 @@ import {
   type Order,
   type RunningPlan,
 } from "@/store/orders-store";
+import { addLead } from "@/store/admin-leads-store";
 import type { OrderPaymentMethod } from "@/store/admin-orders-store";
+import { serviceProblemOf, useDeliveryService } from "@/store/admin-routes-store";
 // Delivery charges and the platform fee set by the owner (Products & pricing → Set delivery charge)
 import { planPlatformFee, productIdOfCartItem, quoteDelivery, useDeliverySettings } from "@/store/delivery-settings-store";
 import { useProductPages } from "@/store/product-pages-store";
@@ -433,6 +435,27 @@ export default function CartView() {
 
   const chosenAddress =
     addresses.find((address) => address.id === (chosenAddressId ?? defaultAddressId)) ?? addresses[0] ?? null;
+  /*
+    Can the picked address take a new order? Outside the service areas, or too far from the hub: contact the
+    farm, and a lead is saved so the team sees where people are asking from. No map pin: it has to be added.
+    The database checks the same at Pay now. Extending a plan keeps its address, so it isn't asked.
+  */
+  const deliveryService = useDeliveryService();
+  const serviceProblem =
+    deliveryService && hasPickedAddress && chosenAddress && !planBeingExtended ? serviceProblemOf(chosenAddress, deliveryService) : null;
+  const isOutsideService = serviceProblem === "area" || serviceProblem === "far";
+  const leadSentForAddressRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isOutsideService || !chosenAddress || leadSentForAddressRef.current === chosenAddress.id) return;
+    leadSentForAddressRef.current = chosenAddress.id;
+    addLead({
+      name: chosenAddress.name,
+      phone: chosenAddress.mobileNumber,
+      source: "Website",
+      note: `Outside the delivery area: ${chosenAddress.area}`,
+      address: formatAddressLine(chosenAddress),
+    });
+  }, [isOutsideService, chosenAddress]);
   // The milk bought one-time (the cart then offers "Switch to subscription")
   const milkInCart = oneTimeItems.some((item) => item.productId === MILK_PRODUCT_ID);
   // Products in the cart (as in the design: "4 items" and the count next to "Your items")
@@ -1338,6 +1361,14 @@ export default function CartView() {
                     <button type="button" className={styles["checkout-place-button"]} onClick={openAddressPicker}>
                       Select address
                     </button>
+                  ) : serviceProblem === "pin" ? (
+                    <button type="button" className={styles["checkout-place-button"]} onClick={() => openAddressForm(chosenAddress)}>
+                      Add your location
+                    </button>
+                  ) : serviceProblem ? (
+                    <button type="button" className={styles["checkout-place-button"]} onClick={openAddressPicker}>
+                      Choose another address
+                    </button>
                   ) : isLoggedIn ? (
                     <button type="button" className={styles["checkout-place-button"]} onClick={() => void placeTheOrder()} disabled={isPlacingOrder}>
                       {isPlacingOrder ? "Placing your order…" : `Pay now · ${rupees(amountToPay)}`}
@@ -1348,6 +1379,25 @@ export default function CartView() {
                     </Link>
                   )}
                 </div>
+                {serviceProblem === "pin" && (
+                  <p className={styles["checkout-service-notice"]} role="status">
+                    Add your location to this address so we can check we deliver there. Tap Use my current location while you&apos;re at the address.
+                  </p>
+                )}
+                {isOutsideService && deliveryService && (
+                  <div className={styles["checkout-service-notice"]} role="status">
+                    <p>
+                      We don&apos;t deliver to {serviceProblem === "area" && chosenAddress ? chosenAddress.area : "this address"} yet. Please contact the farm and we&apos;ll
+                      help you.
+                    </p>
+                    <div className={styles["checkout-service-contact-row"]}>
+                      <a href={`tel:+91${deliveryService.contactPhone}`}>Call +91 {deliveryService.contactPhone}</a>
+                      <a href={`https://wa.me/91${deliveryService.contactPhone}`} target="_blank" rel="noreferrer">
+                        WhatsApp
+                      </a>
+                    </div>
+                  </div>
+                )}
                 {placeOrderError && (
                   <p className={styles["checkout-place-order-error"]} role="alert">
                     {placeOrderError}

@@ -1156,6 +1156,30 @@
 }
 
 /* Pay now didn't go through (the database didn't take the order): same red as the coupon error */
+/* Address outside the service areas, or without a map pin */
+.checkout-service-notice {
+  margin-top: calc(10 * var(--checkout-design-pixel));
+  padding: calc(10 * var(--checkout-design-pixel)) calc(12 * var(--checkout-design-pixel));
+  border-radius: calc(10 * var(--checkout-design-pixel));
+  background: #fbf3e1;
+  font-size: calc(12.5 * var(--checkout-design-pixel));
+  line-height: 1.45;
+  color: #8a6a1c;
+}
+
+.checkout-service-contact-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(14 * var(--checkout-design-pixel));
+  margin-top: calc(6 * var(--checkout-design-pixel));
+}
+
+.checkout-service-contact-row a {
+  font-weight: 600;
+  color: #1f4d2e;
+  text-decoration: underline;
+}
+
 .checkout-place-order-error {
   margin-top: calc(8 * var(--checkout-design-pixel));
   font-size: calc(12 * var(--checkout-design-pixel));

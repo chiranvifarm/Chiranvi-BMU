@@ -722,12 +722,18 @@ export function navigationLink(stop: AgentStop) {
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(placeQuery(stop))}&travelmode=two-wheeler`;
 }
 
-// Google Maps directions through the stops in order (Google takes the first 9 stops in between)
-export function routeLink(stops: AgentStop[]) {
+// Google Maps directions to the farm hub's exact spot
+export function hubNavigationLink(hub: { latitude: number; longitude: number }) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${hub.latitude},${hub.longitude}&travelmode=two-wheeler`;
+}
+
+// Google Maps directions through the stops in order (Google takes the first 9 stops in between). startAt: where
+// the route starts (the hub, before the day's first stop); none: wherever the agent's phone is
+export function routeLink(stops: AgentStop[], startAt?: { latitude: number; longitude: number } | null) {
   if (stops.length === 0) return "";
   const destination = stops[stops.length - 1];
   const waypoints = stops.slice(0, -1).slice(0, 9).map(placeQuery).join("|");
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(placeQuery(destination))}${
+  return `https://www.google.com/maps/dir/?api=1${startAt ? `&origin=${startAt.latitude},${startAt.longitude}` : ""}&destination=${encodeURIComponent(placeQuery(destination))}${
     waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : ""
   }&travelmode=two-wheeler`;
 }

@@ -142,6 +142,10 @@ export type SubscriptionProductPage = ProductPageBase & {
   deliveryByTime: string; // "7 AM"
   review: { quote: string; name: string; area: string; subscriberSince: string };
   subscriptionFastSellingCards: FastSellingCard[]; // the row under the Subscribe & save tab
+  // The same tables as a one-time product (edited on Products & pricing)
+  productInformation?: InformationRow[];
+  nutritionFacts?: InformationRow[];
+  nutritionBasis?: string;
   // Milk: also sold in 500 ml bottles, chosen on the page (switched on or off in the Chiranvi Panel)
   hasHalfLitreBottle?: boolean;
   // The 500 ml price set in the panel; missing: half the 1 litre price, rounded up
@@ -156,8 +160,8 @@ export type ProductPage = OneTimeProductPage | SubscriptionProductPage;
 
 // The one-time "Fast selling products" row (the design's five items)
 export const defaultFastSellingCards: FastSellingCard[] = [
-  { productId: "a2-desi-ghee", name: "A2 Desi Ghee", imageSource: "/images/products/desi-ghee-jar-chiranvi-farm.webp", imageWidth: 1524, imageHeight: 2204, ratingCount: "1,069" },
-  { productId: "fresh-cow-paneer", name: "Fresh Cow Paneer", imageSource: "/images/products/fresh-paneer-box-chiranvi-farm.webp", imageWidth: 3712, imageHeight: 2728, ratingCount: "982" },
+  { productId: "a2-desi-ghee", name: "A2 Desi Ghee", imageSource: "/images/products/a2-desi-gir-ghee-jar.webp", imageWidth: 788, imageHeight: 1048, ratingCount: "1,069" },
+  { productId: "fresh-cow-paneer", name: "Fresh Cow Paneer", imageSource: "/images/products/a2-desi-gir-paneer-box.webp", imageWidth: 1236, imageHeight: 908, ratingCount: "982" },
   { productId: "batter-powder", name: "Batter Powder", imageSource: "/images/categories/batter-category-chiranvi-farm.webp", imageWidth: 372, imageHeight: 248, ratingCount: "764" },
   { productId: "whole-wheat-atta", name: "Flours", imageSource: "/images/categories/flours-category-chiranvi-farm.webp", imageWidth: 412, imageHeight: 276, ratingCount: "1,106" },
   { productId: "desi-white-butter", name: "Desi White Butter", imageSource: "/images/categories/butter-category.webp", imageWidth: 412, imageHeight: 272, ratingCount: "646" },
@@ -165,9 +169,9 @@ export const defaultFastSellingCards: FastSellingCard[] = [
 
 // The subscription tab's row (the landing page's Best Sellers products)
 export const defaultSubscriptionFastSellingCards: FastSellingCard[] = [
-  { productId: "a2-desi-milk", name: "A2 Desi Milk", imageSource: "/images/products/a2-cow-milk-1-litre-bottle.webp", imageWidth: 232, imageHeight: 500, ratingCount: "7,105" },
-  { productId: "a2-desi-ghee", name: "A2 Desi Ghee", imageSource: "/images/products/desi-ghee-jar-chiranvi-farm.webp", imageWidth: 1524, imageHeight: 2204, ratingCount: "7,105" },
-  { productId: "fresh-cow-paneer", name: "Fresh Cow Paneer", imageSource: "/images/products/fresh-paneer-box-chiranvi-farm.webp", imageWidth: 3712, imageHeight: 2728, ratingCount: "7,105" },
+  { productId: "a2-desi-milk", name: "A2 Desi Milk", imageSource: "/images/products/a2-desi-gir-milk-bottle.webp", imageWidth: 569, imageHeight: 1112, ratingCount: "7,105" },
+  { productId: "a2-desi-ghee", name: "A2 Desi Ghee", imageSource: "/images/products/a2-desi-gir-ghee-jar.webp", imageWidth: 788, imageHeight: 1048, ratingCount: "7,105" },
+  { productId: "fresh-cow-paneer", name: "Fresh Cow Paneer", imageSource: "/images/products/a2-desi-gir-paneer-box.webp", imageWidth: 1236, imageHeight: 908, ratingCount: "7,105" },
   { productId: "moringa-powder", name: "Moringa Powder", imageSource: "/images/products/moringa-leaves-powder-pouch.webp", imageWidth: 336, imageHeight: 516, ratingCount: "7,105" },
   { productId: "menthya-mudde-powder", name: "Menthya Mudde Powder", imageSource: "/images/products/menthya-mudde-powder-pouch.webp", imageWidth: 677, imageHeight: 670, ratingCount: "new" },
 ];
@@ -193,9 +197,9 @@ function startsWithNextMilk(cards: FastSellingCard[], nextMilk: { productId: str
   const nextMilkCard: FastSellingCard = {
     productId: nextMilk.productId,
     name: nextMilk.name,
-    imageSource: "/images/products/desi-cow-milk-bottle-chiranvi-farm.webp",
-    imageWidth: 1188,
-    imageHeight: 2312,
+    imageSource: "/images/products/a2-desi-gir-milk-bottle.webp",
+    imageWidth: 569,
+    imageHeight: 1112,
     ratingCount: "",
   };
   const milkSlugs = ["a2-desi-milk", "jersey-milk", "skimmed-milk"];
@@ -217,7 +221,7 @@ const milkPage: SubscriptionProductPage = {
   homesNote: { bold: "9.3k+ homes", rest: "get it every morning" },
   highlights: ["No Urea", "100% Raw Milk", "No Hormones", "No Preservatives"],
   pictures: [
-    { imageSource: "/images/products/desi-cow-milk-bottle-chiranvi-farm.webp", imageWidth: 1188, imageHeight: 2312, alt: "Chiranvi Farms Desi Cow Milk in a glass bottle" },
+    { imageSource: "/images/products/a2-desi-gir-milk-bottle.webp", imageWidth: 569, imageHeight: 1112, alt: "Chiranvi Farms Desi Cow Milk in a glass bottle" },
   ],
   pictureFit: { heightPercent: 94 },
   timingsStripText: "Order by 9 PM for delivery tomorrow by 7 AM · Free delivery on all subscriptions",
@@ -260,7 +264,7 @@ const jerseyMilkPage: SubscriptionProductPage = {
   rating: { score: "4.6", count: "(new)" },
   homesNote: { bold: "", rest: "" },
   highlights: ["Farm fresh", "No Hormones", "No Preservatives", "Delivered chilled"],
-  pictures: [{ ...milkPage.pictures[0], alt: "Chiranvi Farms Jersey milk in a glass bottle" }],
+  pictures: [{ imageSource: "/images/products/jersey-cow-milk-bottle.webp", imageWidth: 568, imageHeight: 1112, alt: "Chiranvi Farms Jersey milk in a glass bottle" }],
   price: 60,
   review: { quote: "", name: "", area: "", subscriberSince: "" },
   fastSellingCards: startsWithNextMilk(defaultFastSellingCards, { productId: "skimmed-milk", name: "Skimmed Milk" }),
@@ -277,7 +281,7 @@ const skimmedMilkPage: SubscriptionProductPage = {
   rating: { score: "4.6", count: "(new)" },
   homesNote: { bold: "", rest: "" },
   highlights: ["Low fat", "Farm fresh", "No Preservatives", "Delivered chilled"],
-  pictures: [{ ...milkPage.pictures[0], alt: "Chiranvi Farms skimmed milk in a glass bottle" }],
+  pictures: [{ imageSource: "/images/products/skimmed-milk-bottle.webp", imageWidth: 564, imageHeight: 1100, alt: "Chiranvi Farms skimmed milk in a glass bottle" }],
   price: 95,
   review: { quote: "", name: "", area: "", subscriberSince: "" },
   fastSellingCards: startsWithNextMilk(defaultFastSellingCards, { productId: "a2-desi-milk", name: "A2 Milk (Gir Cow)" }),
@@ -299,7 +303,7 @@ const gheePage: OneTimeProductPage = {
   ratingNote: "Crafted with care",
   highlights: ["Lab-tested", "Bilona method", "No preservatives", "Glass jar"],
   pictures: [
-    { imageSource: "/images/products/desi-ghee-jar-chiranvi-farm.webp", imageWidth: 1524, imageHeight: 2204, alt: "Chiranvi Farms Desi Ghee in a glass jar" },
+    { imageSource: "/images/products/a2-desi-gir-ghee-jar.webp", imageWidth: 788, imageHeight: 1048, alt: "Chiranvi Farms Desi Ghee in a glass jar" },
   ],
   pictureFit: { heightPercent: 80 },
   // Starting prices (set the real ones in the Chiranvi Panel → Products & pricing → Edit page): 1 litre,
@@ -353,7 +357,7 @@ const jerseyGheePage: OneTimeProductPage = {
   rating: { score: "4.6", count: "(new)" },
   ratingNote: "Slow-cooked",
   highlights: ["Lab-tested", "Slow-cooked", "No preservatives", "Glass jar"],
-  pictures: [{ ...gheePage.pictures[0], alt: "Chiranvi Farms Jersey cow ghee in a glass jar" }],
+  pictures: [{ imageSource: "/images/products/jersey-cow-ghee-jar.webp", imageWidth: 792, imageHeight: 1056, alt: "Chiranvi Farms Jersey cow ghee in a glass jar" }],
   packs: [
     { packId: "250-ml", label: "250 ml", size: 250, price: 275 },
     { packId: "500-ml", label: "500 ml", size: 500, price: 550 },
@@ -372,7 +376,7 @@ const paneerPage: OneTimeProductPage = {
   shopCategory: "Paneer",
   cardNote: "made today",
   status: "published",
-  name: "A2 Desi Paneer",
+  name: "A2 Desi Gir Paneer",
   tagline: "Soft, Creamy & Made Fresh",
   description:
     "Made from fresh A2 cow milk, our soft and creamy paneer brings natural goodness and authentic taste to your everyday meals. No added starch, no fillers, just wholesome dairy goodness.",
@@ -382,9 +386,9 @@ const paneerPage: OneTimeProductPage = {
   highlights: ["Freshly Made", "Rich & Creamy", "No starch", "A2 Cow Milk"],
   pictures: [
     {
-      imageSource: "/images/products/fresh-paneer-box-chiranvi-farm.webp",
-      imageWidth: 3712,
-      imageHeight: 2728,
+      imageSource: "/images/products/a2-desi-gir-paneer-box.webp",
+      imageWidth: 1236,
+      imageHeight: 908,
       alt: "Chiranvi Farm fresh and natural paneer box",
       isServedAsIs: true,
     },

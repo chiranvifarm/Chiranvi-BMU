@@ -19,7 +19,7 @@ const frequentlyAskedQuestions = [
   {
     question: "Can I pause or change my delivery?",
     answer:
-      "Yes. Let us know before the evening and we will pause, skip or change the next morning’s delivery for you.",
+      "Yes. Let us know before the evening and we will change the next morning’s delivery for you. To pause, use Pause subscription on your Subscription page, for 8 days or more.",
   },
   {
     question: "Where do you deliver?",

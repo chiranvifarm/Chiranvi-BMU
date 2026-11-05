@@ -166,7 +166,7 @@ export default function ReferAFriendSection() {
             className={styles["refer-a-friend-purity-screen-ghee-jar"]}
           />
           <Image
-            src="/images/products/fresh-paneer-200g-box.webp"
+            src="/images/products/a2-desi-gir-paneer-box.webp"
             alt=""
             width={604}
             height={444}

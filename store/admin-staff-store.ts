@@ -131,8 +131,9 @@ export function setTodayStatus(id: string, today: TodayStatus) {
   );
 }
 
-export function updateStaffPerson(id: string, changes: Partial<Pick<StaffPerson, "job" | "group" | "phone" | "shift" | "salary">>) {
+export function updateStaffPerson(id: string, changes: Partial<Pick<StaffPerson, "name" | "job" | "group" | "phone" | "shift" | "salary">>) {
   const row: Partial<StaffRow> = {};
+  if (changes.name !== undefined) row.name = changes.name;
   if (changes.job !== undefined) row.job = changes.job;
   if (changes.group !== undefined) row.staff_group = changes.group;
   if (changes.phone !== undefined) row.mobile_number = changes.phone;
@@ -142,6 +143,13 @@ export function updateStaffPerson(id: string, changes: Partial<Pick<StaffPerson,
     () => (staff = staff.map((person) => (person.id === id ? { ...person, ...changes } : person))),
     () => createClient().from("staff_members").update(row).eq("id", id),
   );
+}
+
+// The name on this number's customer account, or null (0040_customer_name_for_staff.sql)
+export async function findCustomerName(mobileNumber: string) {
+  const { data, error } = await createClient().rpc("customer_name_for_staff", { p_mobile: mobileNumber });
+  if (error) console.error("Could not check the number for a customer account", error);
+  return (data as string | null) ?? null;
 }
 
 // Adds a person to the staff list (without a role). Answers the new person, or a problem to show.

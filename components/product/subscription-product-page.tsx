@@ -19,6 +19,7 @@ import { getDiscountPercent } from "@/store/products-store";
 import { ROW_SIZE, productRowFor, useProductRows } from "@/store/admin-product-rows-store";
 import type { DeliveryStepIcon, PictureFit, SubscriptionPlanSetting, SubscriptionProductPage as SubscriptionPageData } from "./product-page-data";
 import { ProductCardTile, SoldOutNotice, useProductCards, useSoldOutPanelCardId } from "./all-products-page";
+import oneTimeStyles from "./one-time-product-page.module.css";
 import styles from "./subscription-product-page.module.css";
 
 /*
@@ -766,6 +767,44 @@ export default function SubscriptionProductPage({ page: fullPage }: { page: Subs
             )}
           </div>
         </div>
+
+        {/* The same Product information and Nutrition facts tables as a one-time product */}
+        {((page.productInformation?.length ?? 0) > 0 || (page.nutritionFacts?.length ?? 0) > 0) && (
+          <div className={`${styles["subscription-information-tables"]} ${oneTimeStyles["one-time-information-row"]}`}>
+            {(page.productInformation?.length ?? 0) > 0 && (
+              <section className={oneTimeStyles["one-time-product-information"]} aria-labelledby="subscription-product-information-heading">
+                <h2 id="subscription-product-information-heading" className={oneTimeStyles["one-time-information-heading"]}>
+                  Product information
+                </h2>
+                <dl className={oneTimeStyles["one-time-product-information-table"]}>
+                  {page.productInformation?.map((row) => (
+                    <div key={row.label} className={oneTimeStyles["one-time-product-information-row"]}>
+                      <dt>{row.label}</dt>
+                      <dd>{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            )}
+            {(page.nutritionFacts?.length ?? 0) > 0 && (
+              <section className={oneTimeStyles["one-time-nutrition-facts"]} aria-labelledby="subscription-nutrition-facts-heading">
+                <div className={oneTimeStyles["one-time-nutrition-facts-header"]}>
+                  <h2 id="subscription-nutrition-facts-heading">Nutrition facts</h2>
+                  <span>{page.nutritionBasis}</span>
+                </div>
+                <dl className={oneTimeStyles["one-time-nutrition-facts-list"]}>
+                  {page.nutritionFacts?.map((row) => (
+                    <div key={row.label} className={oneTimeStyles["one-time-nutrition-facts-row"]}>
+                      <dt>{row.label}</dt>
+                      <dd>{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className={oneTimeStyles["one-time-nutrition-facts-note"]}>Values are indicative. Refer to the pack label.</p>
+              </section>
+            )}
+          </div>
+        )}
 
         <FastSellingRow currentSlug={page.slug} override={page.productRowOverride} />
       </main>

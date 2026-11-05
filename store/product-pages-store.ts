@@ -23,6 +23,8 @@ let hiddenSlugs: string[] = [];
 const listeners = new Set<() => void>();
 let isFollowing = false;
 let isLoading = false;
+// The database has answered at least once (a product added in the panel isn't known before that)
+let hasLoadedPages = false;
 
 const startingSlugs = new Set(startingProductPages.map((page) => page.slug));
 
@@ -43,12 +45,17 @@ async function loadPages() {
   isLoading = true;
   const { data, error } = await createClient().from("product_pages").select("slug, page, is_starting_page, is_changed, is_hidden, sort_order");
   isLoading = false;
+  hasLoadedPages = true;
   if (error) {
     console.error("Could not read the product pages", error);
+    listeners.forEach((onChange) => onChange());
     return;
   }
   // Nothing readable yet (e.g. the table is empty): keep the code's pages
-  if (!data?.length) return;
+  if (!data?.length) {
+    listeners.forEach((onChange) => onChange());
+    return;
+  }
   rows = data as PageRow[];
   combinePages();
 }
@@ -94,6 +101,11 @@ function subscribe(onChange: () => void) {
 // Every product page shown on the website (on the server: the code's starting pages)
 export function useProductPages() {
   return useSyncExternalStore(subscribe, getAllPages, () => startingProductPages);
+}
+
+// False until the database has answered: a page can't be called "not found" before that
+export function useHaveProductPagesLoaded() {
+  return useSyncExternalStore(subscribe, () => hasLoadedPages, () => false);
 }
 
 // Starting pages deleted in the panel (listed there with "Restore original")

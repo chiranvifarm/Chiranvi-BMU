@@ -123,7 +123,7 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
               </span>
               <p>
                 <span className={styles["account-sidebar-greeting-text"]}>{getGreeting()}</span>
-                <span className={styles["account-sidebar-name"]}>{accountProfile.fullName}</span>
+                <span className={styles["account-sidebar-name"]}>{accountProfile.fullName.split(" ")[0]}</span>
               </p>
             </div>
 

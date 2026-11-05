@@ -37,6 +37,11 @@
   animation: address-dialog-pop-in 180ms ease-out;
 }
 
+/* The form stays closed until "Who is this address for?" is answered */
+.address-dialog-waiting {
+  visibility: hidden;
+}
+
 .address-dialog-heading-row {
   display: flex;
   align-items: center;
@@ -153,6 +158,13 @@
   font-size: calc(14 * var(--account-design-pixel));
   color: #1e2a22;
   transition: border-color 150ms ease;
+}
+
+/* It's mine: the customer's own name, not to be changed */
+.address-form-input-locked {
+  background: #f1f3ee;
+  color: #5c655e;
+  cursor: not-allowed;
 }
 
 .address-form-input::placeholder {
@@ -351,7 +363,6 @@
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(20, 35, 25, 0.35);
   animation: address-dialog-fade-in 150ms ease-out;
 }
 
@@ -373,16 +384,32 @@
   color: #1f4d2e;
 }
 
-.address-number-question-text {
-  margin: calc(8 * var(--account-design-pixel)) 0 0;
-  font-size: calc(13.5 * var(--account-design-pixel));
-  line-height: 1.5;
-  color: #4a5a4f;
+/* The saved addresses to pick from, before the form */
+.address-saved-list {
+  display: grid;
+  gap: calc(10 * var(--account-design-pixel));
+  max-height: min(46svh, calc(340 * var(--account-design-pixel)));
+  margin-top: calc(16 * var(--account-design-pixel));
+  overflow-y: auto;
 }
 
-.address-number-question-text strong {
-  color: #1e2a22;
-  white-space: nowrap;
+.address-saved-add-button {
+  width: 100%;
+  margin-top: calc(14 * var(--account-design-pixel));
+  padding: calc(11 * var(--account-design-pixel));
+  border: none;
+  border-radius: 9999px;
+  background: #285c3a;
+  font: inherit;
+  font-size: calc(14 * var(--account-design-pixel));
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.address-saved-add-button:hover,
+.address-saved-add-button:focus-visible {
+  background: #1f4d2e;
 }
 
 .address-number-question-choices {
@@ -425,6 +452,17 @@
   color: #5d6b62;
 }
 
+.address-number-question-agent-note {
+  margin: calc(12 * var(--account-design-pixel)) 0 0;
+  padding: calc(9 * var(--account-design-pixel)) calc(12 * var(--account-design-pixel));
+  border-radius: calc(10 * var(--account-design-pixel));
+  background: #e6f0e1;
+  font-size: calc(13 * var(--account-design-pixel));
+  font-weight: 600;
+  line-height: 1.45;
+  color: #1f4d2e;
+}
+
 .address-number-question-login-note {
   margin: calc(14 * var(--account-design-pixel)) 0 0;
   font-size: calc(12 * var(--account-design-pixel));
@@ -455,7 +493,6 @@
     font-size: 18px;
   }
 
-  .address-number-question-text,
   .address-number-question-choice strong {
     font-size: 14px;
   }

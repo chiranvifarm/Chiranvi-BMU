@@ -60,9 +60,7 @@ export default function AdminPauseRequestsPage() {
 }
 
 function PauseRequestsPage() {
-  const allRequests = usePauseRequests();
-  // Skips are in their own section below
-  const requests = useMemo(() => allRequests.filter((request) => request.kind !== "skip"), [allRequests]);
+  const requests = usePauseRequests();
   const staffAccess = useCurrentStaffAccess();
   const [today] = useState(() => {
     const date = new Date();
@@ -117,18 +115,8 @@ function PauseRequestsPage() {
 
   function decide(request: PauseRequest, status: "Approved" | "Rejected") {
     decidePauseRequest(request.id, status, staffAccess?.name ?? "Admin");
-    showToast(`${request.customerName}'s ${request.kind === "skip" ? "skip" : "pause"} ${status === "Approved" ? "approved" : "rejected"}`);
+    showToast(`${request.customerName}'s pause ${status === "Approved" ? "approved" : "rejected"}`);
   }
-
-  // Skip requests: the waiting ones first, then the newest
-  const words = searchText.trim().toLowerCase();
-  const skipRequests = allRequests
-    .filter((request) => request.kind === "skip" && (!words || `${request.customerName} ${request.area}`.toLowerCase().includes(words)))
-    .sort(
-      (first, second) =>
-        Number(second.status === "Pending") - Number(first.status === "Pending") || second.pauseFrom.localeCompare(first.pauseFrom),
-    );
-  const skipsWaiting = skipRequests.filter((request) => request.status === "Pending").length;
 
   function exportRequests() {
     downloadCsv(`chiranvi-pause-requests-${toDateFileName(today)}.csv`, [
@@ -294,68 +282,6 @@ function PauseRequestsPage() {
         </div>
 
         <AdminPagination page={page} pageSize={PAGE_SIZE} total={shown.length} onPageChange={setPage} itemName="requests" />
-      </section>
-
-      {/* One delivery in the running week, asked from the customer's Delivery calendar */}
-      <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-skip-requests-heading">
-        <h2 id="admin-skip-requests-heading" className={dashboardStyles["admin-card-title"]}>
-          Skip requests
-        </h2>
-        <p className={dashboardStyles["admin-card-subtitle"]}>
-          {skipsWaiting} waiting · customers skipping one delivery this week; an approved skip moves their plan&rsquo;s end date one day later
-        </p>
-        <div className={dashboardStyles["admin-table-scroll"]}>
-          <table className={dashboardStyles["admin-orders-table"]}>
-            <thead>
-              <tr>
-                <th scope="col">Customer</th>
-                <th scope="col">Subscription</th>
-                <th scope="col">Skip day</th>
-                <th scope="col">Status</th>
-                <th scope="col">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {skipRequests.map((request) => (
-                <tr key={request.id}>
-                  <td>
-                    <span className={dashboardStyles["admin-orders-customer"]}>{request.customerName}</span>
-                    <span className={dashboardStyles["admin-orders-area"]}>{request.area}</span>
-                  </td>
-                  <td>
-                    <span className={dashboardStyles["admin-orders-customer"]}>{request.plan}</span>
-                    <span className={dashboardStyles["admin-orders-area"]}>{request.frequency}</span>
-                  </td>
-                  <td className={dashboardStyles["admin-orders-muted"]}>{shortDate(request.pauseFrom)}</td>
-                  <td>
-                    <span className={`${dashboardStyles["admin-status"]} ${STATUS_CLASS_NAMES[request.status]}`}>{request.status}</span>
-                  </td>
-                  <td>
-                    {request.status === "Pending" ? (
-                      <span className={sharedStyles["admin-row-buttons"]}>
-                        <button type="button" className={sharedStyles["admin-small-button"]} onClick={() => decide(request, "Approved")}>
-                          Approve
-                        </button>
-                        <button type="button" className={sharedStyles["admin-small-button-danger"]} onClick={() => decide(request, "Rejected")}>
-                          Reject
-                        </button>
-                      </span>
-                    ) : (
-                      <span className={dashboardStyles["admin-orders-muted"]}>By {request.decidedBy}</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {skipRequests.length === 0 && (
-                <tr>
-                  <td colSpan={5} className={dashboardStyles["admin-orders-empty"]}>
-                    No skip requests.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
       </section>
 
       {toast}

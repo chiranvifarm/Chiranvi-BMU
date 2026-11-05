@@ -11,7 +11,7 @@ import BengaluruAreaPicker, {
 } from "@/components/area-picker/bengaluru-area-picker";
 import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import type { SavedAddress } from "@/store/address-store";
-import { saveCustomerProfile, useCustomerProfile } from "@/store/customer-profiles-store";
+import { useCustomerProfile } from "@/store/customer-profiles-store";
 import styles from "./address-form-dialog.module.css";
 
 /*
@@ -22,14 +22,21 @@ import styles from "./address-form-dialog.module.css";
   Area: chosen from the Bengaluru list, which fills in its pincode (still editable); "Others" opens a box
   to type the area, which is what gets saved.
   Checks before saving: every field filled, a 10-digit mobile number and a 6-digit pincode.
-  A mobile number different from the login number (and from the profile's secondary number) asks first
-  whose it is: "Someone else's" keeps it for this address only (the delivery contact on its orders);
-  "It's mine" also saves it as the customer's secondary number on their Profile. The login number never
-  changes here (a new login number needs an OTP check, which comes with the backend).
+  A new address asks first who it is for, and says the delivery agent will call its number. "It's mine": the
+  name is the customer's own and locked; the number and address can be changed. "Someone else's": the form is
+  open, for that person's name, number and address (not a name starting with the customer's first name; the
+  last name alone is allowed, as family share it). The number goes on the orders sent here (the delivery
+  contact), so the agent's stop and Order details show it. The Profile doesn't change, and neither does the login
+  number (a new login number needs an OTP check, which comes with the backend). Editing an address doesn't ask;
+  nor does asksProfileDetails, as that form is the customer's own details.
+  The cart passes savedAddresses and onPickSaved: after the answer, the customer's saved addresses of that kind
+  are listed to pick from, with Add new address for the form. An address with their own first name is theirs
+  (repeated letters don't count, so "Prassanjith" and "Prasssanjith" are the same); any other name is someone
+  else's. None of that kind yet: straight to the form.
   Cancel, the close button, Escape or a click on the dimmed page closes it without saving.
   asksProfileDetails (the cart, for a logged-in customer without a Profile): "Full name" becomes First name and
   Last name, and Email is asked too, so the address gives every detail the Profile needs; they go to onSave
-  as profileDetails (with the address's number as the second number when it is "mine").
+  as profileDetails.
   "Use my current location" (optional): the phone's GPS gives the address's map pin, so the delivery agent's
   Google Maps goes to the gate. The phone asks the customer first; nothing is read without the tap. The spot is
   then looked up on OpenStreetMap (free, no key, anywhere in India) to fill in the street (only when that box is
@@ -123,14 +130,14 @@ const emptyForm: FormValues = {
   pincode: "",
 };
 
-// "+91 98450 12345" → "9845012345"
-function tenDigitsOf(mobileNumber: string) {
-  return mobileNumber.replace(/[^0-9]/g, "").replace(/^91(?=[0-9]{10}$)/, "");
+// "  PRIYA   Sharma " → "priya sharma", to compare names
+function sameNameForm(name: string) {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-// "9845012345" → "98450 12345"
-function formatMobile(tenDigits: string) {
-  return `${tenDigits.slice(0, 5)} ${tenDigits.slice(5)}`;
+// The first name without repeated letters: "Prassanjith Saravanan" and "Prasssanjith" are both "prasanjith"
+function firstNameKey(name: string) {
+  return sameNameForm(name).split(" ")[0].replace(/(.)\1+/g, "$1");
 }
 
 function findFieldErrors(formValues: FormValues, areaChoice: string, profileValues: ProfileValues | null): FieldErrors {
@@ -155,12 +162,16 @@ export default function AddressFormDialog({
   addressToEdit,
   isDefaultAtStart,
   asksProfileDetails = false,
+  savedAddresses = [],
+  onPickSaved,
   onSave,
   onClose,
 }: {
   addressToEdit: SavedAddress | null;
   isDefaultAtStart: boolean;
   asksProfileDetails?: boolean;
+  savedAddresses?: SavedAddress[];
+  onPickSaved?: (address: SavedAddress) => void;
   onSave: (address: FormValues, shouldBeDefault: boolean, profileDetails?: ProfileDetailsFromAddress) => void;
   onClose: () => void;
 }) {
@@ -175,14 +186,20 @@ export default function AddressFormDialog({
   // The area box: a listed area, "Others" (then formValues.area is the typed text) or nothing yet
   const [areaChoice, setAreaChoice] = useState(() => areaChoiceFor(addressToEdit?.area ?? ""));
   const [pinState, setPinState] = useState<PinState>({ step: "idle" });
-  // "Whose number is this?" shown over the form (the address is saved once it is answered)
-  const [isNumberQuestionOpen, setIsNumberQuestionOpen] = useState(false);
-  const isNumberQuestionOpenRef = useRef(false);
-  useEffect(() => {
-    isNumberQuestionOpenRef.current = isNumberQuestionOpen;
-  }, [isNumberQuestionOpen]);
+  // "Who is this address for?": asked on its own first; the form opens after the answer
+  const [addressFor, setAddressFor] = useState<"me" | "someone-else" | null>(null);
+  const isQuestionOpen = !addressToEdit && !asksProfileDetails && addressFor === null;
+  const startsWithQuestion = useRef(isQuestionOpen);
   const loginMobile = useLoggedInMobileNumber();
   const savedProfile = useCustomerProfile(loginMobile);
+  const ownName = `${savedProfile?.firstName ?? ""} ${savedProfile?.lastName ?? ""}`.trim();
+  const isNameLocked = addressFor === "me" && Boolean(ownName);
+  // The saved addresses of the kind chosen, listed before the form
+  const [isAddingNew, setIsAddingNew] = useState(false);
+  const ownFirstName = firstNameKey(ownName);
+  const addressesOfChoice = savedAddresses.filter((address) => (firstNameKey(address.name) === ownFirstName) === (addressFor === "me"));
+  const isListOpen = addressFor !== null && !isAddingNew && Boolean(onPickSaved) && addressesOfChoice.length > 0;
+  const isFormOpen = !isQuestionOpen && !isListOpen;
   const firstFieldRef = useRef<HTMLInputElement>(null);
   // Latest onClose, so the Escape listener below is set up only once.
   const onCloseRef = useRef(onClose);
@@ -190,14 +207,11 @@ export default function AddressFormDialog({
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  // Cursor in the first field; Escape closes; the page behind does not scroll while open.
+  // Cursor in the first field (the question takes it first); Escape closes; the page behind does not scroll while open.
   useEffect(() => {
-    firstFieldRef.current?.focus();
+    if (!startsWithQuestion.current) firstFieldRef.current?.focus();
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      // With the number question open, Escape goes back to the form only
-      if (isNumberQuestionOpenRef.current) setIsNumberQuestionOpen(false);
-      else onCloseRef.current();
+      if (event.key === "Escape") onCloseRef.current();
     }
     window.addEventListener("keydown", closeOnEscape);
     const previousBodyOverflow = document.body.style.overflow;
@@ -207,6 +221,11 @@ export default function AddressFormDialog({
       document.body.style.overflow = previousBodyOverflow;
     };
   }, []);
+
+  // The form has just opened after the question: cursor in its first field
+  useEffect(() => {
+    if (isFormOpen && startsWithQuestion.current) firstFieldRef.current?.focus();
+  }, [isFormOpen]);
 
   // The phone's GPS, once, when the customer taps the button (the phone asks them first)
   function addCurrentLocation() {
@@ -287,28 +306,22 @@ export default function AddressFormDialog({
     setFieldErrors((previousErrors) => ({ ...previousErrors, area: undefined, pincode: undefined }));
   }
 
+  // "It's mine" fills in the customer's own name
+  function chooseWhoFor(who: "me" | "someone-else") {
+    setAddressFor(who);
+    setFormValues((previousValues) => ({ ...previousValues, name: who === "me" ? ownName : "" }));
+  }
+
   function saveAddress(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const newFieldErrors = findFieldErrors(formValues, areaChoice, asksProfileDetails ? profileValues : null);
+    // Someone else's address can't start with the customer's first name (the last name alone can); the same match
+    // as the lists, so a spelling slip like "Prassanjith" for "Prasssanjith" isn't let through
+    if (addressFor === "someone-else" && ownFirstName && firstNameKey(formValues.name) === ownFirstName) {
+      newFieldErrors.name = "Enter the name of the person receiving it, not your own";
+    }
     setFieldErrors(newFieldErrors);
     if (Object.keys(newFieldErrors).length > 0) return;
-    const typedMobile = tenDigitsOf(formValues.mobileNumber);
-    const isOtherNumber = Boolean(loginMobile) && typedMobile !== loginMobile && typedMobile !== savedProfile?.secondaryMobile;
-    if (isOtherNumber) {
-      setIsNumberQuestionOpen(true);
-      return;
-    }
-    saveTheAddress(false);
-  }
-
-  // "It's mine": the number also becomes the secondary number on the customer's Profile
-  function saveAsMyNumber() {
-    if (savedProfile) saveCustomerProfile({ ...savedProfile, secondaryMobile: tenDigitsOf(formValues.mobileNumber) });
-    saveTheAddress(true);
-  }
-
-  // isMyNumber: "It's mine" was chosen for a number other than the login number
-  function saveTheAddress(isMyNumber: boolean) {
     const fullName = asksProfileDetails ? `${profileValues.firstName.trim()} ${profileValues.lastName.trim()}` : formValues.name.trim();
     onSave(
       {
@@ -326,7 +339,7 @@ export default function AddressFormDialog({
             firstName: profileValues.firstName.trim(),
             lastName: profileValues.lastName.trim(),
             email: profileValues.email.trim(),
-            secondaryMobile: isMyNumber ? tenDigitsOf(formValues.mobileNumber) : "",
+            secondaryMobile: "",
           }
         : undefined,
     );
@@ -335,7 +348,7 @@ export default function AddressFormDialog({
   function renderTextField(
     field: TextFieldName | keyof ProfileValues,
     label: string,
-    options: { placeholder: string; inputMode?: "numeric" | "tel" | "email"; maxLength?: number; isWide?: boolean; note?: ReactNode },
+    options: { placeholder: string; inputMode?: "numeric" | "tel" | "email"; maxLength?: number; isWide?: boolean; note?: ReactNode; isLocked?: boolean },
   ) {
     const errorId = `address-form-${field}-error`;
     const value = field === "firstName" || field === "lastName" || field === "email" ? profileValues[field] : formValues[field];
@@ -345,12 +358,13 @@ export default function AddressFormDialog({
         <input
           ref={field === (asksProfileDetails ? "firstName" : "name") ? firstFieldRef : undefined}
           value={value}
+          readOnly={options.isLocked}
           placeholder={options.placeholder}
           inputMode={options.inputMode}
           maxLength={options.maxLength}
           aria-invalid={fieldErrors[field] ? true : undefined}
           aria-describedby={fieldErrors[field] ? errorId : undefined}
-          className={`${styles["address-form-input"]} ${fieldErrors[field] ? styles["address-form-input-error"] : ""}`}
+          className={`${styles["address-form-input"]} ${fieldErrors[field] ? styles["address-form-input-error"] : ""} ${options.isLocked ? styles["address-form-input-locked"] : ""}`}
           onChange={(event) => updateField(field, event.target.value)}
         />
         {fieldErrors[field] ? (
@@ -376,7 +390,7 @@ export default function AddressFormDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="address-dialog-heading"
-        className={styles["address-dialog"]}
+        className={`${styles["address-dialog"]} ${isFormOpen ? "" : styles["address-dialog-waiting"]}`}
       >
         <div className={styles["address-dialog-heading-row"]}>
           <h2 id="address-dialog-heading" className={styles["address-dialog-heading"]}>
@@ -418,7 +432,7 @@ export default function AddressFormDialog({
                 {renderTextField("lastName", "Last name", { placeholder: "Sharma" })}
               </>
             ) : (
-              renderTextField("name", "Full name", { placeholder: "Priya Sharma" })
+              renderTextField("name", "Full name", { placeholder: "Priya Sharma", isLocked: isNameLocked })
             )}
             {renderTextField("mobileNumber", "Mobile number", {
               placeholder: "+91 98450 12345",
@@ -500,34 +514,63 @@ export default function AddressFormDialog({
         </form>
       </div>
 
-      {isNumberQuestionOpen && (
+      {isQuestionOpen && (
         <div className={styles["address-number-question-backdrop"]}>
           <div
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="address-number-question-heading"
-            aria-describedby="address-number-question-text"
+            aria-describedby="address-number-question-agent-note"
             className={styles["address-number-question"]}
           >
             <h3 id="address-number-question-heading" className={styles["address-number-question-heading"]}>
-              Whose number is this?
+              Who is this address for?
             </h3>
-            <p id="address-number-question-text" className={styles["address-number-question-text"]}>
-              <strong>{formatMobile(tenDigitsOf(formValues.mobileNumber))}</strong> is different from the number you logged in with.
-            </p>
             <div className={styles["address-number-question-choices"]}>
-              <button type="button" className={styles["address-number-question-choice"]} onClick={() => saveTheAddress(false)} autoFocus>
-                <strong>Someone else&apos;s</strong>
-                <span>Use it only for this delivery address</span>
-              </button>
-              <button type="button" className={styles["address-number-question-choice"]} onClick={saveAsMyNumber}>
+              <button type="button" className={styles["address-number-question-choice"]} onClick={() => chooseWhoFor("me")} autoFocus>
                 <strong>It&apos;s mine</strong>
-                <span>Save it as my second number</span>
+                <span>{ownName ? `Your name stays ${ownName}. You can change the number and address` : "You can change the number and address"}</span>
+              </button>
+              <button type="button" className={styles["address-number-question-choice"]} onClick={() => chooseWhoFor("someone-else")}>
+                <strong>Someone else&apos;s</strong>
+                <span>You can enter their name, number and address</span>
               </button>
             </div>
+            <p id="address-number-question-agent-note" className={styles["address-number-question-agent-note"]}>
+              The delivery agent will call the number you give here for orders sent to this address.
+            </p>
             <p className={styles["address-number-question-login-note"]}>You will still log in with your current number.</p>
-            <button type="button" className={styles["address-number-question-back-button"]} onClick={() => setIsNumberQuestionOpen(false)}>
-              Go back and edit the number
+            <button type="button" className={styles["address-number-question-back-button"]} onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isListOpen && (
+        <div className={styles["address-number-question-backdrop"]}>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="address-saved-heading" className={styles["address-number-question"]}>
+            <h3 id="address-saved-heading" className={styles["address-number-question-heading"]}>
+              {addressFor === "me" ? "Your addresses" : "Someone else\u2019s addresses"}
+            </h3>
+            <div className={styles["address-saved-list"]}>
+              {addressesOfChoice.map((address) => (
+                <button key={address.id} type="button" className={styles["address-number-question-choice"]} onClick={() => onPickSaved?.(address)}>
+                  <strong>
+                    {address.label} · {address.name}
+                  </strong>
+                  <span>
+                    {address.houseAndStreet}, {address.area}, {address.city} {address.pincode}
+                  </span>
+                  <span>{address.mobileNumber}</span>
+                </button>
+              ))}
+            </div>
+            <button type="button" className={styles["address-saved-add-button"]} onClick={() => setIsAddingNew(true)} autoFocus>
+              Add new address
+            </button>
+            <button type="button" className={styles["address-number-question-back-button"]} onClick={() => setAddressFor(null)}>
+              Back
             </button>
           </div>
         </div>

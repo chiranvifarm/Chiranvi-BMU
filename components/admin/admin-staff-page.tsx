@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   STAFF_JOBS,
   STAFF_SHIFTS,
   addStaffPerson,
+  findCustomerName,
   getDaysPresent,
   removeStaffPerson,
   setTodayStatus,
@@ -15,9 +16,7 @@ import {
   type TodayStatus,
 } from "@/store/admin-staff-store";
 import { setAgentOnLeave } from "@/store/admin-routes-store";
-import { useLoggedInMobileNumber } from "@/components/login/login-status";
-import { giveTeamRole, useCurrentStaffAccess, useStaffMembers } from "@/store/staff-access-store";
-import { PROFILE_FIELD_LABELS, ProfileChangesDialog } from "./admin-roles-page";
+import { giveTeamRole, useCurrentStaffAccess } from "@/store/staff-access-store";
 import { useLeaveRequests } from "@/store/admin-leave-store";
 import AdminLeaveRequests from "./admin-leave-requests";
 import { AdminFeatureGate } from "./admin-panel-layout";
@@ -89,13 +88,6 @@ export default function AdminStaffPage() {
 function StaffPage() {
   const access = useCurrentStaffAccess();
   const canGiveRoles = Boolean(access?.isOwner || access?.roleId === "manager");
-  // Profile requests from the team
-  const myMobileNumber = useLoggedInMobileNumber();
-  const team = useStaffMembers();
-  const [profileChangesOf, setProfileChangesOf] = useState<string | null>(null);
-  const memberWithChanges = team.find((member) => member.mobileNumber === profileChangesOf);
-  const [isProfileRequestsOpen, setIsProfileRequestsOpen] = useState(false);
-  const membersWaiting = team.filter((member) => member.profileChange?.status === "Pending");
   const staff = useStaffList();
   const [today] = useState(() => new Date());
   const [searchText, setSearchText] = useState("");
@@ -105,6 +97,11 @@ function StaffPage() {
   // null: no form; "new": Add staff; otherwise the person being edited
   const [editing, setEditing] = useState<StaffPerson | "new" | null>(null);
   const [form, setForm] = useState<StaffForm>(EMPTY_FORM);
+  // Add staff or Edit: the typed number has a customer account (asked on its own), and the number that was accepted
+  const [customerFound, setCustomerFound] = useState<{ phone: string; name: string } | null>(null);
+  const [linkedPhone, setLinkedPhone] = useState("");
+  const latestPhone = useRef("");
+  const isNameLocked = Boolean(linkedPhone) && form.phone === linkedPhone;
   const [personToRemove, setPersonToRemove] = useState<StaffPerson | null>(null);
   const [isLeaveOpen, setIsLeaveOpen] = useState(false);
   const waitingLeave = useLeaveRequests().filter((request) => request.status === "Pending");
@@ -138,6 +135,8 @@ function StaffPage() {
 
   function openForm(person: StaffPerson | "new") {
     setEditing(person);
+    setLinkedPhone("");
+    latestPhone.current = "";
     setForm(
       person === "new"
         ? EMPTY_FORM
@@ -150,14 +149,52 @@ function StaffPage() {
     showToast(problem ?? `${person.name} is now Staff`);
   }
 
+  // A new full number is checked for a customer account (when editing, not the number they already have)
+  async function typePhone(typed: string) {
+    const phone = typed.replace(/\D/g, "").slice(0, 10);
+    const wasLinked = Boolean(linkedPhone) && phone !== linkedPhone;
+    const nameBefore = editing && editing !== "new" ? editing.name : "";
+    setForm((previousForm) => ({ ...previousForm, phone, name: wasLinked ? nameBefore : previousForm.name }));
+    if (wasLinked) setLinkedPhone("");
+    latestPhone.current = phone;
+    if (!editing || phone.length !== 10 || (editing !== "new" && phone === editing.phone)) return;
+    const customerName = await findCustomerName(phone);
+    if (customerName && latestPhone.current === phone) setCustomerFound({ phone, name: customerName });
+  }
+
+  // Yes: the customer account's name is used, and locked
+  function continueWithCustomer() {
+    if (!customerFound) return;
+    setForm((previousForm) => ({ ...previousForm, name: customerFound.name }));
+    setLinkedPhone(customerFound.phone);
+    setCustomerFound(null);
+  }
+
+  // No: one number is one login, so a separate staff account needs another number
+  function useAnotherNumber() {
+    const phoneBefore = editing && editing !== "new" ? editing.phone : "";
+    setForm((previousForm) => ({ ...previousForm, phone: phoneBefore }));
+    latestPhone.current = phoneBefore;
+    setCustomerFound(null);
+    showToast("Enter a different number for a separate staff account");
+  }
+
   async function saveForm() {
     const phone = form.phone.replace(/\D/g, "");
     const salary = Number(form.salary);
-    if ((editing === "new" && !form.name.trim()) || phone.length !== 10 || !salary) {
-      showToast(editing === "new" ? "Enter the name, a 10-digit phone and the salary" : "Enter a 10-digit phone and the salary");
+    // A salary is needed to add someone; an edit can leave it at ₹0 (only the owner changes a salary)
+    if (!form.name.trim() || phone.length !== 10 || (editing === "new" && !salary)) {
+      showToast("Enter the name, a 10-digit phone and the salary");
       return;
     }
     const group = STAFF_JOBS.find((staffJob) => staffJob.job === form.job)?.group ?? "Farm";
+    // Pressed before the check came back
+    const isNewNumber = editing === "new" || phone !== editing?.phone;
+    const customerName = isNewNumber && phone !== linkedPhone ? await findCustomerName(phone) : null;
+    if (customerName) {
+      setCustomerFound({ phone, name: customerName });
+      return;
+    }
     if (editing === "new") {
       const added = await addStaffPerson({ name: form.name.trim(), job: form.job, group, phone, shift: form.shift, salary });
       if ("error" in added) {
@@ -173,7 +210,7 @@ function StaffPage() {
         showToast(OWNER_ONLY_MESSAGE);
         return;
       }
-      updateStaffPerson(editing.id, { job: form.job, group, phone, shift: form.shift, salary });
+      updateStaffPerson(editing.id, { name: form.name.trim(), job: form.job, group, phone, shift: form.shift, salary });
       showToast(`${editing.name} saved`);
     }
     setEditing(null);
@@ -209,12 +246,6 @@ function StaffPage() {
         searchPlaceholder="Search name, job or phone..."
         actionLabel="Add staff"
         onAction={() => openForm("new")}
-        beforeExport={
-          <button type="button" className={dashboardStyles["admin-export-button"]} onClick={() => setIsProfileRequestsOpen(true)}>
-            Profile requests
-            {membersWaiting.length > 0 && <span className={styles["admin-staff-requests-count"]}>{membersWaiting.length}</span>}
-          </button>
-        }
         onExport={exportStaff}
       />
 
@@ -352,12 +383,15 @@ function StaffPage() {
                             isDisabled: person.today === status,
                             onSelect: () => changeToday(person, status),
                           })),
-                          { label: "Edit job, shift & salary", onSelect: () => openForm(person) },
+                          { label: "Edit name, job, shift & salary", onSelect: () => openForm(person) },
                           // The owner or a manager; shown on Roles & permissions too
                           ...(canGiveRoles && (person.roleId === null || person.roleId === "delivery-agent")
                             ? [{ label: "Make Staff", onSelect: () => void makeStaff(person) }]
                             : []),
-                          { label: "Remove from team", isDanger: true, permission: "delete", onSelect: () => setPersonToRemove(person) },
+                          // Only the owner or a manager removes someone (the database checks it too)
+                          ...(canGiveRoles
+                            ? [{ label: "Remove from team", isDanger: true, permission: "delete" as const, onSelect: () => setPersonToRemove(person) }]
+                            : []),
                         ]}
                       />
                     </td>
@@ -378,23 +412,49 @@ function StaffPage() {
         <AdminPagination page={page} pageSize={PAGE_SIZE} total={shown.length} onPageChange={setPage} itemName="staff" />
       </section>
 
-      {editing && (
+      {customerFound && (
+        <AdminDialog title="Customer account found" submitLabel="No" hasOnlyCloseButton onClose={useAnotherNumber} onSubmit={continueWithCustomer}>
+          <p className={styles["admin-staff-customer-question"]}>
+            {formatPhone(customerFound.phone)} has a customer account with the name <strong>{customerFound.name}</strong>. Are you sure you want
+            to continue with this customer account and save them as staff?
+          </p>
+          <div className={sharedStyles["admin-dialog-buttons"]}>
+            <button type="button" className={sharedStyles["admin-dialog-cancel"]} onClick={useAnotherNumber}>
+              No
+            </button>
+            <button type="submit" className={sharedStyles["admin-dialog-submit"]}>
+              Yes, continue
+            </button>
+          </div>
+        </AdminDialog>
+      )}
+
+      {editing && !customerFound && (
         <AdminDialog
           title={editing === "new" ? "Add staff" : `Edit ${editing.name}`}
           submitLabel={editing === "new" ? "Add staff" : "Save"}
           onClose={() => setEditing(null)}
           onSubmit={saveForm}
         >
-          {editing === "new" && (
-            <AdminDialogField label="Name">
-              <input
-                className={adminInputClassName}
-                value={form.name}
-                onChange={(changeEvent) => setForm({ ...form, name: changeEvent.target.value })}
-                autoFocus
-              />
-            </AdminDialogField>
-          )}
+          <AdminDialogField label="Phone">
+            <input
+              className={adminInputClassName}
+              inputMode="numeric"
+              placeholder="10 digits"
+              value={form.phone}
+              onChange={(changeEvent) => void typePhone(changeEvent.target.value)}
+              autoFocus
+            />
+          </AdminDialogField>
+          <AdminDialogField label="Name">
+            <input
+              className={adminInputClassName}
+              value={form.name}
+              readOnly={isNameLocked}
+              title={isNameLocked ? "From the customer account" : undefined}
+              onChange={(changeEvent) => setForm({ ...form, name: changeEvent.target.value })}
+            />
+          </AdminDialogField>
           <AdminDialogField label="Job">
             <select className={adminInputClassName} value={form.job} onChange={(changeEvent) => setForm({ ...form, job: changeEvent.target.value })}>
               {STAFF_JOBS.map((staffJob) => (
@@ -404,15 +464,6 @@ function StaffPage() {
               ))}
             </select>
           </AdminDialogField>
-          <AdminDialogField label="Phone">
-            <input
-              className={adminInputClassName}
-              inputMode="numeric"
-              placeholder="10 digits"
-              value={form.phone}
-              onChange={(changeEvent) => setForm({ ...form, phone: changeEvent.target.value.replace(/\D/g, "").slice(0, 10) })}
-            />
-          </AdminDialogField>
           <AdminDialogField label="Shift">
             <select className={adminInputClassName} value={form.shift} onChange={(changeEvent) => setForm({ ...form, shift: changeEvent.target.value })}>
               {STAFF_SHIFTS.map((shift) => (
@@ -420,7 +471,7 @@ function StaffPage() {
               ))}
             </select>
           </AdminDialogField>
-          <AdminDialogField label="Salary (₹ a month)" isWide={editing !== "new"}>
+          <AdminDialogField label="Salary (₹ a month)" isWide>
             <input
               className={adminInputClassName}
               inputMode="numeric"
@@ -447,59 +498,6 @@ function StaffPage() {
             {personToRemove.group === "Delivery" ? " Their route on Routes & agents stays until you give it to someone else." : ""}
           </p>
         </AdminDialog>
-      )}
-
-      {isProfileRequestsOpen && (
-        <AdminDialog
-          title="Profile requests"
-          submitLabel="Close"
-          hasOnlyCloseButton
-          onClose={() => setIsProfileRequestsOpen(false)}
-          onSubmit={() => setIsProfileRequestsOpen(false)}
-        >
-          {membersWaiting.length === 0 ? (
-            <p className={styles["admin-staff-requests-empty"]}>No profile requests waiting.</p>
-          ) : (
-            <ul className={styles["admin-staff-requests-list"]}>
-              {membersWaiting.map((member) => (
-                <li key={member.mobileNumber}>
-                  <button
-                    type="button"
-                    className={styles["admin-staff-request-person"]}
-                    onClick={() => {
-                      setIsProfileRequestsOpen(false);
-                      setProfileChangesOf(member.mobileNumber);
-                    }}
-                  >
-                    <span className={styles["admin-staff-request-top-row"]}>
-                      <span>{member.name}</span>
-                      <span className={styles["admin-staff-request-phone"]}>{formatPhone(member.mobileNumber)}</span>
-                    </span>
-                    <span className={styles["admin-staff-request-fields"]}>
-                      {Object.keys(member.profileChange?.changes ?? {})
-                        .map((field) => PROFILE_FIELD_LABELS[field] ?? field)
-                        .join(", ")}
-                    </span>
-                    <span className={styles["admin-staff-request-reason"]}>{member.profileChange?.reason}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </AdminDialog>
-      )}
-
-      {memberWithChanges && (
-        <ProfileChangesDialog
-          member={memberWithChanges}
-          canDecide={Boolean(access?.can("staff", "edit")) && memberWithChanges.mobileNumber !== myMobileNumber}
-          // Back to the list of cards
-          onClose={() => {
-            setProfileChangesOf(null);
-            setIsProfileRequestsOpen(true);
-          }}
-          onDone={showToast}
-        />
       )}
 
       {isLeaveOpen && <AdminLeaveRequests staff={staff} onClose={() => setIsLeaveOpen(false)} showToast={showToast} />}

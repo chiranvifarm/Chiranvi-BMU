@@ -172,6 +172,14 @@ export default function OrderReceiptDialog({ order, onClose }: { order: Order; o
               <dd>{order.deliverTo}</dd>
             </div>
           )}
+          {order.deliveryMobile && (
+            <div className={styles["receipt-detail-row"]}>
+              <dt>Delivery contact</dt>
+              <dd>
+                +91 {order.deliveryMobile.slice(0, 5)} {order.deliveryMobile.slice(5)}
+              </dd>
+            </div>
+          )}
           {paymentState !== "failed" && order.promisedAt && order.status !== "cancelled" && (
             <div className={styles["receipt-detail-row"]}>
               <dt>{order.status === "delivered" ? "Delivery" : "Expected delivery"}</dt>

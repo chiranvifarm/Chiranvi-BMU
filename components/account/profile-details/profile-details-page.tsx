@@ -45,13 +45,15 @@ const primaryMobileDigitsOf = (mobileNumber: string) => mobileNumber.replace(/\D
   switches. A new customer lands here after logging in: until they save, a note asks them to fill in
   their details (needed for smooth ordering and delivery). Required: first and last name, email,
   primary address, location and pincode (picking a location fills in its pincode; "Others" opens a box
-  to type the location, which is what gets saved). The secondary
-  mobile and address, and "More about you", are optional. The primary mobile is the login number.
+  to type the location, which is what gets saved). "More about you" is optional. The primary mobile is the
+  login number. A secondary mobile and address are no longer asked here; saved ones stay as they are (the form
+  sends them back unchanged, as an empty secondary address would delete the customer's "Other" address).
   Saving keeps the details in this browser (store/customer-profiles-store.ts) and gives the customer
   a Customer ID; they then show on the Chiranvi Panel's Customers page.
   The banner numbers and the switches are placeholders from the design.
   "Delete account" (beside Edit details) deletes the account for good, after a confirmation; see
-  DeleteAccountButton below for when it is refused.
+  DeleteAccountButton below for when it is refused. The team (all but the owner) has neither button: their
+  details are corrected on the panel's Staff page, and only the owner or a manager removes them.
 */
 
 type ProfileForm = Omit<CustomerProfileDetails, "primaryMobile">;
@@ -74,10 +76,8 @@ const emptyForm: ProfileForm = {
 const fieldExamples = {
   firstName: "Priya",
   lastName: "Sharma",
-  secondaryMobile: "Optional, e.g. 98450 67890",
   email: "priya.sharma@example.com",
   primaryAddress: "House / flat no., street, landmark",
-  secondaryAddress: "Optional: office or another home",
   pincode: "560011",
   dateOfBirth: "14 / 08 / 1992",
 };
@@ -90,12 +90,6 @@ const notificationSettings = [
     id: "delivery-updates",
     title: "Delivery updates on WhatsApp",
     description: "Get a message when your milk is at the door.",
-    isOnAtStart: true,
-  },
-  {
-    id: "low-wallet-balance",
-    title: "Low wallet balance alerts",
-    description: "We remind you before your subscription pauses.",
     isOnAtStart: true,
   },
   {
@@ -338,6 +332,7 @@ function PersonalDetailsForm({
   // A team member asks before changing their saved Profile; a request shows its new values, locked
   const teamRecord = useMyTeamRecord();
   const isOwner = Boolean(useCurrentStaffAccess()?.isOwner);
+  const isTeamWithoutOwner = Boolean(teamRecord) && !isOwner;
   const asksFirst = isInPopup && Boolean(teamRecord);
   const request: ProfileChangeRequest | undefined = asksFirst ? teamRecord?.profileChange : undefined;
   const isRequestOpen = request?.status === "Pending" || request?.status === "Accepted";
@@ -378,8 +373,6 @@ function PersonalDetailsForm({
   const missingDetails: string[] = [];
   if (!trimmed.firstName) missingDetails.push("First name");
   if (!trimmed.lastName) missingDetails.push("Last name");
-  if (trimmed.secondaryMobile && trimmed.secondaryMobile.length !== 10) missingDetails.push("Secondary mobile number: 10 digits (or leave it empty)");
-  if (trimmed.secondaryMobile && trimmed.secondaryMobile === primaryMobileDigits) missingDetails.push("Secondary mobile number: a different number from your primary one");
   if (!/^\S+@\S+\.\S+$/.test(trimmed.email)) missingDetails.push("A valid email");
   if (!trimmed.primaryAddress) missingDetails.push("Primary address");
   if (!trimmed.location) missingDetails.push("Location");
@@ -476,7 +469,7 @@ function PersonalDetailsForm({
             onChange={(event) => updateFormValue("lastName", event.target.value)}
           />
         </label>
-        <label className={styles["profile-form-field"]}>
+        <label className={`${styles["profile-form-field"]} ${styles["profile-form-field-wide"]}`}>
           <span className={styles["profile-form-label"]}>Primary mobile number</span>
           {/* The number used to log in: shown, not editable (changing it would change the account) */}
           {asksFirst ? (
@@ -495,17 +488,6 @@ function PersonalDetailsForm({
               Change number
             </button>
           )}
-        </label>
-        <label className={styles["profile-form-field"]}>
-          <span className={styles["profile-form-label"]}>Secondary mobile number</span>
-          <input
-            className={inputClassName("Secondary mobile number")}
-            type="tel"
-            inputMode="numeric"
-            value={formValues.secondaryMobile}
-            placeholder={fieldExamples.secondaryMobile}
-            onChange={(event) => updateFormValue("secondaryMobile", event.target.value.replace(/\D/g, "").slice(0, 10))}
-          />
         </label>
         <label className={`${styles["profile-form-field"]} ${styles["profile-form-field-wide"]}`}>
           <span className={styles["profile-form-label"]}>Email *</span>
@@ -526,15 +508,6 @@ function PersonalDetailsForm({
             autoComplete="street-address"
             placeholder={fieldExamples.primaryAddress}
             onChange={(event) => updateFormValue("primaryAddress", event.target.value)}
-          />
-        </label>
-        <label className={`${styles["profile-form-field"]} ${styles["profile-form-field-wide"]}`}>
-          <span className={styles["profile-form-label"]}>Secondary address</span>
-          <input
-            className={styles["profile-form-input"]}
-            value={formValues.secondaryAddress}
-            placeholder={fieldExamples.secondaryAddress}
-            onChange={(event) => updateFormValue("secondaryAddress", event.target.value)}
           />
         </label>
         <div className={styles["profile-form-field"]}>
@@ -662,7 +635,7 @@ function PersonalDetailsForm({
           </p>
         )}
         {!isEditing ? (
-          <>
+          !isTeamWithoutOwner && <>
             <DeleteAccountButton mobileNumber={primaryMobileDigits} />
             {/* Saved details: the pop-up changes them */}
             <button type="button" className={styles["profile-save-button"]} onClick={onOpenEdit}>

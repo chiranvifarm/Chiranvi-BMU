@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { getNameInitials } from "@/components/account/account-profile";
 import { useDeliveryRoutes } from "@/store/admin-routes-store";
 import { getDaysPresent, useStaffList } from "@/store/admin-staff-store";
@@ -12,8 +11,7 @@ import styles from "./delivery-profile-page.module.css";
 /*
   Me → Profile (/delivery/profile): the agent's own details, all real, read only here.
   - Green card: initials, name, since when; delivered today, days present and absent this month (staff_members and
-    today's stops); role, shift, route, bike; Edit profile opens the website Profile, where a team member sends
-    their change as a request.
+    today's stops); role, shift, route, bike. The team can't change these; the panel's Staff page does.
   - Contact & vehicle: phone and email (their Profile), bike (their agent card).
   - Today's work: route, stops done, today's attendance.
   The name comes from their Profile on the website (changed there, it changes here too).
@@ -127,10 +125,6 @@ export default function DeliveryProfilePage() {
               </div>
             ))}
           </dl>
-
-          <Link href="/account" className={styles["delivery-profile-edit-button"]}>
-            Edit profile
-          </Link>
         </section>
 
         <div className={styles["delivery-profile-right-column"]}>

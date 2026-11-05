@@ -250,11 +250,12 @@ export function changeAdminOrderStatus(orderNumber: string, status: AdminOrderSt
   becomes Packed (a website order's customer sees Packed too).
 */
 export function assignAdminOrderAgent(order: AdminOrder, agent: string, routeId: string) {
-  // "Name · #12, 4th Cross, Kengeri": the address part
+  // "Name · #12, 4th Cross, Kengeri": the address part, and who receives it (someone else, if the customer said so)
   const address = order.deliverTo?.split(" · ").slice(1).join(" · ").trim() || order.area;
+  const receiverName = order.deliverTo?.split(" · ")[0].trim();
   assignOrderDelivery({
     orderNumber: order.orderNumber,
-    customerName: order.customerName,
+    customerName: receiverName || order.customerName,
     address,
     phone: order.deliveryMobile || order.customerMobile || "",
     area: order.area,

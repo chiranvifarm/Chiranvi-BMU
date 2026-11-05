@@ -27,6 +27,14 @@
   color: #1a1a1a;
 }
 
+/* The tables come from the one-time page's styles, which use its size units */
+.subscription-information-tables {
+  --one-time-phone-pixel: var(--subscription-phone-pixel);
+  --one-time-product-design-pixel: var(--subscription-product-design-pixel);
+  --one-time-product-horizontal-design-pixel: var(--subscription-product-horizontal-design-pixel);
+  --one-time-product-vertical-design-pixel: var(--subscription-product-vertical-design-pixel);
+}
+
 /* "Order by 9 PM for delivery tomorrow by 7 AM · Free delivery on all subscriptions" */
 .subscription-delivery-timings-strip {
   padding: calc(8 * var(--subscription-product-design-pixel)) calc(16 * var(--subscription-product-design-pixel));

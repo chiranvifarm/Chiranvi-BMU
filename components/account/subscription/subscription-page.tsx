@@ -8,7 +8,6 @@ import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import {
   PAUSE_REASONS,
   addPauseRequest,
-  addSkipRequest,
   cancelPauseRequest,
   usePauseRequests,
   type PauseRequest,
@@ -22,16 +21,10 @@ import styles from "./subscription-page.module.css";
 /*
   "My Subscription" dashboard page (design): the milk subscription card (Pause / Resume, Extend Plan),
   the delivery calendar (one week, Monday to Sunday: opens on this week; the arrows move a week back
-  or forward, the week button opens a month calendar to pick any week, "This week" comes back;
-  tap an upcoming day to skip it, tap again to undo) and the plans
-  to switch between. Prices, quantity and the bill are placeholders from the design; nothing is sent
-  anywhere yet, and Extend Plan does nothing until payments exist.
+  or forward, the week button opens a month calendar to pick any week, "This week" comes back).
   Once a plan is paid in the cart ("Start subscription" on the milk page), the card shows that plan
   (the first running plan bought): its name, bottles a day, price per litre and its last day.
   Extend Plan then puts the same plan length in the cart as an extension of it (paid on the cart page).
-  Skip: tapping a day of the running week (Monday to Sunday, up to 8 PM the evening before) asks to skip that
-  delivery; tapping it again takes the request back. The Chiranvi Panel approves it on Pause requests. Approved
-  skips and pauses move the plan's end date later, all kept in the database.
   Pause (a paid plan, 8 days or more): "Pause subscription" opens a pop-up (pause from, resume on, reason) and
   sends a request to the Chiranvi Panel (Pause requests). The card then shows its answer: waiting (with Cancel
   request), approved (paused on those days) or not approved (the customer can ask again).
@@ -59,10 +52,10 @@ function getEarliestPauseDay() {
   return day;
 }
 
-// A pause starts at 8 days; fewer days are skipped in the running week (the database checks it too)
+// A pause starts at 8 days (the database checks it too)
 const MINIMUM_PAUSE_DAYS = 8;
 
-// What a pause or skip request says about the plan
+// What a pause request says about the plan
 function planRequestDetails(plan: RunningPlan, area: string) {
   return {
     customerName: plan.deliverTo.split(" · ")[0],
@@ -71,17 +64,6 @@ function planRequestDetails(plan: RunningPlan, area: string) {
     frequency: "Daily" as const,
     litresPerDay: plan.bottlesPerDay * (plan.bottleLabel === "500 ml" ? 0.5 : 1),
   };
-}
-
-// The next day with a delivery: tomorrow, or after the days an approved skip takes out
-function nextDeliveryDay(plan: RunningPlan, skipRequests: Map<string, PauseRequest>) {
-  const day = new Date();
-  day.setHours(0, 0, 0, 0);
-  day.setDate(day.getDate() + 1);
-  const isSkipped = (date: Date) => skipRequests.get(toDateInputValue(date))?.status === "Approved";
-  if (!isSkipped(day)) return "Tomorrow";
-  while (isSkipped(day)) day.setDate(day.getDate() + 1);
-  return formatPlanDate(day);
 }
 
 // "2026-10-28" for a date box, from a date
@@ -94,33 +76,6 @@ function fromDateInputValue(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day);
 }
-
-const subscriptionPlans = [
-  {
-    id: "weekly",
-    shortName: "Week",
-    label: "Weekly · 1 L",
-    price: "₹928",
-    priceUnit: "/ Week",
-    description: "Every morning, same time.",
-  },
-  {
-    id: "monthly",
-    shortName: "Month",
-    label: "Monthly · Save 5%",
-    price: "₹2,790",
-    priceUnit: "/ month",
-    description: "30 deliveries, billed once a month.",
-  },
-  {
-    id: "six-months",
-    shortName: "6 Months",
-    label: "Long months",
-    price: "₹6,958",
-    priceUnit: "/ 6 months",
-    description: "Delivery every morning.",
-  },
-];
 
 const weekdayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -141,7 +96,6 @@ function getWeekDays(monday: Date, today: Date) {
 }
 
 export default function SubscriptionPage() {
-  const [currentPlanId, setCurrentPlanId] = useState("weekly");
   const [today] = useState(getToday);
   // Monday of the week shown in the delivery calendar (this week at first).
   const [shownMonday, setShownMonday] = useState(() => getMondayOfWeek(getToday()));
@@ -154,7 +108,6 @@ export default function SubscriptionPage() {
   // Every running plan (one card each: their own and any bought for others)
   const orders = useOrders();
   const runningPlans = findRunningPlans(orders);
-  const mobileNumber = useLoggedInMobileNumber();
   const router = useRouter();
   const pauseRequests = usePauseRequests();
   // The plan whose pause pop-up is open
@@ -182,31 +135,8 @@ export default function SubscriptionPage() {
     router.push("/cart");
   }
 
-  // The calendar is for the first plan. Its skips by day ("2026-11-06"), waiting or approved
+  // The calendar is for the first plan
   const calendarPlan = runningPlans[0];
-  const skipRequests = new Map(
-    pauseRequests
-      .filter((request) => request.kind === "skip" && request.planOrderId === calendarPlan?.orderId && request.status !== "Rejected")
-      .map((request) => [toDateInputValue(new Date(request.pauseFrom)), request]),
-  );
-  const earliestSkipDay = getEarliestPauseDay();
-  const sundayOfThisWeek = addDays(getMondayOfWeek(today), 6);
-
-  // Asks to skip the day, or takes back a request still waiting
-  function toggleSkippedDay(dateKey: string, date: Date) {
-    if (!calendarPlan) return;
-    const existing = skipRequests.get(dateKey);
-    if (existing) {
-      cancelPauseRequest(existing.id);
-      return;
-    }
-    addSkipRequest({
-      ...planRequestDetails(calendarPlan, orders.find((order) => order.orderId === calendarPlan.orderId)?.area ?? ""),
-      customerMobile: mobileNumber ?? undefined,
-      planOrderId: calendarPlan.orderId,
-      dayStart: date,
-    });
-  }
 
   return (
     <>
@@ -275,7 +205,7 @@ export default function SubscriptionPage() {
                       ? `${formatPlanDate(new Date(pauseState.request.resumeOn))}, 6:00 AM`
                       : isPaused
                         ? "Paused"
-                        : `${nextDeliveryDay(paidPlan, skipRequests)}, 6:00 AM`}
+                        : "Tomorrow, 6:00 AM"}
                   </dd>
                 </div>
                 <div>
@@ -332,7 +262,6 @@ export default function SubscriptionPage() {
             <h2 id="delivery-calendar-heading" className={styles["subscription-section-heading"]}>
               Delivery calendar
             </h2>
-            <p className={styles["subscription-section-hint"]}>Tap a day this week to ask to skip it, before 8 PM the evening before. Tap it again to take your request back. Once our team approves, your plan ends a day later.</p>
           </div>
 
           {/* Week choice: previous week, the week button (opens the month calendar), next week, This week */}
@@ -403,7 +332,6 @@ export default function SubscriptionPage() {
 
           <ul className={styles["delivery-calendar"]}>
             {shownWeek.map((day) => {
-              const skipRequest = skipRequests.get(day.dateKey);
               // A day inside an approved pause of this plan (the agent's calendar shows it too)
               const isPausedDay = pauseRequests.some(
                 (request) =>
@@ -412,34 +340,20 @@ export default function SubscriptionPage() {
                   day.dateKey >= toDateInputValue(new Date(request.pauseFrom)) &&
                   day.dateKey < toDateInputValue(new Date(request.resumeOn)),
               );
-              const isSkipped = Boolean(skipRequest) || isPausedDay;
-            // The agent marked it delivered (green, also today)
-            const isDelivered = Boolean(calendarPlan?.deliveredDays.includes(day.dateKey));
-              const isApproved = skipRequest?.status === "Approved" || isPausedDay;
-              // This week's days from the first one still open; an approved skip stays
-              const canTap = !isApproved && day.date >= earliestSkipDay && day.date <= sundayOfThisWeek;
-              const dayLabel = `${day.weekdayName} ${day.dayOfMonth}`;
+              // The agent marked it delivered (green, also today)
+              const isDelivered = Boolean(calendarPlan?.deliveredDays.includes(day.dateKey));
               return (
                 <li key={day.dateKey}>
-                  <button
-                    type="button"
-                    disabled={!canTap}
-                    aria-pressed={canTap ? isSkipped : undefined}
-                    aria-label={
-                      day.dayState === "upcoming"
-                        ? `${dayLabel}, ${isPausedDay ? "paused" : isApproved ? "skipped" : isSkipped ? "skip requested, tap to take it back" : canTap ? "upcoming, tap to ask to skip" : "upcoming"}`
-                        : `${dayLabel}, ${isDelivered ? "delivered" : day.dayState === "today" ? "today" : "no delivery"}`
-                    }
+                  <div
                     className={`${styles["delivery-calendar-day"]} ${styles[`delivery-calendar-day-${isDelivered ? "delivered" : day.dayState}`]} ${
-                      isSkipped ? styles["delivery-calendar-day-skipped"] : ""
+                      isPausedDay ? styles["delivery-calendar-day-paused"] : ""
                     }`}
-                    onClick={() => toggleSkippedDay(day.dateKey, day.date)}
                   >
                     <span className={styles["delivery-calendar-weekday"]}>{day.weekdayName}</span>
                     <span className={styles["delivery-calendar-date"]}>{day.dayOfMonth}</span>
-                    {isSkipped && <span className={styles["delivery-calendar-skipped-label"]}>{isPausedDay ? "Paused" : isApproved ? "Skipped" : "Requested"}</span>}
-                  {isDelivered && day.dayState === "today" && <span className={styles["delivery-calendar-skipped-label"]}>Delivered</span>}
-                  </button>
+                    {isPausedDay && <span className={styles["delivery-calendar-day-word"]}>Paused</span>}
+                    {isDelivered && day.dayState === "today" && <span className={styles["delivery-calendar-day-word"]}>Delivered</span>}
+                  </div>
                 </li>
               );
             })}
@@ -461,43 +375,6 @@ export default function SubscriptionPage() {
           </ul>
         </section>
       )}
-
-      {/* Change plan */}
-      <section className={styles["subscription-section-card"]} aria-labelledby="change-plan-heading">
-        <h2 id="change-plan-heading" className={styles["subscription-section-heading"]}>
-          Change plan
-        </h2>
-        <ul className={styles["subscription-plan-list"]}>
-          {subscriptionPlans.map((plan) => {
-            const isCurrentPlan = plan.id === currentPlanId;
-            return (
-              <li
-                key={plan.id}
-                className={`${styles["subscription-plan-card"]} ${
-                  isCurrentPlan ? styles["subscription-plan-card-current"] : ""
-                }`}
-              >
-                <p className={styles["subscription-plan-label"]}>{plan.label}</p>
-                <p className={styles["subscription-plan-price"]}>
-                  {plan.price} <span className={styles["subscription-plan-price-unit"]}>{plan.priceUnit}</span>
-                </p>
-                <p className={styles["subscription-plan-description"]}>{plan.description}</p>
-                {isCurrentPlan ? (
-                  <span className={styles["subscription-plan-current-badge"]}>Current plan</span>
-                ) : (
-                  <button
-                    type="button"
-                    className={styles["subscription-plan-switch-button"]}
-                    onClick={() => setCurrentPlanId(plan.id)}
-                  >
-                    Switch
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </section>
 
       {planBeingPaused && <PauseRequestPopup plan={planBeingPaused} onClose={() => setPlanBeingPaused(null)} />}
     </>
@@ -567,7 +444,7 @@ function PauseRequestPopup({ plan, onClose }: { plan: RunningPlan; onClose: () =
           Pause subscription
         </h2>
         <p className={styles["pause-popup-intro"]}>
-          {plan.product.name} · {plan.planName}. A pause is for 8 days or more; for fewer days, skip them in the calendar. Ask before 8 PM; our team
+          {plan.product.name} · {plan.planName}. A pause is for 8 days or more. Ask before 8 PM; our team
           approves your pause, and your plan ends later by those days.
         </p>
 

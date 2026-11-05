@@ -1,7 +1,7 @@
 /*
   Deliveries → Subscriptions: the customers' calendars. Sizes in --delivery-pixel (set by the Delivery Panel frame).
   The day boxes follow the customer's Delivery calendar (My Subscription): delivered light green, today pale
-  yellow with red text, upcoming white; not delivered red (serious), skipped and paused grey.
+  yellow with red text, upcoming white; not delivered red (serious), paused grey.
 */
 
 .plan-calendar-card {
@@ -211,7 +211,6 @@
   color: #d32f2f;
 }
 
-.plan-calendar-day-skipped,
 .plan-calendar-day-paused {
   background: #e2e2e2;
   color: #444444;
@@ -259,7 +258,7 @@
   color: #c0392b;
 }
 
-/* A skipped or paused customer: not today, and when the next delivery is */
+/* A paused customer: not today, and when the next delivery is */
 .plan-day-away {
   margin-top: calc(14 * var(--delivery-pixel));
   padding: calc(11 * var(--delivery-pixel)) calc(14 * var(--delivery-pixel));

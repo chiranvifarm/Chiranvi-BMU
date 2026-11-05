@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect } from "react";
 import { notFound, useRouter } from "next/navigation";
 import { rememberPageAfterLogin, useIsLoggedIn, useIsLoginStatusKnown } from "@/components/login/login-status";
-import { useProductPages } from "@/store/product-pages-store";
+import { useHaveProductPagesLoaded, useProductPages } from "@/store/product-pages-store";
 import OneTimeProductPage from "./one-time-product-page";
 import SubscriptionProductPage from "./subscription-product-page";
 
@@ -15,17 +15,9 @@ import SubscriptionProductPage from "./subscription-product-page";
   Only for logged-in visitors: anyone else is sent to the login, which then comes back to this page.
 */
 
-function subscribeToNothing() {
-  return () => {};
-}
-
 export default function ProductPageBySlug({ slug, isPreview }: { slug: string; isPreview: boolean }) {
   const productPages = useProductPages();
-  const hasReadSavedPages = useSyncExternalStore(
-    subscribeToNothing,
-    () => true,
-    () => false,
-  );
+  const hasReadSavedPages = useHaveProductPagesLoaded();
   const page = productPages.find((productPage) => productPage.slug === slug && (productPage.status === "published" || isPreview));
   const isLoggedIn = useIsLoggedIn();
   const isLoginStatusKnown = useIsLoginStatusKnown();

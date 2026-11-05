@@ -136,17 +136,25 @@ export default function DeliveryOngoingPage() {
   );
 }
 
+// Subscriptions: only the customers' calendars (milk is marked delivered there) and who not to deliver to
 export function DeliverySubscriptionsPage() {
+  const { stops } = useDeliveryPanel();
+  const hasStopsLeft = [...stops.ongoing, ...stops.upNext].some((stop) => stop.isSubscription);
+
   return (
-    <StopsPage
-      title="Subscriptions"
-      description="The daily milk delivery you're on now. Finish it to move on: the next one comes here by itself."
-      columnId="subscription"
-      emptyText="No subscription deliveries left today."
-      isSubscription
-      aboveStop={<DeliveryPlanCalendar />}
-      stopNote={<PlanDayNotices />}
-    />
+    <>
+      <DeliveryPageHeading title="Subscriptions" description="Your customers' milk calendars. Mark today's milk delivered from each calendar." />
+      <DeliveryShiftNotices />
+      <DeliveryPlanCalendar />
+      {hasStopsLeft ? (
+        <PlanDayNotices />
+      ) : (
+        <div className={`${styles["ongoing-card"]} ${styles["ongoing-column-empty"]}`}>
+          No subscription deliveries left today.
+          <PlanDayNotices />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -156,8 +164,6 @@ function StopsPage({
   columnId,
   emptyText,
   isSubscription,
-  aboveStop,
-  stopNote,
   children,
 }: {
   title: string;
@@ -165,37 +171,31 @@ function StopsPage({
   columnId: string;
   emptyText: string;
   isSubscription: boolean;
-  aboveStop?: ReactNode;
-  stopNote?: ReactNode; // inside the "none left" box, or under the stop when there is one
   children?: ReactNode;
 }) {
   const { login, stops } = useDeliveryPanel();
-  const isAllDone = Boolean(login.route) && stops.ongoing.length === 0;
-  const hasStopHere = stops.ongoing.some((ongoingStop) => ongoingStop.isSubscription === isSubscription);
 
   return (
     <>
       <DeliveryPageHeading title={title} description={description} />
       <DeliveryShiftNotices />
-      {aboveStop}
 
-      {isAllDone ? (
+      {login.route && stops.ongoing.length === 0 ? (
         <DeliveryNotice title="All stops done for today" text="Well done! Every stop on your list is finished.">
           <Link href="/delivery/completed" className={deliveryButtonStyles.filled}>
             See completed stops
           </Link>
         </DeliveryNotice>
       ) : (
-        <OngoingStop columnId={columnId} emptyText={emptyText} emptyNote={stopNote} isSubscription={isSubscription} />
+        <OngoingStop columnId={columnId} emptyText={emptyText} isSubscription={isSubscription} />
       )}
-      {(isAllDone || hasStopHere) && stopNote}
       {children}
     </>
   );
 }
 
 // One kind of stop: its ongoing stop's customer, what to hand over and status
-function OngoingStop({ columnId, emptyText, emptyNote, isSubscription }: { columnId: string; emptyText: string; emptyNote?: ReactNode; isSubscription: boolean }) {
+function OngoingStop({ columnId, emptyText, isSubscription }: { columnId: string; emptyText: string; isSubscription: boolean }) {
   const { login, stops } = useDeliveryPanel();
   const [openSheet, setOpenSheet] = useState<OpenSheet>(null);
   const stop = stops.ongoing.find((ongoingStop) => ongoingStop.isSubscription === isSubscription);
@@ -207,12 +207,7 @@ function OngoingStop({ columnId, emptyText, emptyNote, isSubscription }: { colum
 
   return (
     <div className={styles["ongoing-stop"]}>
-      {!stop && (
-        <div className={`${styles["ongoing-card"]} ${styles["ongoing-column-empty"]}`}>
-          {emptyText}
-          {emptyNote}
-        </div>
-      )}
+      {!stop && <p className={`${styles["ongoing-card"]} ${styles["ongoing-column-empty"]}`}>{emptyText}</p>}
 
       {stop && (
         <>

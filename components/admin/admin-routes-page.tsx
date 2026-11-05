@@ -12,10 +12,12 @@ import {
 } from "@/store/admin-deliveries-store";
 import {
   addRoute,
+  saveDeliveryHub,
   updateRoutes,
   reloadDeliveryAgents,
   useDeliveryAgents,
   useDeliveryRoutes,
+  useDeliveryService,
   type DeliveryRoute,
 } from "@/store/admin-routes-store";
 import { useStaffList } from "@/store/admin-staff-store";
@@ -92,6 +94,97 @@ function routeShape(index: number): [number, number][] {
 }
 
 const EMPTY_NEW_AGENT = { phone: "", bike: "" };
+
+// Further than this from the spot (the phone's own estimate): not saved, so the hub is always exact
+const ROUGH_HUB_METRES = 50;
+
+/*
+  The primary hub (the pick-up point): its exact spot, from the phone of someone standing there, and how far
+  from it Chiranvi delivers. Customers further than that are told to contact the farm.
+*/
+function PrimaryHubCard({ canEdit, showToast }: { canEdit: boolean; showToast: (message: string) => void }) {
+  const service = useDeliveryService();
+  const [limitText, setLimitText] = useState<string | null>(null);
+  const [isFinding, setIsFinding] = useState(false);
+  const [problem, setProblem] = useState("");
+  const shownLimit = limitText ?? (service?.limitKm ? String(service.limitKm) : "");
+  const limitKm = shownLimit ? Number(shownLimit) : null;
+
+  async function save(spot: { latitude: number; longitude: number } | null) {
+    const saveProblem = await saveDeliveryHub(spot, limitKm);
+    setProblem(saveProblem ?? "");
+    if (saveProblem) return;
+    setLimitText(null);
+    showToast(spot ? "Hub location saved" : "Distance limit saved");
+  }
+
+  function saveThisSpot() {
+    if (!("geolocation" in navigator)) {
+      setProblem("This device can't share its location.");
+      return;
+    }
+    setProblem("");
+    setIsFinding(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setIsFinding(false);
+        if (position.coords.accuracy > ROUGH_HUB_METRES) {
+          setProblem(`Not exact enough (about ${Math.round(position.coords.accuracy)} m). Use a phone at the hub, in the open, and try again.`);
+          return;
+        }
+        void save({ latitude: position.coords.latitude, longitude: position.coords.longitude });
+      },
+      (failure) => {
+        setIsFinding(false);
+        setProblem(
+          failure.code === failure.PERMISSION_DENIED
+            ? "Location is blocked. Allow location for this website in your settings."
+            : "Couldn't find your location. Try again in the open.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  }
+
+  return (
+    <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-primary-hub-heading">
+      <h2 id="admin-primary-hub-heading" className={dashboardStyles["admin-card-title"]}>
+        Primary hub
+      </h2>
+      <p className={dashboardStyles["admin-card-subtitle"]}>
+        {service?.hub ? `${service.hub.name} · location saved` : "Chiranvi Farm · location not saved yet"}
+      </p>
+      {canEdit && (
+        <div className={styles["admin-hub-controls"]}>
+          <button type="button" className={styles["admin-routes-text-button"]} disabled={isFinding} onClick={saveThisSpot}>
+            {isFinding ? "Finding your location…" : service?.hub ? "Update to my current location" : "Use my current location"}
+          </button>
+          <label className={styles["admin-hub-limit"]}>
+            Deliver within (km)
+            <input
+              className={adminInputClassName}
+              inputMode="numeric"
+              placeholder="Not set"
+              value={shownLimit}
+              onChange={(changeEvent) => setLimitText(changeEvent.target.value.replace(/\D/g, "").slice(0, 3))}
+            />
+          </label>
+          <button type="button" className={styles["admin-routes-text-button"]} onClick={() => void save(null)}>
+            Save limit
+          </button>
+        </div>
+      )}
+      <p className={styles["admin-hub-note"]}>
+        Stand at the hub with a phone and tap the button. The distance limit only works once the location is saved.
+      </p>
+      {problem && (
+        <p className={styles["admin-hub-problem"]} role="alert">
+          {problem}
+        </p>
+      )}
+    </section>
+  );
+}
 
 export default function AdminRoutesPage() {
   return (
@@ -315,6 +408,7 @@ function RoutesPage() {
 
       <div className={styles["admin-routes-columns"]}>
         <div className={styles["admin-routes-left-column"]}>
+          <PrimaryHubCard canEdit={Boolean(access?.can("routes", "edit"))} showToast={showToast} />
           <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-route-map-heading">
             <h2 id="admin-route-map-heading" className={dashboardStyles["admin-card-title"]}>
               Route map
@@ -361,7 +455,7 @@ function RoutesPage() {
                       </td>
                       <td className={dashboardStyles["admin-orders-muted"]}>{route.area}</td>
                       <td>{stops ? stops.toLocaleString("en-IN") : "—"}</td>
-                      <td>{firstName(route.agent)}</td>
+                      <td>{route.agent ? firstName(route.agent) : "Not assigned"}</td>
                       <td>
                         <span className={styles["admin-route-progress-cell"]}>
                           <span className={styles["admin-route-progress-bar"]} aria-hidden="true">
@@ -517,12 +611,13 @@ function RoutesPage() {
                   value={edit.agent}
                   onChange={(changeEvent) => changeEdit({ agent: changeEvent.target.value })}
                 >
+                  <option value="">Not assigned</option>
                   {onDuty.map((agent) => (
                     <option key={agent.name} value={agent.name}>
                       {agent.name}
                     </option>
                   ))}
-                  {!onDuty.some((agent) => agent.name === edit.agent) && <option value={edit.agent}>{edit.agent} (on leave)</option>}
+                  {edit.agent && !onDuty.some((agent) => agent.name === edit.agent) && <option value={edit.agent}>{edit.agent} (on leave)</option>}
                 </select>
               </div>
             );

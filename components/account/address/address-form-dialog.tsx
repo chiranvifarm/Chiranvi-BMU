@@ -30,7 +30,7 @@ import styles from "./address-form-dialog.module.css";
   asksProfileDetails (the cart, for a logged-in customer without a Profile): "Full name" becomes First name and
   Last name, and Email is asked too, so the address gives every detail the Profile needs; they go to onSave
   as profileDetails (with the address's number as the second number when it is "mine").
-  "Use my current location" (optional): the phone's GPS gives the address's map pin, so the delivery agent's
+  "Use my current location" (needed to order): the phone's GPS gives the address's map pin, so the delivery agent's
   Google Maps goes to the gate. The phone asks the customer first; nothing is read without the tap. The spot is
   then looked up on OpenStreetMap (free, no key, anywhere in India) to fill in the street (only when that box is
   empty), area, city and pincode; the customer checks them and adds the house / flat number. A Bengaluru area
@@ -266,7 +266,7 @@ export default function AddressFormDialog({
     if (formValues.pin) {
       return formValues.pinSavedBy === "agent" ? "Location saved by our delivery partner at your door." : "Location saved.";
     }
-    return "Optional. Tap this while you're at this address, so our delivery partner reaches your gate exactly.";
+    return "Needed to place an order. Tap this while you're at this address, so we can check we deliver there and our delivery partner reaches your gate.";
   }
 
   function updateField(field: TextFieldName | keyof ProfileValues, value: string) {
@@ -282,7 +282,8 @@ export default function AddressFormDialog({
     setFormValues((previousValues) => ({
       ...previousValues,
       area: chosenArea === OTHER_AREA ? typedArea : chosenArea,
-      pincode: chosenArea === OTHER_AREA ? "" : pincodeForArea(chosenArea),
+      // (areas share pincodes, so none is filled in: what the customer typed or the location gave stays)
+      pincode: pincodeForArea(chosenArea) || previousValues.pincode,
     }));
     setFieldErrors((previousErrors) => ({ ...previousErrors, area: undefined, pincode: undefined }));
   }
@@ -458,7 +459,7 @@ export default function AddressFormDialog({
             {renderTextField("city", "City", { placeholder: "Bengaluru", isWide: true })}
           </div>
 
-          {/* The map pin for the delivery agent (optional) */}
+          {/* The map pin: needed to order (the database checks the distance from the hub with it) */}
           <div className={styles["address-form-location"]}>
             <button
               type="button"

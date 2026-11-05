@@ -9,6 +9,8 @@ import {
   moveRouteToAgent,
   toDateKey,
   useTodayDeliveries,
+  type Delivery,
+  type DeliveryStatus,
 } from "@/store/admin-deliveries-store";
 import {
   addRoute,
@@ -18,6 +20,7 @@ import {
   useDeliveryAgents,
   useDeliveryRoutes,
   useDeliveryService,
+  type DeliveryAgent,
   type DeliveryRoute,
 } from "@/store/admin-routes-store";
 import { useStaffList } from "@/store/admin-staff-store";
@@ -45,7 +48,9 @@ import styles from "./admin-routes-page.module.css";
     numbers    routes (stops), agents on duty (who is on leave), average stops per agent, on-time
                delivery (delivered before 8 AM)
     left       route map: the farm hub and each route's stops in its colour; routes table with progress;
-               "Edit routes" changes each route's area and agent (stops not yet delivered move with it)
+               "Edit routes" changes each route's area and agent (stops not yet delivered move with it);
+               clicking a route (its row, or its line on the map) opens its overview: the agent, the counts
+               and every order on it, for the dates chosen at the top
     right      delivery agents: route and bike, status, call button, stops done; "Add agent"
   Routes and agents come from store/admin-routes-store.ts and deliveries from
   store/admin-deliveries-store.ts, so the Deliveries page shows the same routes, colours and agents.
@@ -94,6 +99,107 @@ function routeShape(index: number): [number, number][] {
 }
 
 const EMPTY_NEW_AGENT = { phone: "", bike: "" };
+
+const DELIVERY_STATUS_CLASS_NAMES: Record<DeliveryStatus, string> = {
+  Delivered: dashboardStyles["admin-status-delivered"],
+  "Out for delivery": dashboardStyles["admin-status-out-for-delivery"],
+  Pending: dashboardStyles["admin-status-pending"],
+  Missed: sharedStyles["admin-status-warning"],
+};
+
+/*
+  A route's overview: its agent (name, number, bike, on leave), the counts, and every order on it for the
+  chosen dates. An order shows its own agent: it can differ from the route's (a stop handed to someone else).
+*/
+function RouteOverview({
+  route,
+  stops,
+  agent,
+  datesLabel,
+  onClose,
+}: {
+  route: DeliveryRoute;
+  stops: Delivery[];
+  agent?: DeliveryAgent;
+  datesLabel: string;
+  onClose: () => void;
+}) {
+  const countOf = (...statuses: DeliveryStatus[]) => stops.filter((stop) => statuses.includes(stop.status)).length;
+  const counts = [
+    { label: "Orders", value: stops.length },
+    { label: "Delivered", value: countOf("Delivered") },
+    { label: "Still to go", value: countOf("Pending", "Out for delivery") },
+    { label: "Missed", value: countOf("Missed") },
+  ];
+  return (
+    <AdminDialog title={`${route.name} · ${route.area}`} submitLabel="Close route overview" onClose={onClose} onSubmit={onClose} isLarge hasOnlyCloseButton>
+      <section className={styles["admin-route-overview-agent"]} aria-label="Delivery agent">
+        <h3 className={styles["admin-route-overview-title"]}>Delivery agent</h3>
+        {route.agent ? (
+          <p className={styles["admin-route-overview-agent-line"]}>
+            <strong>{route.agent}</strong>
+            {agent?.phone && <a href={`tel:+91${agent.phone}`}>+91 {agent.phone}</a>}
+            {agent?.bike && agent.bike !== "—" && <span>{agent.bike}</span>}
+            {agent?.isOnLeave && <span className={`${dashboardStyles["admin-status"]} ${AGENT_STATUS_CLASS_NAMES["On leave"]}`}>On leave</span>}
+          </p>
+        ) : (
+          <p className={styles["admin-route-overview-agent-line"]}>Not assigned. Choose one in Edit routes.</p>
+        )}
+      </section>
+
+      <div className={styles["admin-route-overview-counts"]}>
+        {counts.map((count) => (
+          <p key={count.label} className={styles["admin-route-overview-count"]}>
+            <strong>{count.value.toLocaleString("en-IN")}</strong>
+            {count.label}
+          </p>
+        ))}
+      </div>
+
+      <h3 className={styles["admin-route-overview-title"]}>Orders · {datesLabel}</h3>
+      {stops.length === 0 ? (
+        <p className={styles["admin-route-overview-empty"]}>No orders on this route {datesLabel.toLowerCase()}.</p>
+      ) : (
+        <div className={dashboardStyles["admin-table-scroll"]}>
+          <table className={dashboardStyles["admin-orders-table"]}>
+            <thead>
+              <tr>
+                <th scope="col">Order</th>
+                <th scope="col">Customer</th>
+                <th scope="col">Items</th>
+                <th scope="col">Slot</th>
+                <th scope="col">Agent</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stops.map((stop) => (
+                <tr key={stop.id}>
+                  <td>
+                    {stop.orderNumber ?? stop.id}
+                    {stop.isSubscription && <span className={dashboardStyles["admin-orders-area"]}>Subscription</span>}
+                  </td>
+                  <td>
+                    {stop.customerName}
+                    <span className={dashboardStyles["admin-orders-area"]}>{stop.address}</span>
+                  </td>
+                  <td className={dashboardStyles["admin-orders-muted"]}>
+                    {stop.items?.length ? stop.items.map((item) => `${item.name} ${item.packSize} × ${item.quantity}`.replace("  ", " ")).join(", ") : "—"}
+                  </td>
+                  <td className={dashboardStyles["admin-orders-muted"]}>{stop.slot}</td>
+                  <td>{stop.agent ? firstName(stop.agent) : "—"}</td>
+                  <td>
+                    <span className={`${dashboardStyles["admin-status"]} ${DELIVERY_STATUS_CLASS_NAMES[stop.status]}`}>{stop.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </AdminDialog>
+  );
+}
 
 // Further than this from the spot (the phone's own estimate): not saved, so the hub is always exact
 const ROUGH_HUB_METRES = 50;
@@ -202,13 +308,20 @@ function RoutesPage() {
   const canGiveRoles = Boolean(access?.isOwner || access?.roleId === "manager");
   const staffToMakeAgents = useStaffList().filter((person) => person.roleId === null || person.roleId === "staff");
   const todaysDeliveries = useTodayDeliveries();
-  const routes = useDeliveryRoutes();
+  const savedRoutes = useDeliveryRoutes();
+  // Route 1, Route 2 … (by their number: the list comes newest first)
+  const routes = useMemo(
+    () => [...savedRoutes].sort((first, second) => (Number(first.id.slice(1)) || 0) - (Number(second.id.slice(1)) || 0)),
+    [savedRoutes],
+  );
   const agents = useDeliveryAgents();
   const [today] = useState(() => new Date());
   const [rangeFrom, setRangeFrom] = useState(today);
   const [rangeTo, setRangeTo] = useState(today);
   const [searchText, setSearchText] = useState("");
   const [highlightedRoute, setHighlightedRoute] = useState<string | null>(null);
+  // The route whose overview is open
+  const [openRouteId, setOpenRouteId] = useState<string | null>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [routeEdits, setRouteEdits] = useState<{ id: string; area: string; agent: string }[]>([]);
   const [isNewRouteOpen, setIsNewRouteOpen] = useState(false);
@@ -235,6 +348,7 @@ function RoutesPage() {
     const done = stops.filter((delivery) => delivery.status === "Delivered").length;
     return { route, index, stops: stops.length, done, percent: stops.length ? Math.round((done / stops.length) * 100) : 0 };
   });
+  const openRoute = routes.find((route) => route.id === openRouteId);
   const shownRouteRows = routeRows.filter(
     ({ route }) => !words || `${route.id} ${route.name} ${route.area} ${route.agent}`.toLowerCase().includes(words),
   );
@@ -416,7 +530,7 @@ function RoutesPage() {
             <p className={dashboardStyles["admin-card-subtitle"]}>
               Farm hub → {routes.length} delivery routes
             </p>
-            <RouteMap routes={routes} highlightedRoute={highlightedRoute} onHighlight={setHighlightedRoute} />
+            <RouteMap routes={routes} highlightedRoute={highlightedRoute} onHighlight={setHighlightedRoute} onOpenRoute={setOpenRouteId} />
           </section>
 
           <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-routes-heading">
@@ -443,14 +557,18 @@ function RoutesPage() {
                   {shownRouteRows.map(({ route, stops, percent }) => (
                     <tr
                       key={route.id}
-                      className={highlightedRoute === route.id ? styles["admin-route-row-highlighted"] : undefined}
+                      className={`${styles["admin-route-row"]} ${highlightedRoute === route.id ? styles["admin-route-row-highlighted"] : ""}`}
                       onMouseEnter={() => setHighlightedRoute(route.id)}
                       onMouseLeave={() => setHighlightedRoute(null)}
+                      onClick={() => setOpenRouteId(route.id)}
                     >
                       <td>
                         <span className={styles["admin-route-name-cell"]}>
                           <span className={styles["admin-route-dot"]} style={{ background: route.colour }} aria-hidden="true" />
-                          {route.name}
+                          {/* The keyboard's way in: the whole row opens it for a mouse */}
+                          <button type="button" className={styles["admin-route-open-button"]} aria-label={`Open the overview of ${route.name}`}>
+                            {route.name}
+                          </button>
                         </span>
                       </td>
                       <td className={dashboardStyles["admin-orders-muted"]}>{route.area}</td>
@@ -583,6 +701,16 @@ function RoutesPage() {
           </section>
         </div>
       </div>
+
+      {openRoute && (
+        <RouteOverview
+          route={openRoute}
+          stops={inRange.filter((delivery) => delivery.routeId === openRoute.id)}
+          agent={agents.find((agent) => agent.name === openRoute.agent)}
+          datesLabel={isOnlyToday ? "Today" : "In these dates"}
+          onClose={() => setOpenRouteId(null)}
+        />
+      )}
 
       {isEditOpen && (
         <AdminDialog title="Edit routes" submitLabel="Save routes" onClose={() => setIsEditOpen(false)} onSubmit={saveEditRoutes}>
@@ -718,11 +846,13 @@ export function RouteMap({
   highlightedRoute,
   onHighlight,
   shownRouteIds,
+  onOpenRoute,
 }: {
   routes: DeliveryRoute[];
   highlightedRoute: string | null;
   onHighlight: (routeId: string | null) => void;
   shownRouteIds?: string[];
+  onOpenRoute?: (routeId: string) => void; // clicking a route's line (the panel only)
 }) {
   const shownCount = shownRouteIds?.length ?? routes.length;
   return (
@@ -756,8 +886,9 @@ export function RouteMap({
             style={{ opacity: isFaded ? 0.25 : 1 }}
             onMouseEnter={() => onHighlight(route.id)}
             onMouseLeave={() => onHighlight(null)}
+            onClick={() => onOpenRoute?.(route.id)}
           >
-            <title>{`${route.name} · ${route.area} · ${route.agent}`}</title>
+            <title>{`${route.name} · ${route.area} · ${route.agent || "Not assigned"}`}</title>
             <polyline
               points={points.map(([x, y]) => `${x},${y}`).join(" ")}
               fill="none"

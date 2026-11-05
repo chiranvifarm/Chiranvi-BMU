@@ -36,6 +36,36 @@
   text-decoration: underline;
 }
 
+/* ---------- Primary hub ---------- */
+.admin-hub-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: calc(14 * var(--admin-pixel));
+  margin-top: calc(10 * var(--admin-pixel));
+}
+
+.admin-hub-limit {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--admin-pixel));
+  width: calc(130 * var(--admin-pixel));
+  font-size: calc(12 * var(--admin-pixel));
+  color: #5c655e;
+}
+
+.admin-hub-note {
+  margin-top: calc(8 * var(--admin-pixel));
+  font-size: calc(12 * var(--admin-pixel));
+  color: #7a837c;
+}
+
+.admin-hub-problem {
+  margin-top: calc(6 * var(--admin-pixel));
+  font-size: calc(12 * var(--admin-pixel));
+  color: #c0392b;
+}
+
 /* ---------- Route map ---------- */
 
 .admin-route-map {

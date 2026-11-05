@@ -61,6 +61,18 @@
   color: #6b736c;
 }
 
+/* The farm hub under the route map */
+.up-next-hub-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8 * var(--delivery-pixel));
+  margin-top: calc(10 * var(--delivery-pixel));
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #4d5a50;
+}
+
 /* Route map */
 /* Load check */
 .up-next-load-list {

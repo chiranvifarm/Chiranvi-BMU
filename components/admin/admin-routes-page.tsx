@@ -847,20 +847,25 @@ export function RouteMap({
   onHighlight,
   shownRouteIds,
   onOpenRoute,
+  fillsBox = false,
 }: {
   routes: DeliveryRoute[];
   highlightedRoute: string | null;
   onHighlight: (routeId: string | null) => void;
   shownRouteIds?: string[];
   onOpenRoute?: (routeId: string) => void; // clicking a route's line (the panel only)
+  fillsBox?: boolean; // more streets above and below, and the map covers the box it is in (the Delivery Panel)
 }) {
   const shownCount = shownRouteIds?.length ?? routes.length;
+  const mapTop = fillsBox ? -108 : 0;
+  const mapHeight = fillsBox ? 440 : 224;
+  const blockRows = fillsBox ? [-2, -1, 0, 1, 2, 3, 4, 5] : [0, 1, 2, 3];
   return (
-    <svg viewBox={`${MAP_LEFT} 0 ${MAP_WIDTH} 224`} className={styles["admin-route-map"]} role="img" aria-label={`Map of ${shownCount} routes from the farm hub`}>
-      <rect x={MAP_LEFT} y="0" width={MAP_WIDTH} height="224" rx="10" className={styles["admin-route-map-ground"]} />
+    <svg viewBox={`${MAP_LEFT} ${mapTop} ${MAP_WIDTH} ${mapHeight}`} preserveAspectRatio={fillsBox ? "xMidYMid slice" : undefined} className={styles["admin-route-map"]} role="img" aria-label={`Map of ${shownCount} routes from the farm hub`}>
+      <rect x={MAP_LEFT} y={mapTop} width={MAP_WIDTH} height={mapHeight} rx="10" className={styles["admin-route-map-ground"]} />
       {/* Blocks between the streets */}
       {Array.from({ length: 9 }, (_, column) => column).map((column) =>
-        [0, 1, 2, 3].map((row) => (
+        blockRows.map((row) => (
           <rect
             key={`${column}-${row}`}
             x={MAP_LEFT + 8 + column * 56}
@@ -876,9 +881,13 @@ export function RouteMap({
       {routes.map((route, index) => {
         if (shownRouteIds && !shownRouteIds.includes(route.id)) return null;
         // By its number (R4 is the fourth), so a route is in the same place on the panel and for its agent
-        const points = [[HUB.x, HUB.y] as [number, number], ...routeShape((Number(route.id.slice(1)) || index + 1) - 1)];
+        const shape = routeShape((Number(route.id.slice(1)) || index + 1) - 1);
+        // A tall box has room for a longer line: the stops move out from the hub and stay on the map, their size stays the same
+        const stops = fillsBox ? shape.map(([x, y]): [number, number] => [Math.min(MAP_LEFT + MAP_WIDTH - 14, Math.max(MAP_LEFT + 14, HUB.x + (x - HUB.x) * 1.6)), HUB.y + (y - HUB.y) * 1.6]) : shape;
+        const points = [[HUB.x, HUB.y] as [number, number], ...stops];
         const [endX, endY] = points[points.length - 1];
         const isFaded = highlightedRoute !== null && highlightedRoute !== route.id;
+        const tagTop = Math.min(mapTop + mapHeight - 16, Math.max(mapTop + 2, endY - 18));
         return (
           <g
             key={route.id}
@@ -902,7 +911,7 @@ export function RouteMap({
             ))}
             <rect
               x={Math.min(MAP_LEFT + MAP_WIDTH - 24, Math.max(MAP_LEFT + 2, endX - 11))}
-              y={Math.min(208, Math.max(2, endY - 18))}
+              y={tagTop}
               width="22"
               height="13"
               rx="3.5"
@@ -910,7 +919,7 @@ export function RouteMap({
             />
             <text
               x={Math.min(MAP_LEFT + MAP_WIDTH - 24, Math.max(MAP_LEFT + 2, endX - 11)) + 11}
-              y={Math.min(208, Math.max(2, endY - 18)) + 9.6}
+              y={tagTop + 9.6}
               textAnchor="middle"
               className={styles["admin-route-map-tag"]}
               fill={["#a3c98a", "#f5bf2c", "#e0a91f", "#d9b54a"].includes(route.colour) ? "#13251b" : "#ffffff"}

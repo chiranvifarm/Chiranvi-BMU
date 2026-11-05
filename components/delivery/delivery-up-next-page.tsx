@@ -130,14 +130,16 @@ export default function DeliveryUpNextPage() {
           </div>
 
           <div className={styles["up-next-columns"]}>
-            <section className={styles["up-next-card"]} aria-labelledby="up-next-map-title">
+            <section className={`${styles["up-next-card"]} ${styles["up-next-map-card"]}`} aria-labelledby="up-next-map-title">
               <h2 id="up-next-map-title" className={styles["up-next-card-title"]}>
                 Route map
               </h2>
               <p className={styles["up-next-card-text"]}>
                 Farm hub → {myRouteIds.length} delivery route{myRouteIds.length === 1 ? "" : "s"}
               </p>
-              <RouteMap routes={routes} shownRouteIds={myRouteIds} highlightedRoute={highlightedRoute} onHighlight={setHighlightedRoute} />
+              <div className={styles["up-next-map-area"]}>
+                <RouteMap routes={routes} shownRouteIds={myRouteIds} highlightedRoute={highlightedRoute} onHighlight={setHighlightedRoute} fillsBox />
+              </div>
               {/* The pick-up point */}
               {hub && (
                 <p className={styles["up-next-hub-row"]}>

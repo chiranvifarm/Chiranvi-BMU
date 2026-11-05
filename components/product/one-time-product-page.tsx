@@ -255,6 +255,9 @@ export default function OneTimeProductPage({ page }: { page: OneTimePageData }) 
 
   return (
     <div className={styles["one-time-product-page"]}>
+      {/* Green timings strip above the navigation bar, like the milk page (scrolls away; the bar stays at the top) */}
+      <p className={styles["one-time-delivery-timings-strip"]}>Order by 9 PM for delivery tomorrow by 7 AM</p>
+
       {/* Navigation bar, placed exactly like on the landing page */}
       <SiteNavigationPlacement />
 

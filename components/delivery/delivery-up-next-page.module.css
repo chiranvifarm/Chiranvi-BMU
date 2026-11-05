@@ -35,7 +35,7 @@
 .up-next-columns {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  align-items: start;
+  align-items: stretch;
   gap: calc(16 * var(--delivery-pixel));
   margin-bottom: calc(16 * var(--delivery-pixel));
 }
@@ -46,6 +46,31 @@
   border: 1px solid #e7e8e2;
   border-radius: calc(14 * var(--delivery-pixel));
   background: #ffffff;
+}
+
+/* The map fills its card, down to the bottom of the Load check card */
+.up-next-map-card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Never shorter than this shape, so a long route is not cut off; it grows with the Load check card */
+.up-next-map-area {
+  position: relative;
+  flex: 1 0 auto;
+  aspect-ratio: 520 / 340;
+  min-height: calc(240 * var(--delivery-pixel));
+  margin-top: calc(10 * var(--delivery-pixel));
+  overflow: hidden;
+  border-radius: calc(10 * var(--delivery-pixel));
+}
+
+.up-next-map-area svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
 }
 
 .up-next-card-title {

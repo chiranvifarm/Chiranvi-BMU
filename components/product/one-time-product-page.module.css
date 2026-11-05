@@ -25,6 +25,16 @@
   color: #1a1a1a;
 }
 
+/* "Order by 9 PM for delivery tomorrow by 7 AM" */
+.one-time-delivery-timings-strip {
+  padding: calc(8 * var(--one-time-product-design-pixel)) calc(16 * var(--one-time-product-design-pixel));
+  background: #285c3a;
+  font-size: calc(13 * var(--one-time-product-design-pixel));
+  line-height: calc(18 * var(--one-time-product-design-pixel));
+  text-align: center;
+  color: #ffffff;
+}
+
 /* The gap under the navigation bar matches the gap above it (27 of the same unit); sides: 58 + 20px */
 .one-time-product-page-content {
   width: 100%;
@@ -1010,6 +1020,12 @@
   information, nutrition and products), nothing fixed, two product cards per row.
 */
 :global(html:has(style[data-landing-layout="mobile"])) {
+  .one-time-delivery-timings-strip {
+    padding: calc(7 * var(--one-time-phone-pixel)) calc(12 * var(--one-time-phone-pixel));
+    font-size: calc(11.5 * var(--one-time-phone-pixel));
+    line-height: calc(16 * var(--one-time-phone-pixel));
+  }
+
   .one-time-product-page-content {
     padding: calc(12 * var(--one-time-phone-pixel)) calc(16 * var(--one-time-phone-pixel)) calc(16 * var(--one-time-phone-pixel));
   }

@@ -45,15 +45,15 @@ const frequentlyAskedQuestions = [
 const contactOptions = [
   {
     label: "WhatsApp",
-    detail: "+91 98450 00000",
-    href: "https://wa.me/919845000000",
+    detail: "+91 99028 81718",
+    href: "https://wa.me/919902881718",
     iconColour: "green",
     iconPaths: ["M5 5h14v10H9l-4 4z"],
   },
   {
     label: "Call us",
     detail: "6 AM – 9 PM",
-    href: "tel:+919845000000",
+    href: "tel:+919902881718",
     iconColour: "blue",
     iconPaths: ["M6 3h3l2 5-2 1.5a11 11 0 0 0 5.5 5.5L16 13l5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2Z"],
   },

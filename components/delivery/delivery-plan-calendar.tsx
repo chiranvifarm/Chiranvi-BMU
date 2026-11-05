@@ -19,6 +19,7 @@ import styles from "./delivery-plan-calendar.module.css";
   database saves it for the customer and the panel (mark_plan_day_delivered()). Once delivered, the button stays
   as a greyed-out Delivered.
   A skipped or paused customer shows when the next delivery is instead (also on Ongoing: PlanDayNotices).
+  A pause running or still to come is said under the calendar as soon as it is approved: PauseNote.
 */
 
 type DayState = "upcoming" | "today" | "delivered" | "missed" | "skipped" | "paused" | "none";
@@ -142,6 +143,18 @@ function PlanOtpSheet({ plan, isSaving, onClose, onConfirm }: { plan: AssignedPl
   );
 }
 
+// Under the calendar: "Delivery is paused up to Nov 18. Next delivery is on Nov 19."
+function PauseNote({ plan, pause, todayKey }: { plan: AssignedPlan; pause: AssignedPlan["pauses"][number]; todayKey: string }) {
+  const lastPausedDay = new Date(`${pause.to}T12:00:00`);
+  lastPausedDay.setDate(lastPausedDay.getDate() - 1);
+  const next = nextDeliveryDayOf(plan, lastPausedDay, todayKey);
+  return (
+    <p className={styles["plan-day-away"]}>
+      Delivery is paused up to {monthDayOf(lastPausedDay)}. {next ? `Next delivery is on ${monthDayOf(next)}.` : "No more deliveries on this plan."}
+    </p>
+  );
+}
+
 export default function DeliveryPlanCalendar() {
   const { stops } = useDeliveryPanel();
   const { plans, hasProblem, loadPlans } = useAssignedPlans();
@@ -155,6 +168,8 @@ export default function DeliveryPlanCalendar() {
   const plan = plans?.find((existing) => existing.orderNumber === chosenOrder) ?? plans?.[0];
   const todayKey = dayKeyOf(today);
   const todayState = plan ? stateOf(plan, todayKey, todayKey) : "none";
+  // The running pause, or the nearest one still to come
+  const comingPause = plan?.pauses.filter((pause) => pause.to > todayKey).sort((first, second) => first.from.localeCompare(second.from))[0];
   const isDeliveryDay = Boolean(plan) && todayKey >= (plan?.firstDay ?? "") && todayKey <= (plan?.lastDay ?? "");
   // Blank boxes before the 1st (weeks start on Monday), then each day of the month
   const blanks = (shownMonth.getDay() + 6) % 7;
@@ -278,7 +293,8 @@ export default function DeliveryPlanCalendar() {
             </ul>
 
             {/* Today, for this customer */}
-            {(todayState === "skipped" || todayState === "paused") && (
+            {comingPause && <PauseNote plan={plan} pause={comingPause} todayKey={todayKey} />}
+            {todayState === "skipped" && (
               <p className={styles["plan-day-away"]}>
                 <AwayText plan={plan} today={today} todayKey={todayKey} />
               </p>

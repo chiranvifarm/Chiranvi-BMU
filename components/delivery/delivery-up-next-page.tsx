@@ -232,6 +232,7 @@ function StopRow({
       <div className={styles["up-next-stop-body"]}>
         <div className={styles["up-next-stop-top-row"]}>
           <span className={styles["up-next-stop-slot"]}>{stop.slot}</span>
+          <span className={styles["up-next-stop-kind"]}>{stop.isSubscription ? "Subscription" : "One-time"}</span>
           {isOngoing ? (
             <span className={styles["up-next-stop-now"]}>Now</span>
           ) : (

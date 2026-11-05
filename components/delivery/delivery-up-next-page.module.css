@@ -191,6 +191,15 @@
   color: #1f4d2e;
 }
 
+.up-next-stop-kind {
+  padding: calc(2 * var(--delivery-pixel)) calc(9 * var(--delivery-pixel));
+  border-radius: 9999px;
+  background: #fbf3e1;
+  font-size: calc(11 * var(--delivery-pixel));
+  font-weight: 600;
+  color: #8a6a1c;
+}
+
 .up-next-stop-now {
   padding: calc(2 * var(--delivery-pixel)) calc(9 * var(--delivery-pixel));
   border-radius: 9999px;

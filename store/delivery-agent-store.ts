@@ -10,6 +10,7 @@ import {
   type Delivery,
   type DeliverySlot,
   type DeliveryStatus,
+  createTodaysPlanStops,
 } from "./admin-deliveries-store";
 import { useDeliveryAgents, useDeliveryRoutes, type DeliveryAgent, type DeliveryRoute } from "./admin-routes-store";
 import { createPanelRecordStore } from "./panel-records";
@@ -29,9 +30,11 @@ import { createClient } from "@/lib/supabase/client";
   A stop shows only what is real: an order's items and cash to collect. A stop with a map pin (the customer's address pin, or the spot the agent saved at
   the gate; 0027_address_pins.sql) uses it: Google Maps goes to that exact spot. Without one, Maps searches
   the address text.
-  Stops: Ongoing is the first unfinished one-time order and the first unfinished subscription in the agent's
-  order, Up next the other unfinished ones, and Completed the finished ones (including those the panel already
-  shows as Delivered or Missed).
+  Stops: one queue. Each area (route) in turn, its subscriptions first and then its one-time orders; the agent
+  can still move a stop. "Order to be delivered" is the first unfinished stop, Up next the other unfinished ones,
+  and Completed the finished ones (including those the panel already shows as Delivered or Missed).
+  TODO (lead): which area goes first. For now it is the route order on Routes & agents.
+  A plan's stop is made each day by the database (create_todays_plan_stops, 0046_…sql), not on a paused day.
 */
 
 export type StopStep = "picked-up";
@@ -101,6 +104,7 @@ export type AgentStop = {
   cashToCollect: number; // rupees; 0 for prepaid orders
   changedByDispatch: boolean; // the panel added this stop today or moved it to this agent
   isSubscription: boolean; // a daily milk delivery (else a one-time order)
+  routeRank: number; // its area's place in the route order
   latitude: number;
   longitude: number;
   hasExactPin: boolean; // latitude / longitude are the address's real pin (else made up near the area's centre)
@@ -377,7 +381,7 @@ export function minutesFor(distanceKm: number, stops: number) {
 // ---------- The agent's stops ----------
 
 export type AgentStops = {
-  ongoing: AgentStop[]; // at most two, in the agent's order: one one-time order, one subscription
+  ongoing: AgentStop[]; // the one stop being delivered now (none when all are done)
   upNext: AgentStop[];
   completed: AgentStop[]; // newest first
   isOnDuty: boolean;
@@ -398,6 +402,10 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
   const routes = useDeliveryRoutes();
   const day = useAgentDay(mobileNumber);
   const areDeliveriesLoaded = useAreTodayDeliveriesLoaded();
+  // Each plan's stop for today
+  useEffect(() => {
+    if (mobileNumber) void createTodaysPlanStops();
+  }, [mobileNumber]);
   const isDayLoaded = dayStore.useIsLoaded();
   const isLoaded = areDeliveriesLoaded && isDayLoaded;
 
@@ -417,6 +425,7 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
         slot: delivery.slot,
         // The route's own stops, with no order behind them, are the daily milk round
         isSubscription: delivery.orderNumber ? Boolean(delivery.isSubscription) : true,
+        routeRank: route ? routes.indexOf(route) : routes.length,
         ...details,
         ...progress,
         requests: day.requests.filter((request) => request.deliveryId === delivery.id),
@@ -482,13 +491,17 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
       const firstPosition = position.get(first.id) ?? Number.MAX_SAFE_INTEGER;
       const secondPosition = position.get(second.id) ?? Number.MAX_SAFE_INTEGER;
       if (firstPosition !== secondPosition) return firstPosition - secondPosition;
-      return SLOT_ORDER.indexOf(first.slot) - SLOT_ORDER.indexOf(second.slot) || first.id.localeCompare(second.id);
+      return (
+        first.routeRank - second.routeRank ||
+        Number(second.isSubscription) - Number(first.isSubscription) ||
+        SLOT_ORDER.indexOf(first.slot) - SLOT_ORDER.indexOf(second.slot) ||
+        first.id.localeCompare(second.id)
+      );
     });
     finished.sort((first, second) => (second.finishedAt ?? "").localeCompare(first.finishedAt ?? ""));
-    const firstOfEachKind = [unfinished.find((stop) => !stop.isSubscription), unfinished.find((stop) => stop.isSubscription)];
     return {
-      ongoing: unfinished.filter((stop) => firstOfEachKind.includes(stop)),
-      upNext: unfinished.filter((stop) => !firstOfEachKind.includes(stop)),
+      ongoing: unfinished.slice(0, 1),
+      upNext: unfinished.slice(1),
       completed: finished,
       isOnDuty: day.isOnDuty,
       isLoaded,
@@ -570,7 +583,7 @@ function planRestartReminders(plans: AssignedPlan[]) {
 export function learnPlanEvents(mobileNumber: string, plans: AssignedPlan[], known: string[] | undefined) {
   const events = plans.flatMap((plan) => [
     ...plan.pauses.map((pause) => ({
-      key: `pause-${plan.orderNumber}-${pause.from}`,
+      key: `pause-${plan.orderNumber}-${pause.from}-${pause.to}`,
       kind: "pause" as const,
       text: `Pause approved: ${plan.customerName}, no delivery from ${shortDay(pause.from)}, back on ${shortDay(pause.to)}`,
     })),

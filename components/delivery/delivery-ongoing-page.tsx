@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import {
   AGENT_REQUEST_KINDS,
@@ -30,7 +30,6 @@ import {
   deliveryButtonStyles,
   useDeliveryPanel,
 } from "./delivery-panel-layout";
-import DeliveryPlanCalendar, { PlanDayNotices } from "./delivery-plan-calendar";
 import styles from "./delivery-ongoing-page.module.css";
 
 /*
@@ -44,7 +43,7 @@ import styles from "./delivery-ongoing-page.module.css";
   - Steps: Picked up → Delivered (a button for Picked up; the Finish buttons do the rest).
   - Finish: Delivered (proof: the customer's OTP or a photo), Left at door (photo), Not delivered (reason).
     The photo comes from the live camera or an upload (ProofCamera).
-    The stop then moves to Completed and the next stop of that kind comes here.
+    The stop then moves to Completed and the next stop comes here.
   - Raise a request to the manager (customer unavailable, wrong address, damaged product, missing item,
     reschedule, other); the stop's requests are listed with their status.
   Off duty: everything shows, but nothing can be changed until the agent goes on duty.
@@ -123,61 +122,11 @@ function SaveStopSpot({ stop, canWork }: { stop: AgentStop; canWork: boolean }) 
 }
 
 export default function DeliveryOngoingPage() {
-  return (
-    <StopsPage
-      title="Ongoing"
-      description="The one-time order you're on now. Finish it to move on: the next one comes here by itself."
-      columnId="one-time"
-      emptyText="No one-time orders left today."
-      isSubscription={false}
-    >
-      <PlanDayNotices />
-    </StopsPage>
-  );
-}
-
-// Subscriptions: only the customers' calendars (milk is marked delivered there) and who not to deliver to
-export function DeliverySubscriptionsPage() {
-  const { stops } = useDeliveryPanel();
-  const hasStopsLeft = [...stops.ongoing, ...stops.upNext].some((stop) => stop.isSubscription);
-
-  return (
-    <>
-      <DeliveryPageHeading title="Subscriptions" description="Your customers' milk calendars. Mark today's milk delivered from each calendar." />
-      <DeliveryShiftNotices />
-      <DeliveryPlanCalendar />
-      {hasStopsLeft ? (
-        <PlanDayNotices />
-      ) : (
-        <div className={`${styles["ongoing-card"]} ${styles["ongoing-column-empty"]}`}>
-          No subscription deliveries left today.
-          <PlanDayNotices />
-        </div>
-      )}
-    </>
-  );
-}
-
-function StopsPage({
-  title,
-  description,
-  columnId,
-  emptyText,
-  isSubscription,
-  children,
-}: {
-  title: string;
-  description: string;
-  columnId: string;
-  emptyText: string;
-  isSubscription: boolean;
-  children?: ReactNode;
-}) {
   const { login, stops } = useDeliveryPanel();
 
   return (
     <>
-      <DeliveryPageHeading title={title} description={description} />
+      <DeliveryPageHeading title="Order to be delivered" description="The delivery you're on now. Finish it to move on: the next one comes here by itself." />
       <DeliveryShiftNotices />
 
       {login.route && stops.ongoing.length === 0 ? (
@@ -187,27 +136,47 @@ function StopsPage({
           </Link>
         </DeliveryNotice>
       ) : (
-        <OngoingStop columnId={columnId} emptyText={emptyText} isSubscription={isSubscription} />
+        <OngoingStop />
       )}
-      {children}
     </>
   );
 }
 
-// One kind of stop: its ongoing stop's customer, what to hand over and status
-function OngoingStop({ columnId, emptyText, isSubscription }: { columnId: string; emptyText: string; isSubscription: boolean }) {
+const columnId = "order";
+
+// A customer waiting in the queue: Priority and Up next
+function WaitingStop({ stop, label, isPriority }: { stop: AgentStop; label?: string; isPriority?: boolean }) {
+  return (
+    <div className={styles["ongoing-next-stop"]}>
+      <div className={styles["ongoing-next-stop-words"]}>
+        {label && <span className={styles["ongoing-next-stop-label"]}>{label}</span>}
+        <span className={styles["ongoing-next-stop-name"]}>{stop.customerName}</span>
+        <span className={styles["ongoing-next-stop-address"]}>{stop.address}</span>
+      </div>
+      <div className={styles["ongoing-next-stop-tags"]}>
+        {isPriority && <span className={styles["ongoing-priority-tag"]}>Priority</span>}
+        <span className={styles["ongoing-slot"]}>{stop.slot}</span>
+      </div>
+    </div>
+  );
+}
+
+// The stop being delivered: its customer, what to hand over and status; then Priority and Up next
+function OngoingStop() {
   const { login, stops } = useDeliveryPanel();
   const [openSheet, setOpenSheet] = useState<OpenSheet>(null);
-  const stop = stops.ongoing.find((ongoingStop) => ongoingStop.isSubscription === isSubscription);
-  const finishedHere = stops.completed.filter((finished) => finished.isSubscription === isSubscription).length;
-  const totalHere = finishedHere + stops.upNext.filter((next) => next.isSubscription === isSubscription).length + (stop ? 1 : 0);
-  // Only the next customer of this kind: when this stop finishes they move here, and the one after shows
-  const nextStop = stops.upNext.find((next) => next.isSubscription === isSubscription);
+  const stop = stops.ongoing[0];
+  const finishedCount = stops.completed.length;
+  const totalCount = finishedCount + stops.upNext.length + (stop ? 1 : 0);
+  // The next 2 subscriptions, and the stop after them
+  const prioritySubscriptions = stops.upNext.filter((next) => next.isSubscription).slice(0, 2);
+  const nextStop = stops.upNext.find((next) => !prioritySubscriptions.includes(next));
+  const waitingStops = nextStop ? [...prioritySubscriptions, nextStop] : prioritySubscriptions;
   const canWork = stops.isOnDuty;
 
   return (
     <div className={styles["ongoing-stop"]}>
-      {!stop && <p className={`${styles["ongoing-card"]} ${styles["ongoing-column-empty"]}`}>{emptyText}</p>}
+      {!stop && <p className={`${styles["ongoing-card"]} ${styles["ongoing-column-empty"]}`}>No orders left today.</p>}
 
       {stop && (
         <>
@@ -215,10 +184,11 @@ function OngoingStop({ columnId, emptyText, isSubscription }: { columnId: string
           <section className={styles["ongoing-card"]} aria-labelledby={`${columnId}-customer-name`}>
             <div className={styles["ongoing-stop-tags"]}>
               <span className={styles["ongoing-stop-number"]}>
-                Stop {finishedHere + 1} of {totalHere}
+                Stop {finishedCount + 1} of {totalCount}
               </span>
               <span className={styles["ongoing-slot"]}>{stop.slot}</span>
               {stop.changedByDispatch && <span className={styles["ongoing-dispatch-tag"]}>Changed by dispatch</span>}
+              <span className={styles["ongoing-stop-kind"]}>{stop.isSubscription ? "Subscription" : "One-time"}</span>
             </div>
             <h3 id={`${columnId}-customer-name`} className={styles["ongoing-customer-name"]}>
               {stop.customerName}
@@ -267,57 +237,10 @@ function OngoingStop({ columnId, emptyText, isSubscription }: { columnId: string
             </a>
             {/* A new stop starts the location box again */}
             <SaveStopSpot key={stop.id} stop={stop} canWork={canWork} />
-          </section>
 
-          {/* What to hand over and collect */}
-          <section className={`${styles["ongoing-card"]} ${styles["ongoing-hand-over-card"]}`} aria-labelledby={`${columnId}-items-title`}>
-            <h3 id={`${columnId}-items-title`} className={styles["ongoing-card-title"]}>
-              Hand over
-            </h3>
-            <ul className={styles["ongoing-item-list"]}>
-              {stop.items.map((item) => (
-                <li key={`${item.name}-${item.packSize}`} className={styles["ongoing-item"]}>
-                  <span>
-                    <span className={styles["ongoing-item-name"]}>{item.name}</span>
-                    <span className={styles["ongoing-item-pack"]}>{item.packSize}</span>
-                  </span>
-                  <span className={styles["ongoing-item-quantity"]}>× {item.quantity}</span>
-                </li>
-              ))}
-            </ul>
-            {stop.bottlesToCollect > 0 && (
-              <div className={styles["ongoing-collect-row"]}>
-                <span className={styles["ongoing-collect-label"]}>Empty bottles to collect</span>
-                <span className={styles["ongoing-collect-value"]}>{stop.bottlesToCollect}</span>
-              </div>
-            )}
-            {stop.cashToCollect > 0 && (
-              <div className={styles["ongoing-collect-row"]}>
-                <span className={styles["ongoing-collect-label"]}>Cash to collect</span>
-                <span className={styles["ongoing-collect-value"]}>{rupees(stop.cashToCollect)}</span>
-              </div>
-            )}
-            {stop.note && (
-              <p className={styles["ongoing-note"]}>
-                <span className={styles["ongoing-note-label"]}>Customer note</span>
-                {stop.note}
-              </p>
-            )}
-
-            {nextStop && (
-              <div className={styles["ongoing-next-stop"]}>
-                <div className={styles["ongoing-next-stop-words"]}>
-                  <span className={styles["ongoing-next-stop-label"]}>Up next</span>
-                  <span className={styles["ongoing-next-stop-name"]}>{nextStop.customerName}</span>
-                  <span className={styles["ongoing-next-stop-address"]}>{nextStop.address}</span>
-                </div>
-                <span className={styles["ongoing-slot"]}>{nextStop.slot}</span>
-              </div>
-            )}
-          </section>
 
           {/* Steps and finishing the stop */}
-          <section className={`${styles["ongoing-card"]} ${styles["ongoing-card-status"]}`} aria-labelledby={`${columnId}-status-title`}>
+          <div className={styles["ongoing-status-part"]}>
             <h3 id={`${columnId}-status-title`} className={styles["ongoing-card-title"]}>
               Status
             </h3>
@@ -383,7 +306,62 @@ function OngoingStop({ columnId, emptyText, isSubscription }: { columnId: string
                 ))}
               </ul>
             )}
+          </div>
           </section>
+
+          <div className={styles["ongoing-right-column"]}>
+            {/* What to hand over and collect */}
+            <section className={styles["ongoing-card"]} aria-labelledby={`${columnId}-items-title`}>
+              <h3 id={`${columnId}-items-title`} className={styles["ongoing-card-title"]}>
+                Hand over
+              </h3>
+              <ul className={styles["ongoing-item-list"]}>
+                {stop.items.map((item) => (
+                  <li key={`${item.name}-${item.packSize}`} className={styles["ongoing-item"]}>
+                    <span>
+                      <span className={styles["ongoing-item-name"]}>{item.name}</span>
+                      <span className={styles["ongoing-item-pack"]}>{item.packSize}</span>
+                    </span>
+                    <span className={styles["ongoing-item-quantity"]}>× {item.quantity}</span>
+                  </li>
+                ))}
+              </ul>
+              {stop.bottlesToCollect > 0 && (
+                <div className={styles["ongoing-collect-row"]}>
+                  <span className={styles["ongoing-collect-label"]}>Empty bottles to collect</span>
+                  <span className={styles["ongoing-collect-value"]}>{stop.bottlesToCollect}</span>
+                </div>
+              )}
+              {stop.cashToCollect > 0 && (
+                <div className={styles["ongoing-collect-row"]}>
+                  <span className={styles["ongoing-collect-label"]}>Cash to collect</span>
+                  <span className={styles["ongoing-collect-value"]}>{rupees(stop.cashToCollect)}</span>
+                </div>
+              )}
+              {stop.note && (
+                <p className={styles["ongoing-note"]}>
+                  <span className={styles["ongoing-note-label"]}>Customer note</span>
+                  {stop.note}
+                </p>
+              )}
+            </section>
+
+            {/* Who comes next: the next 2 subscriptions (Priority), then the stop after them */}
+            <section className={styles["ongoing-card"]} aria-labelledby={`${columnId}-up-next-title`}>
+              <h3 id={`${columnId}-up-next-title`} className={styles["ongoing-card-title"]}>
+                Up next
+              </h3>
+              {waitingStops.length > 0 ? (
+                <div className={styles["ongoing-waiting-list"]}>
+                  {waitingStops.map((waiting) => (
+                    <WaitingStop key={waiting.id} stop={waiting} label={waiting.isSubscription ? "Subscription" : "One-time"} isPriority={waiting.isSubscription} />
+                  ))}
+                </div>
+              ) : (
+                <p className={styles["ongoing-waiting-empty"]}>No more stops after this one.</p>
+              )}
+            </section>
+          </div>
         </>
       )}
 

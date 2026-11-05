@@ -1,3 +1,4 @@
+import { createClient } from "@/lib/supabase/client";
 import { useMemo } from "react";
 import { createPanelRecordStore } from "./panel-records";
 import { withCurrentMilkPlanName } from "./admin-subscriptions-store";
@@ -7,16 +8,15 @@ import { withCurrentMilkPlanName } from "./admin-subscriptions-store";
   "pause-requests"; supabase/migrations/0019_…):
   - the Chiranvi Panel (Pause requests page, and the count on its sidebar badge) sees all of them and
     approves or rejects, by the staff member's role;
-  - a customer sends a request from My Subscription ("Pause subscription": from, resume on, reason; 8 days or
-    more) and sees only their own, with the answer; the database always saves it as Pending, and only a Pending
-    one can be taken back. An approved one pauses that plan on the Subscriptions page for those days (the
-    database does it). An approved pause moves the plan's end date later (supabase/migrations/0034_…sql).
+  - a customer pauses from My Subscription ("Pause subscription": from, resume on, reason; 1 to 22 days) and it
+    is paused at once, with no approval; Unpause takes it back (0046_instant_pause_and_daily_stops.sql). The panel
+    only sees them. A pause moves the plan's end date later by the days really paused.
   Skipping a delivery was removed (0041_no_skipping_deliveries.sql): old skip requests stay in the database, and
   are left out here so nothing shows or counts them.
   The first time the panel opens the page, 56 sample requests are copied in (5 waiting for approval).
 */
 
-export type PauseRequestStatus = "Pending" | "Approved" | "Rejected";
+export type PauseRequestStatus = "Pending" | "Approved" | "Rejected" | "Unpaused";
 
 export type PauseRequest = {
   id: string;
@@ -34,6 +34,7 @@ export type PauseRequest = {
   websiteOrderId?: string;
   customerMobile?: string;
   requestedAt?: string; // ISO date and time
+  unpausedAt?: string; // the customer unpaused it (a running pause then ends early)
   kind?: "skip"; // an old skip request, left out of every list
 };
 
@@ -103,29 +104,28 @@ const store = createPanelRecordStore<PauseRequest>({
   },
 });
 
-// Approved for a plan bought on the website: the database pauses that plan for those days on the Subscriptions page
-export function decidePauseRequest(id: string, status: "Approved" | "Rejected", decidedBy: string) {
-  void store.change(id, (request) => ({ ...request, status, decidedBy }));
+/*
+  The customer pauses a plan (from tomorrow at the earliest, 1 to 22 days, 9 AM to 9 PM in India) or unpauses it:
+  no approval, the database saves it at once (0046_instant_pause_and_daily_stops.sql). Answers a problem to show,
+  or null.
+*/
+export async function pauseMyPlan(details: { planOrder: string; pauseFrom: string; resumeOn: string; reason: string; planLabel: string; litresPerDay: number }) {
+  const { error } = await createClient().rpc("pause_my_plan", {
+    plan_order: details.planOrder,
+    pause_from: details.pauseFrom,
+    resume_on: details.resumeOn,
+    pause_reason: details.reason,
+    plan_label: details.planLabel,
+    litres_per_day: details.litresPerDay,
+  });
+  await store.reload();
+  return error ? error.message || "Couldn't pause. Please try again." : null;
 }
 
-// A customer's request from My Subscription: waits for the panel's answer (Pending)
-export function addPauseRequest(
-  request: Pick<PauseRequest, "customerName" | "area" | "plan" | "frequency" | "litresPerDay" | "pauseFrom" | "resumeOn" | "reason" | "websiteOrderId" | "customerMobile">,
-) {
-  // An id nobody else has (a customer can't see other people's requests to count on from them)
-  const newRequest: PauseRequest = {
-    ...request,
-    id: `PR-${Date.now().toString(36).toUpperCase()}`,
-    status: "Pending",
-    requestedAt: new Date().toISOString(),
-  };
-  void store.add(newRequest, request.customerMobile);
-  return newRequest;
-}
-
-// The customer cancels a request the panel has not answered yet
-export function cancelPauseRequest(id: string) {
-  if (store.getRecords().some((request) => request.id === id && request.status === "Pending")) void store.remove(id);
+export async function unpauseMyPlan(requestId: string) {
+  const { error } = await createClient().rpc("unpause_my_plan", { request_id: requestId });
+  await store.reload();
+  return error ? error.message || "Couldn't unpause. Please try again." : null;
 }
 
 export function usePauseRequests() {

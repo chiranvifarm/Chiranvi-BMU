@@ -164,26 +164,14 @@
 }
 
 /* A pause request waiting for approval: cancel it (outlined) */
-.subscription-cancel-pause-button {
-  font-family: var(--font-ubuntu), sans-serif;
-  min-width: calc(170 * var(--account-design-pixel));
-  height: calc(38 * var(--account-design-pixel));
-  padding: 0 calc(18 * var(--account-design-pixel));
-  border: 1.5px solid #2f6b3f;
-  border-radius: 9999px;
-  background: #ffffff;
-  font-size: calc(14 * var(--account-design-pixel));
-  font-weight: 700;
-  color: #2f6b3f;
-  cursor: pointer;
+/* Pause or Unpause refused (after 9 PM, for example) */
+.subscription-unpause-problem {
+  margin: calc(8 * var(--account-design-pixel)) 0 0;
+  font-size: calc(13 * var(--account-design-pixel));
+  font-weight: 500;
+  color: #c0392b;
 }
 
-.subscription-cancel-pause-button:hover,
-.subscription-cancel-pause-button:focus-visible {
-  background: #e6f0e1;
-}
-
-/* The pause request's answer under the card's details */
 .subscription-pause-note {
   margin-top: calc(10 * var(--account-design-pixel));
   padding: calc(8 * var(--account-design-pixel)) calc(12 * var(--account-design-pixel));

@@ -21,12 +21,12 @@ import styles from "./delivery-panel-layout.module.css";
   on a phone. Built from the written brief (no design yet), in the Chiranvi Panel's style.
   Who can open it: a number with the "Delivery agent" role (Roles & permissions). Logged-out visitors log
   in first and come back here; everyone else goes to their account.
-  Sidebar: Profile; Deliveries (Ongoing, Subscriptions, Up next, Completed, with live counts); Manager reports; Leaves &
+  Sidebar: Profile; Deliveries (Order to be delivered, Up next, Completed, with live counts); Manager reports; Leaves &
   attendance; Contact farm. At the top of every page: On duty / Off duty and the notifications bell.
   Phones and tablets (900 wide or less): a top bar with the menu button, duty switch and bell; the sidebar
   slides in from the left (closes on a page link, the backdrop, the close button or Escape).
   The pages read the agent and their stops from here (useDeliveryPanel), so the counts and pages always
-  agree: when a stop is finished it moves to Completed and the next one becomes Ongoing everywhere.
+  agree: when a stop is finished it moves to Completed and the next one comes up everywhere.
 */
 
 type AgentLogin = Extract<DeliveryAgentLogin, { state: "agent" }>;
@@ -58,15 +58,9 @@ const panelPageGroups: { title: string; pages: PanelPage[] }[] = [
     pages: [
       {
         href: "/delivery",
-        label: "Ongoing",
-        count: (stops) => stops.ongoing.filter((stop) => !stop.isSubscription).length,
+        label: "Order to be delivered",
+        count: (stops) => stops.ongoing.length,
         iconPaths: ["M2.5 6.5h11v9.5h-11z", "M13.5 9.5h4l3.5 3.5v3h-7.5", "M6.5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M17 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"],
-      },
-      {
-        href: "/delivery/subscriptions",
-        label: "Subscriptions",
-        count: (stops) => stops.ongoing.filter((stop) => stop.isSubscription).length,
-        iconPaths: ["M4 12a8 8 0 0 1 13.7-5.7L20 8.5", "M20 4v4.5h-4.5", "M20 12a8 8 0 0 1-13.7 5.7L4 15.5", "M4 20v-4.5h4.5"],
       },
       {
         href: "/delivery/up-next",
@@ -427,7 +421,7 @@ export function DeliveryComingNext({ label }: { label: string }) {
       <DeliveryPageHeading title={label} description="This part of the Delivery Panel comes next." />
       <DeliveryNotice title="Coming next" text={`${label} is being built. Your deliveries are ready under Deliveries.`}>
         <Link href="/delivery" className={styles["delivery-button-filled"]}>
-          Go to Ongoing
+          Go to Order to be delivered
         </Link>
       </DeliveryNotice>
     </>

@@ -313,10 +313,26 @@ let carryOverStartedOn = "";
 let carriedOverOn = "";
 const carryOverListeners = new Set<() => void>();
 
+// Each running plan's stop for today (once a day in this browser); a paused plan gets none
+let planStopsMadeOn = "";
+export async function createTodaysPlanStops() {
+  const today = toDateKey(new Date());
+  if (planStopsMadeOn === today) return;
+  planStopsMadeOn = today;
+  const { data, error } = await createClient().rpc("create_todays_plan_stops");
+  if (error) {
+    console.error("Could not make today's plan stops", error);
+    planStopsMadeOn = "";
+    return;
+  }
+  if (Number(data) > 0) await store.reload();
+}
+
 async function carryOverOpenOrderDeliveries() {
   const today = toDateKey(new Date());
   if (carryOverStartedOn === today) return;
   carryOverStartedOn = today;
+  await createTodaysPlanStops();
   const supabase = createClient();
   const { data: login } = await supabase.auth.getSession();
   if (login.session) {
@@ -328,7 +344,8 @@ async function carryOverOpenOrderDeliveries() {
       .in("data->>status", ["Pending", "Out for delivery"])
       .not("data->>orderNumber", "is", null);
     if (!error && data) {
-      const rows = data as { id: string; data: Delivery }[];
+      // A plan's day that has gone isn't moved on: each day has its own stop
+      const rows = (data as { id: string; data: Delivery }[]).filter((row) => !row.data.isSubscription);
       // An order that already has a stop today keeps that one
       const ordersToday = new Set(rows.filter((row) => row.data.date === today).map((row) => row.data.orderNumber));
       let movedAny = false;

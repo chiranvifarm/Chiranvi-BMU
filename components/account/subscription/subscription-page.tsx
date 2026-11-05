@@ -4,15 +4,15 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useLoggedInMobileNumber } from "@/components/login/login-status";
 import {
   PAUSE_REASONS,
-  addPauseRequest,
-  cancelPauseRequest,
+  pauseMyPlan,
+  unpauseMyPlan,
   usePauseRequests,
   type PauseRequest,
 } from "@/store/admin-pause-requests-store";
 import { setCartSubscription } from "@/store/cart-store";
+import { useProductPages } from "@/store/product-pages-store";
 import { findRunningPlans, formatPlanDate, useOrders, type RunningPlan } from "@/store/orders-store";
 import { AccountPageHeading } from "../account-dashboard-layout";
 import DeliveryWeekPicker, { addDays, formatWeekRange, getMondayOfWeek } from "./delivery-week-picker";
@@ -43,17 +43,16 @@ function getPauseState(request: PauseRequest | undefined, today: Date): PauseSta
   return { kind: new Date(request.pauseFrom) <= today ? "paused" : "scheduled", request };
 }
 
-// The first day a pause can start: tomorrow, or the day after once it is past 8 PM (the cut-off)
+// The first day a pause can start: tomorrow (the page's clock; the database checks it too)
 function getEarliestPauseDay() {
-  const now = new Date();
-  const day = new Date(now);
+  const day = new Date();
   day.setHours(0, 0, 0, 0);
-  day.setDate(day.getDate() + (now.getHours() >= 20 ? 2 : 1));
+  day.setDate(day.getDate() + 1);
   return day;
 }
 
-// A pause starts at 8 days (the database checks it too)
-const MINIMUM_PAUSE_DAYS = 8;
+// A pause is for 1 to 22 days (the database checks it too)
+const LONGEST_PAUSE_DAYS = 22;
 
 // What a pause request says about the plan
 function planRequestDetails(plan: RunningPlan, area: string) {
@@ -110,8 +109,16 @@ export default function SubscriptionPage() {
   const runningPlans = findRunningPlans(orders);
   const router = useRouter();
   const pauseRequests = usePauseRequests();
+  const productPages = useProductPages();
   // The plan whose pause pop-up is open
   const [planBeingPaused, setPlanBeingPaused] = useState<RunningPlan | null>(null);
+
+  // The problem with the last Unpause, shown on its plan (after 9 PM, for example)
+  const [unpauseProblem, setUnpauseProblem] = useState<{ planId: string; text: string } | null>(null);
+  async function unpause(planId: string, requestId: string) {
+    const problem = await unpauseMyPlan(requestId);
+    setUnpauseProblem(problem ? { planId, text: problem } : null);
+  }
 
   // Extend Plan: the same plan length again, as an extension of this plan, checked out on the cart page
   function extendPaidPlan(paidPlan: RunningPlan) {
@@ -161,16 +168,23 @@ export default function SubscriptionPage() {
       {/* Subscription cards: one per running plan */}
       {runningPlans.map((paidPlan) => {
         // The plan follows its pause request
-        const pauseState = getPauseState(pauseRequests.find((request) => request.websiteOrderId === paidPlan.orderId), today);
+        const pauseState = getPauseState(
+          pauseRequests.find((request) => request.websiteOrderId === paidPlan.orderId && request.status === "Approved" && new Date(request.resumeOn) > today),
+          today,
+        );
+        // The product's photo now (the order keeps the one from when it was bought)
+        const planPicture = productPages.find((productPage) => paidPlan.product.productId.startsWith(productPage.slug))?.pictures[0];
+        // Delivery stops from tomorrow if the pause has started, or starts tomorrow
+        const isNoMilkTomorrow = pauseState.kind === "paused" || (pauseState.kind === "scheduled" && new Date(pauseState.request.pauseFrom) <= addDays(today, 1));
         const isPaused = pauseState.kind === "paused";
         return (
           <section key={paidPlan.orderId} className={styles["subscription-card"]} aria-label={`Milk subscription for ${paidPlan.deliverTo}`}>
             <span className={styles["subscription-product-image-area"]}>
               <Image
-                src="/images/products/a2-cow-milk-1-litre-bottle.webp"
-                alt="A2 Desi Milk"
-                width={232}
-                height={500}
+                src={planPicture?.imageSource ?? paidPlan.product.imageSource}
+                alt={paidPlan.product.name}
+                width={planPicture?.imageWidth ?? paidPlan.product.imageWidth}
+                height={planPicture?.imageHeight ?? paidPlan.product.imageHeight}
                 sizes="100px"
                 className={styles["subscription-product-image"]}
               />
@@ -201,11 +215,9 @@ export default function SubscriptionPage() {
                 <div>
                   <dt>Next delivery</dt>
                   <dd>
-                    {pauseState.kind === "paused"
+                    {(pauseState.kind === "paused" || pauseState.kind === "scheduled") && isNoMilkTomorrow
                       ? `${formatPlanDate(new Date(pauseState.request.resumeOn))}, 6:00 AM`
-                      : isPaused
-                        ? "Paused"
-                        : "Tomorrow, 6:00 AM"}
+                      : "Tomorrow, 6:00 AM"}
                   </dd>
                 </div>
                 <div>
@@ -215,32 +227,27 @@ export default function SubscriptionPage() {
               </dl>
               {/* Which address this plan delivers to (tells the customer's plan from ones bought for others) */}
               {paidPlan.deliverTo && <p className={styles["subscription-address-line"]}>Delivering to {paidPlan.deliverTo}</p>}
-              {/* The pause request's answer from the Chiranvi Panel */}
-              {pauseState.kind !== "none" && (
-                <p className={`${styles["subscription-pause-note"]} ${styles[`subscription-pause-note-${pauseState.kind}`]}`} role="status">
-                  {pauseState.kind === "waiting" &&
-                    `Pause requested: no milk from ${formatPlanDate(new Date(pauseState.request.pauseFrom))}, back on ${formatPlanDate(new Date(pauseState.request.resumeOn))}. Waiting for approval.`}
-                  {pauseState.kind === "scheduled" &&
-                    `Pause approved: no milk from ${formatPlanDate(new Date(pauseState.request.pauseFrom))}, back on ${formatPlanDate(new Date(pauseState.request.resumeOn))}.`}
-                  {pauseState.kind === "paused" && `Paused. Your milk starts again on ${formatPlanDate(new Date(pauseState.request.resumeOn))}.`}
-                  {pauseState.kind === "rejected" &&
-                    `Your pause from ${formatPlanDate(new Date(pauseState.request.pauseFrom))} was not approved. Please call us if you need help, or ask again.`}
+              {pauseState.kind === "scheduled" && (
+                <p className={`${styles["subscription-pause-note"]} ${styles["subscription-pause-note-scheduled"]}`}>
+                  Paused: no milk from {formatPlanDate(new Date(pauseState.request.pauseFrom))}, back on {formatPlanDate(new Date(pauseState.request.resumeOn))}.
+                </p>
+              )}
+              {pauseState.kind === "paused" && (
+                <p className={`${styles["subscription-pause-note"]} ${styles["subscription-pause-note-paused"]}`}>
+                  Paused. Your milk starts again on {formatPlanDate(new Date(pauseState.request.resumeOn))}.
+                </p>
+              )}
+              {unpauseProblem?.planId === paidPlan.orderId && (
+                <p className={styles["subscription-unpause-problem"]} role="alert">
+                  {unpauseProblem.text}
                 </p>
               )}
             </div>
 
             <div className={styles["subscription-actions"]}>
-              {pauseState.kind === "waiting" ? (
-                <button
-                  type="button"
-                  className={styles["subscription-cancel-pause-button"]}
-                  onClick={() => cancelPauseRequest(pauseState.request.id)}
-                >
-                  Cancel pause request
-                </button>
-              ) : pauseState.kind === "scheduled" || pauseState.kind === "paused" ? (
-                <button type="button" className={styles["subscription-pause-button"]} disabled>
-                  {pauseState.kind === "paused" ? "Paused" : "Pause approved"}
+              {pauseState.kind === "scheduled" || pauseState.kind === "paused" ? (
+                <button type="button" className={styles["subscription-pause-button"]} onClick={() => void unpause(paidPlan.orderId, pauseState.request.id)}>
+                  Unpause
                 </button>
               ) : (
                 <button type="button" className={styles["subscription-pause-button"]} onClick={() => setPlanBeingPaused(paidPlan)}>
@@ -383,15 +390,16 @@ export default function SubscriptionPage() {
 
 /*
   Pause pop-up: pause from (earliest the first day after the 8 PM cut-off), resume on (after it, and at most
-  the day after the plan's last day) and a reason. "Request pause" stays greyed until all three are
-  filled; it sends the request to the Chiranvi Panel (Pause requests), where it waits for approval.
+  the day after the plan's last day, 22 days at most) and a reason. "Pause" stays greyed until all three are
+  filled; it pauses at once, with no approval. A problem (after 9 PM, for example) shows in the pop-up.
   ×, Cancel, Escape or the dimmed page close it.
 */
 function PauseRequestPopup({ plan, onClose }: { plan: RunningPlan; onClose: () => void }) {
   // The plan's own order (its delivery area goes with the request)
   const planOrder = useOrders().find((order) => order.orderId === plan.orderId);
-  const mobileNumber = useLoggedInMobileNumber();
   const [earliestDay] = useState(getEarliestPauseDay);
+  const [problem, setProblem] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
   const lastResumeDay = new Date(plan.endsOn);
   lastResumeDay.setDate(lastResumeDay.getDate() + 1);
   const [pauseFrom, setPauseFrom] = useState(toDateInputValue(earliestDay));
@@ -400,10 +408,12 @@ function PauseRequestPopup({ plan, onClose }: { plan: RunningPlan; onClose: () =
 
   const fromDay = pauseFrom ? fromDateInputValue(pauseFrom) : null;
   const resumeDay = resumeOn ? fromDateInputValue(resumeOn) : null;
-  const firstResumeDay = fromDay ? new Date(fromDay.getFullYear(), fromDay.getMonth(), fromDay.getDate() + MINIMUM_PAUSE_DAYS) : earliestDay;
+  const firstResumeDay = fromDay ? addDays(fromDay, 1) : addDays(earliestDay, 1);
+  const longestResumeDay = fromDay ? addDays(fromDay, LONGEST_PAUSE_DAYS) : addDays(earliestDay, LONGEST_PAUSE_DAYS);
+  const latestResumeDay = longestResumeDay < lastResumeDay ? longestResumeDay : lastResumeDay;
   const pausedDays = fromDay && resumeDay ? Math.round((resumeDay.getTime() - fromDay.getTime()) / 86400000) : 0;
   const isComplete =
-    !!fromDay && !!resumeDay && fromDay >= earliestDay && pausedDays >= MINIMUM_PAUSE_DAYS && resumeDay <= lastResumeDay && reason !== "";
+    !!fromDay && !!resumeDay && fromDay >= earliestDay && pausedDays >= 1 && resumeDay <= latestResumeDay && reason !== "";
 
   // The latest onClose, so Escape works without setting the listener up again
   const onCloseRef = useRef(onClose);
@@ -418,18 +428,22 @@ function PauseRequestPopup({ plan, onClose }: { plan: RunningPlan; onClose: () =
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, []);
 
-  function send(event: FormEvent) {
+  async function send(event: FormEvent) {
     event.preventDefault();
-    if (!isComplete || !fromDay || !resumeDay) return;
-    addPauseRequest({
-      ...planRequestDetails(plan, planOrder?.area ?? ""),
-      pauseFrom: fromDay.toISOString(),
-      resumeOn: resumeDay.toISOString(),
+    if (!isComplete || isSaving) return;
+    setIsSaving(true);
+    const details = planRequestDetails(plan, planOrder?.area ?? "");
+    const answer = await pauseMyPlan({
+      planOrder: plan.orderId,
+      pauseFrom: pauseFrom,
+      resumeOn: resumeOn,
       reason,
-      websiteOrderId: plan.orderId,
-      customerMobile: mobileNumber ?? undefined,
+      planLabel: details.plan,
+      litresPerDay: details.litresPerDay,
     });
-    onClose();
+    setIsSaving(false);
+    if (answer) setProblem(answer);
+    else onClose();
   }
 
   return (
@@ -444,8 +458,8 @@ function PauseRequestPopup({ plan, onClose }: { plan: RunningPlan; onClose: () =
           Pause subscription
         </h2>
         <p className={styles["pause-popup-intro"]}>
-          {plan.product.name} · {plan.planName}. A pause is for 8 days or more. Ask before 8 PM; our team
-          approves your pause, and your plan ends later by those days.
+          {plan.product.name} · {plan.planName}. Pause for 1 to 22 days, between 9 AM and 9 PM. It starts from the next day, and your plan
+          ends later by those days.
         </p>
 
         <div className={styles["pause-popup-dates"]}>
@@ -465,7 +479,7 @@ function PauseRequestPopup({ plan, onClose }: { plan: RunningPlan; onClose: () =
               type="date"
               value={resumeOn}
               min={toDateInputValue(firstResumeDay)}
-              max={toDateInputValue(lastResumeDay)}
+              max={toDateInputValue(latestResumeDay)}
               onChange={(event) => setResumeOn(event.target.value)}
             />
           </label>
@@ -488,12 +502,18 @@ function PauseRequestPopup({ plan, onClose }: { plan: RunningPlan; onClose: () =
           </select>
         </label>
 
+        {problem && (
+          <p className={styles["subscription-unpause-problem"]} role="alert">
+            {problem}
+          </p>
+        )}
+
         <div className={styles["pause-popup-buttons"]}>
           <button type="button" className={styles["pause-popup-cancel-button"]} onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className={styles["pause-popup-send-button"]} disabled={!isComplete}>
-            Request pause
+          <button type="submit" className={styles["pause-popup-send-button"]} disabled={!isComplete || isSaving}>
+            {isSaving ? "Pausing…" : "Pause"}
           </button>
         </div>
       </form>

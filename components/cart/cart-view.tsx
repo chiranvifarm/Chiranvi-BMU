@@ -49,7 +49,7 @@ import {
 } from "@/store/orders-store";
 import type { OrderPaymentMethod } from "@/store/admin-orders-store";
 // Delivery charges and the platform fee set by the owner (Products & pricing → Set delivery charge)
-import { productIdOfCartItem, quoteDelivery, useDeliverySettings } from "@/store/delivery-settings-store";
+import { planPlatformFee, productIdOfCartItem, quoteDelivery, useDeliverySettings } from "@/store/delivery-settings-store";
 import { useProductPages } from "@/store/product-pages-store";
 import styles from "./cart-view.module.css";
 
@@ -139,7 +139,11 @@ async function getCowEmblemDataUrl() {
   return cowEmblemDataUrl;
 }
 
-const rupees = (amount: number) => `₹${Math.round(amount).toLocaleString("en-IN")}`;
+// Whole rupees as "₹60,590"; an amount with paise (a plan's platform fee) as "₹233.64", so it shows what is charged
+function rupees(amount: number) {
+  const exact = Math.round(amount * 100) / 100;
+  return `₹${exact.toLocaleString("en-IN", Number.isInteger(exact) ? undefined : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 // The address's mobile number as 10 digits ("+91 98450 12345" → "9845012345"), for the order's delivery contact
 function deliveryMobileOf(address: { mobileNumber: string } | null | undefined) {
@@ -479,10 +483,10 @@ export default function CartView() {
     deliverySettings,
   );
   const deliveryFee = deliveryQuote.fee;
-  // Platform fee (set in the database): only with a milk plan, once per checkout, paid with the plan's order.
-  // One-time items alone pay none (their delivery fee still applies). It doesn't count towards free delivery
-  // or a coupon's minimum order.
-  const platformFee = cartSubscription ? deliverySettings.platformFee : 0;
+  // Platform fee: only with a milk plan, once per checkout, on the plan's price before any coupon, paid with the
+  // plan's order. One-time items alone pay none (their delivery fee still applies). It doesn't count towards
+  // free delivery or a coupon's minimum order.
+  const platformFee = cartSubscription ? planPlatformFee(cartSubscription.planTotal, deliverySettings) : 0;
   const isDeliveryFree = deliveryFee === 0;
   const toPay = afterDiscounts + deliveryFee;
   const youSave = discountOnMrp + itemsCouponDiscount + (deliveryQuote.crossedOutFee ?? deliveryFee) - deliveryFee;

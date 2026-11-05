@@ -9,7 +9,8 @@ import type { ProductPage } from "@/components/product/product-page-data";
     whose products have different charges pays: the highest one, all of them added up, or a fixed charge;
   - each product's own setting: free delivery, its own charge, or an offer (a lower charge, or free when
     that product's total reaches an amount). No setting: the overall charge;
-  - the platform fee: only with a milk plan, once per checkout (one-time items alone pay none).
+  - the platform fee: only with a milk plan, once per checkout (one-time items alone pay none), worked out by
+    planPlatformFee() from the app_settings row plan_fee_rule (0038_platform_fee_percent.sql).
   quoteDelivery() shows the cart what it charges. The order itself is charged by the database (start_checkout)
   with the same rules, so a charge changed in a browser never reaches an order. A milk plan in the cart
   always means free delivery.
@@ -30,7 +31,14 @@ export type DeliverySettings = {
   combineRule: DeliveryCombineRule;
   mixedFee: number; // ₹ with the fixed rule, when the products' charges differ
   products: Record<string, ProductDeliverySetting>; // by product id (page slug / product card id)
-  platformFee: number; // ₹ once per checkout with a milk plan
+  platformFee: number; // ₹ the flat fee, used only until plan_fee_rule is in the database
+  planFeeRule: PlanFeeRule | null;
+};
+
+// How a milk plan's platform fee is worked out; the database uses the same rule (private.plan_fee_paise)
+export type PlanFeeRule = {
+  percent: number; // of the plan's price before any coupon
+  gstPercent: number; // of that percentage's amount
 };
 
 // Until the database answers: the rules the shop started with
@@ -41,6 +49,7 @@ const STARTING_SETTINGS: DeliverySettings = {
   mixedFee: 40,
   products: {},
   platformFee: 750,
+  planFeeRule: null,
 };
 
 const SETTING_KEYS = [
@@ -50,6 +59,7 @@ const SETTING_KEYS = [
   "delivery_mixed_cart_fee_paise",
   "delivery_product_rules",
   "platform_fee_paise",
+  "plan_fee_rule",
 ];
 
 // A product's setting as the database keeps it (paise)
@@ -85,6 +95,7 @@ async function loadDeliverySettings() {
     mixedFee: rupeesOf("delivery_mixed_cart_fee_paise", STARTING_SETTINGS.mixedFee),
     products,
     platformFee: rupeesOf("platform_fee_paise", STARTING_SETTINGS.platformFee),
+    planFeeRule: (saved.get("plan_fee_rule") as PlanFeeRule | undefined) ?? null,
   };
   listeners.forEach((onChange) => onChange());
 }
@@ -121,6 +132,17 @@ export function productIdOfCartItem(cartProductId: string, pages: ProductPage[])
       ("packs" in candidate && candidate.packs.some((pack) => `${candidate.slug}-${pack.packId}` === cartProductId)),
   );
   return page?.slug ?? cartProductId;
+}
+
+/*
+  The platform fee on a milk plan, new or extended (the same sum as the database's private.plan_fee_paise): the
+  percentage of the plan's price before any coupon plus the GST on that, to the nearest paisa (money can't go
+  smaller). ₹10,000: 200 + 36 = ₹236. ₹9,900: 198 + 35.64 = ₹233.64. Until the rule is in the database: the flat fee.
+*/
+export function planPlatformFee(planTotal: number, deliverySettings: DeliverySettings) {
+  const rule = deliverySettings.planFeeRule;
+  if (!rule) return deliverySettings.platformFee;
+  return Math.round((Math.round(planTotal * 100) * rule.percent * (100 + rule.gstPercent)) / 10000) / 100;
 }
 
 function combine(fees: number[], rule: DeliveryCombineRule, mixedFee: number) {

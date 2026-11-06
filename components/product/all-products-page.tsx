@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { rememberPageAfterLogin, useIsLoggedIn, useIsLoginStatusKnown, useLoggedInMobileNumber } from "@/components/login/login-status";
 import SiteFooter from "@/components/footer/site-footer";
 import SiteNavigationPlacement from "@/components/navigation/site-navigation-placement";
-import { addProductToCart, changeCartItemQuantity, rememberPendingCartProduct, useCartItems, type CartProduct } from "@/store/cart-store";
+import { addProductToCart, changeCartItemQuantity, rememberPendingCartProduct, useCartItems, useCartLimitMessage, type CartProduct } from "@/store/cart-store";
 import { useProductPages } from "@/store/product-pages-store";
 import { askToBeNotified, isAvailableToOrder, useShopProducts, type ShopProduct } from "@/store/products-store";
 import { toggleWishlistItem, useWishlist, type WishlistItem } from "@/store/wishlist-store";
@@ -79,6 +79,12 @@ function findPanelCardOfPage(page: ProductPage, shopProducts: ShopProduct[]) {
 export function useSoldOutPanelCardId(page: ProductPage) {
   const panelCard = findPanelCardOfPage(page, useShopProducts());
   return panelCard && !isAvailableToOrder(panelCard) ? panelCard.productId : null;
+}
+
+// Out only because no stock is left for one-time orders: its plans are still sold
+export function useIsOutForOneTimeOnly(page: ProductPage) {
+  const panelCard = findPanelCardOfPage(page, useShopProducts());
+  return Boolean(panelCard?.isVisible && panelCard.stock === "out" && Object.keys(panelCard.stockCounts ?? {}).length > 0);
 }
 
 /*
@@ -455,6 +461,7 @@ type ChosenCategory = ShopCategory | "All" | typeof PASTA_AND_NOODLES;
 
 // startingCategory: from /products?category=Milk (Shop by Category on the home page); missing: All
 export default function AllProductsPage({ startingCategory }: { startingCategory?: ShopCategory | typeof PASTA_AND_NOODLES }) {
+  const cartLimitMessage = useCartLimitMessage();
   const [chosenCategory, setChosenCategory] = useState<ChosenCategory>(startingCategory ?? "All");
   const cards = useProductCards();
   const categoriesWithCards = SHOP_CATEGORIES.filter((category) => cards.some((card) => card.category === category));
@@ -477,6 +484,11 @@ export default function AllProductsPage({ startingCategory }: { startingCategory
 
   return (
     <div className={styles["all-products-page"]}>
+      {cartLimitMessage && (
+        <p role="status" className={styles["all-products-cart-limit-message"]}>
+          {cartLimitMessage}
+        </p>
+      )}
       <SiteNavigationPlacement />
 
       <main className={styles["all-products-page-content"]}>

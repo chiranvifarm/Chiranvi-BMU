@@ -382,7 +382,12 @@ function ProductsPage() {
   const productCount = products.length + pagesWithoutCard.length;
   const available =
     products.filter(isAvailableToOrder).length + pagesWithoutCard.filter((page) => page.status === "published").length;
-  const lowStock = products.filter((product) => product.stock === "low").length;
+  const lowStockProducts = products.filter((product) => product.stock === "low");
+  const lowStock = lowStockProducts.length;
+  const lowStockNotice =
+    lowStock === 0
+      ? "Restock before 6 PM"
+      : `${lowStock === 1 ? `${lowStockProducts[0].name} is` : `${lowStock} products are`} in low stock. Check stock and update the quantity.`;
   const outOfStock = products.filter((product) => product.stock === "out").length;
   const bestSeller = products.reduce<ShopProduct | null>(
     (best, product) => (!best || product.unitsPerDay > best.unitsPerDay ? product : best),
@@ -473,7 +478,7 @@ function ProductsPage() {
           {
             label: "Low stock",
             value: String(lowStock),
-            note: "Restock before 6 PM",
+            note: lowStockNotice,
             trend: lowStock ? "bad" : "plain",
             icon: ["M12 4l9 16H3L12 4Z", "M12 10v4", "M12 17h.01"],
             onClick: () => showStock("low"),
@@ -773,6 +778,8 @@ function ProductPopup({
     Object.fromEntries(Object.entries(savedCounts).map(([key, count]) => [key, String(count)])),
   );
   const hasCounts = stockSizes.some((size) => countTexts[size.key]);
+  // What the stock is counted in: bottles, jars, packets
+  const stockWord = !page ? "packs" : "itemWord" in page ? page.itemWord.many : page.quantityWord.many;
   const startingPhoto = product ? getStartingPhoto(product.productId) : null;
   const waitingCount = product?.waitingCustomers?.length ?? 0;
   const [isDeleteAsked, setIsDeleteAsked] = useState(false);
@@ -932,10 +939,12 @@ function ProductPopup({
       );
     } else {
       // With counts the database sets the label, so the buttons' choice isn't used
-      const stock = hasCounts ? product.stock : form.stock;
+      // Every number cleared: it stops being counted, so it is In stock again (the database does the same)
+      const wasCounted = Object.keys(savedCounts).length > 0;
+      const stock = hasCounts ? product.stock : wasCounted ? "in" : form.stock;
       updateProduct(
         product.productId,
-        { ...details, stock, isVisible: !hasCounts && stock === "out" ? false : form.isVisible },
+        { ...details, stock, isVisible: form.isVisible },
         changedBy,
       );
       showToast(`${details.name} · ${details.packSize} saved`);
@@ -1138,32 +1147,21 @@ function ProductPopup({
 
             <fieldset className={styles["admin-product-popup-group"]}>
               <legend className={styles["admin-product-group-title"]}>Stock</legend>
-              <div className={styles["admin-product-stock-buttons"]} role="group" aria-label="Stock">
-                {(Object.keys(STOCK_LABELS) as StockLevel[]).map((stock) => (
-                  <button
-                    key={stock}
-                    type="button"
-                    aria-pressed={stockShown === stock}
-                    disabled={hasCounts}
-                    className={`${styles["admin-product-stock-button"]} ${stockShown === stock ? styles[`admin-product-stock-button-${stock}`] : ""}`}
-                    onClick={() => setForm({ ...form, stock, isRestocked: isOutOfStock ? stock !== "out" : false })}
-                  >
-                    {stock === "out" ? "Not in stock" : STOCK_LABELS[stock]}
-                  </button>
-                ))}
-              </div>
-              {!isOutOfStock && form.stock === "out" && product && !hasCounts && (
-                <p className={styles["admin-product-stock-warning"]}>Saving marks it out of stock: the website shows it as Sold out.</p>
-              )}
-              {/* How many are in stock, per pack size */}
+              {/* Set by the system from the stock details, not by hand */}
+              <p className={`${styles["admin-product-stock-status"]} ${styles[`admin-product-stock-button-${stockShown}`]}`}>
+                {stockShown === "out" ? "Not in stock" : STOCK_LABELS[stockShown]}
+              </p>
+              {/* How many of each pack: 40 bottles of 1 litre, 100 packets of 250 g */}
               {product && (
                 <>
+                  <p className={styles["admin-product-stock-details-title"]}>Stock details</p>
                   <div className={`${styles["admin-product-field-grid"]} ${styles["admin-product-stock-count-grid"]}`}>
                     {stockSizes.map((size) => {
                       // Off: stock 0, so the website shows this pack as Out of stock
                       const isPackOn = countTexts[size.key] !== "0";
+                      const forPlans = product.stockForPlans?.[size.key] ?? 0;
                       return (
-                        <PopupField key={size.key} label={`${size.label} in stock`}>
+                        <PopupField key={size.key} label={`${size.label} ${stockWord}`}>
                           <input
                             className={adminInputClassName}
                             inputMode="numeric"
@@ -1171,6 +1169,11 @@ function ProductPopup({
                             value={countTexts[size.key] ?? ""}
                             onChange={(changeEvent) => setCountTexts({ ...countTexts, [size.key]: onlyDigits(changeEvent.target.value) })}
                           />
+                          {forPlans > 0 && (
+                            <span className={styles["admin-product-stock-count-note"]}>
+                              Plans today: {forPlans} · For one-time: {Math.max(Number(savedCounts[size.key] ?? 0) - forPlans, 0)}
+                            </span>
+                          )}
                           {page && "packs" in page && (
                             <button
                               type="button"
@@ -1188,7 +1191,7 @@ function ProductPopup({
                     })}
                   </div>
                   <p className={styles["admin-product-stock-count-note"]}>
-                    With a number, paid orders lower it and the stock label above follows it (Low at 5 or less). Leave it empty to set the label by hand.
+                    Enter how many you have of each. Orders lower it, and the status above follows it: Low at 5 or less, Not in stock at 0.
                   </p>
                 </>
               )}

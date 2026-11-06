@@ -2395,3 +2395,25 @@
     font-size: 13px;
   }
 }
+
+/* "You can add up to 9 of each item per order.": shows for a few seconds at the top of the screen */
+.checkout-cart-limit-message {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  z-index: 1000;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  margin: 0;
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: #1f4d2e;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  font-family: var(--font-poppins), sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: center;
+  color: #ffffff;
+  transform: translateX(-50%);
+}

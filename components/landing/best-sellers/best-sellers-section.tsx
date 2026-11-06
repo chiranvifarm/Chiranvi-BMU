@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ProductCardTile, useProductCards, type ProductCard } from "@/components/product/all-products-page";
+import { useAutoProductRows, useProductRows } from "@/store/admin-product-rows-store";
 import { isAvailableToOrder, useShopProducts } from "@/store/products-store";
 import styles from "./best-sellers-section.module.css";
 
@@ -26,10 +27,13 @@ const BEST_SELLERS_COUNT = 6;
   The Best Sellers cards: the panel's Best Sellers, in its order, as product cards. When fewer than six are
   marked (or a marked product is no longer sold), other products fill the row: first from categories not
   shown yet (so the row is not all milk), in the All products page's order.
+  Automatic on (Products & pricing → Product rows): the most ordered products of the last 30 days instead.
 */
 function useBestSellerCards(): ProductCard[] {
   const productCards = useProductCards();
-  const markedCards = useShopProducts()
+  const isAutomatic = useProductRows().isAutomatic;
+  const autoBestSellers = useAutoProductRows().bestSellers;
+  const handPickedCards = useShopProducts()
     .filter((product) => product.showOnBestSellers)
     .sort((first, second) => (first.bestSellerOrder ?? 99) - (second.bestSellerOrder ?? 99))
     .flatMap((product) => {
@@ -37,6 +41,8 @@ function useBestSellerCards(): ProductCard[] {
       // Switched off or out of stock in the panel: shown as out of stock here too
       return card ? [{ ...card, isSoldOut: card.isSoldOut || !isAvailableToOrder(product) }] : [];
     });
+  const autoCards = autoBestSellers.flatMap((slug) => productCards.filter((card) => card.slug === slug));
+  const markedCards = (isAutomatic && autoCards.length > 0 ? autoCards : handPickedCards).slice(0, BEST_SELLERS_COUNT);
   const rowCards: ProductCard[] = [...markedCards];
   const unusedCards = productCards.filter((card) => card.hasPage && !markedCards.some((marked) => marked.slug === card.slug));
   // Each round adds the first product of every category still missing from the row, then any other

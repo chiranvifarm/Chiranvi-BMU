@@ -9,7 +9,7 @@ import SiteFooter from "@/components/footer/site-footer";
 import SiteNavigationPlacement from "@/components/navigation/site-navigation-placement";
 import { addProductToCart, changeCartItemQuantity, rememberPendingCartProduct, useCartItems, useCartLimitMessage, type CartProduct } from "@/store/cart-store";
 import { getDiscountPercent, useShopProducts } from "@/store/products-store";
-import { ROW_SIZE, productRowFor, useProductRows } from "@/store/admin-product-rows-store";
+import { ROW_SIZE, productRowFor, useAutoProductRows, useProductRows } from "@/store/admin-product-rows-store";
 import { FREE_DELIVERY_FROM } from "./product-page-data";
 import type { DeliveryStepIcon, OneTimePack, OneTimeProductPage as OneTimePageData, PictureFit } from "./product-page-data";
 import { ProductCardTile, SoldOutNotice, useProductCards, useSoldOutPanelCardId } from "./all-products-page";
@@ -144,7 +144,7 @@ const YOU_MAY_ALSO_LIKE_EXTRA_CATEGORIES = ["Noodles", "Pasta", "Macaroni", "Mil
 
 export function FastSellingRow({ currentSlug, override }: { currentSlug: string; override?: string[] }) {
   const allCards = useProductCards();
-  const { slugs, isYouMayAlsoLike } = productRowFor(currentSlug, useProductRows(), override);
+  const { slugs, isYouMayAlsoLike } = productRowFor(currentSlug, useProductRows(), override, useAutoProductRows());
   const listedCards = slugs.flatMap((slug) => allCards.filter((card) => card.slug === slug));
   const extraCards = allCards
     .filter(

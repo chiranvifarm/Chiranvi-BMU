@@ -565,6 +565,7 @@ export function ProductPageForm({
     name: string;
     photo?: { imageSource: string; imageWidth: number; imageHeight: number };
     onSaved?: (page: ProductPage) => void;
+    onPackLabelsChange?: (labels: string[]) => void; // the pack sizes as typed, for the pop-up's Stock details
     canChangePrices?: boolean;
     // Adding a brand-new product in the pop-up (no editingPage): its kind and Products & pricing category
     newKind?: ProductKind;
@@ -629,6 +630,8 @@ export function ProductPageForm({
 
   // ---- One-time ----
   const [ratingNote, setRatingNote] = useState(oneTimeEditing?.ratingNote ?? "");
+  // Stock details follows the pack sizes while they are typed
+  const onPackLabelsChange = embedded?.onPackLabelsChange;
   const [packs, setPacks] = useState<PackRow[]>(
     oneTimeEditing
       ? oneTimeEditing.packs.map((pack) => ({
@@ -641,6 +644,9 @@ export function ProductPageForm({
         }))
       : [emptyPack()],
   );
+  useEffect(() => {
+    onPackLabelsChange?.(packs.map((pack) => pack.label.trim()).filter(Boolean));
+  }, [packs, onPackLabelsChange]);
   const [defaultPackIndex, setDefaultPackIndex] = useState(
     Math.max(0, oneTimeEditing?.packs.findIndex((pack) => pack.packId === oneTimeEditing.defaultPackId) ?? 0),
   );
@@ -1650,21 +1656,23 @@ export function noodlesRowChoices(kind: NoodlesKind) {
 /*
   Five numbered places of a product row (Fast selling / You may also like), each a product from the website
   (or, for noodles, pasta and macaroni rows, one that matches the page: another flavour / the same flavour of
-  another product), with ↑ ↓ to change the order. An empty place is skipped on the page.
+  another product), with ↑ ↓ to change the order. A place left to the system is filled automatically on the page.
 */
 export function ProductRowSlotsEditor({
   slots,
   onChange,
   label,
   matchingChoices = [],
+  placeCount = ROW_SIZE,
 }: {
   slots: RowSlot[];
   onChange: (slots: RowSlot[]) => void;
   label: string;
   matchingChoices?: { value: RowSlot; label: string }[];
+  placeCount?: number; // Best Sellers has six places
 }) {
   const pages = useProductPages().filter((page) => page.status === "published");
-  const places = Array.from({ length: ROW_SIZE }, (_, index) => slots[index] ?? "");
+  const places = Array.from({ length: placeCount }, (_, index) => slots[index] ?? "");
   function setPlace(index: number, value: RowSlot) {
     onChange(places.map((slot, placeIndex) => (placeIndex === index ? value : slot)));
   }
@@ -1681,7 +1689,7 @@ export function ProductRowSlotsEditor({
             {index + 1}
           </span>
           <select className={adminInputClassName} value={slot} aria-label={`${label}: place ${index + 1}`} onChange={(event) => setPlace(index, event.target.value)}>
-            <option value="">Empty (skipped)</option>
+            <option value="">Let the system choose</option>
             {matchingChoices.length > 0 && (
               <optgroup label="Matches the page">
                 {matchingChoices.map((choice) => (
@@ -1708,7 +1716,7 @@ export function ProductRowSlotsEditor({
             type="button"
             className={styles["admin-product-row-move-button"]}
             aria-label={`Move place ${index + 1} down`}
-            disabled={index === ROW_SIZE - 1}
+            disabled={index === placeCount - 1}
             onClick={() => move(index, 1)}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">

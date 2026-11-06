@@ -10,15 +10,17 @@ import SiteNavigationPlacement from "@/components/navigation/site-navigation-pla
 import {
   addProductToCart,
   changeCartItemQuantity,
+  fitCartToStock,
   rememberPendingCartProduct,
   setCartSubscription,
   useCartItems,
+  useCartLimitMessage,
   type CartProduct,
 } from "@/store/cart-store";
 import { getDiscountPercent } from "@/store/products-store";
 import { ROW_SIZE, productRowFor, useProductRows } from "@/store/admin-product-rows-store";
 import type { DeliveryStepIcon, PictureFit, SubscriptionPlanSetting, SubscriptionProductPage as SubscriptionPageData } from "./product-page-data";
-import { ProductCardTile, SoldOutNotice, useProductCards, useSoldOutPanelCardId } from "./all-products-page";
+import { ProductCardTile, SoldOutNotice, useIsOutForOneTimeOnly, useProductCards, useSoldOutPanelCardId } from "./all-products-page";
 import oneTimeStyles from "./one-time-product-page.module.css";
 import styles from "./subscription-product-page.module.css";
 
@@ -134,12 +136,14 @@ function QuantityCartControl({
   isLoggedIn,
   quantityInCart,
   hintCount,
+  isForPlan,
 }: {
   page: SubscriptionPageData;
   cartProduct: CartProduct;
   isLoggedIn: boolean;
   quantityInCart: number;
   hintCount: number; // how many times "choose a quantity first" was shown; above 0 = Add Quantity draws attention
+  isForPlan: boolean; // the Subscribe tab: this is bottles a day, not stopped by the one-time stock
 }) {
   const attentionClass = hintCount > 0 ? styles["subscription-add-quantity-attention"] : "";
   if (quantityInCart > 0) {
@@ -160,7 +164,7 @@ function QuantityCartControl({
           type="button"
           aria-label={`Add one more ${page.itemWord.one}`}
           className={styles["subscription-quantity-button"]}
-          onClick={() => changeCartItemQuantity(cartProduct.productId, 1)}
+          onClick={() => changeCartItemQuantity(cartProduct.productId, 1, isForPlan)}
         >
           +
         </button>
@@ -174,7 +178,7 @@ function QuantityCartControl({
         key={hintCount}
         type="button"
         className={`${styles["subscription-add-to-cart-button"]} ${attentionClass}`}
-        onClick={() => addProductToCart(cartProduct)}
+        onClick={() => addProductToCart(cartProduct, isForPlan)}
       >
         Add Quantity
       </button>
@@ -354,7 +358,9 @@ export default function SubscriptionProductPage({ page: fullPage }: { page: Subs
   const isLoggedIn = useIsLoggedIn();
   // Switched off or out of stock in the panel: it cannot be ordered (its card id, for Notify me)
   const soldOutPanelCardId = useSoldOutPanelCardId(fullPage);
+  const isOutForOneTimeOnly = useIsOutForOneTimeOnly(fullPage);
   const cartItems = useCartItems();
+  const cartLimitMessage = useCartLimitMessage();
   const quantityInCart = cartItems.find((cartItem) => cartItem.productId === cartProduct.productId)?.quantity ?? 0;
   // Units every morning for the plans: the cart quantity, or 1 before the product is in the cart
   const unitsPerDay = Math.max(1, quantityInCart);
@@ -435,6 +441,12 @@ export default function SubscriptionProductPage({ page: fullPage }: { page: Subs
 
   return (
     <div className={styles["subscription-product-page"]}>
+      {cartLimitMessage && (
+        <p role="status" className={styles["subscription-cart-limit-message"]}>
+          {cartLimitMessage}
+        </p>
+      )}
+
       {/* Green timings strip above the navigation bar (scrolls away; the bar stays at the top) */}
       {page.timingsStripText && <p className={styles["subscription-delivery-timings-strip"]}>{page.timingsStripText}</p>}
 
@@ -549,7 +561,7 @@ export default function SubscriptionProductPage({ page: fullPage }: { page: Subs
               </div>
             )}
             {/* Out of stock in the panel: no quantity, plans or ordering, only Notify me */}
-            {soldOutPanelCardId ? (
+            {soldOutPanelCardId && !isOutForOneTimeOnly ? (
               <SoldOutNotice cardId={cartProduct.productId} panelCardId={soldOutPanelCardId} />
             ) : (
             <>
@@ -564,6 +576,7 @@ export default function SubscriptionProductPage({ page: fullPage }: { page: Subs
                 isLoggedIn={isLoggedIn}
                 quantityInCart={quantityInCart}
                 hintCount={quantityInCart === 0 ? quantityHintCount : 0}
+                isForPlan={purchaseType === "subscribe"}
               />
               {quantityInCart === 0 && quantityHintCount > 0 && (
                 <span key={quantityHintCount} className={styles["subscription-add-quantity-tip"]} role="status">
@@ -593,13 +606,18 @@ export default function SubscriptionProductPage({ page: fullPage }: { page: Subs
                   role="tab"
                   aria-selected={purchaseType === "one-time"}
                   className={`${styles["subscription-plan-tab"]} ${purchaseType === "one-time" ? styles["subscription-plan-tab-selected"] : ""}`}
-                  onClick={() => setPurchaseType("one-time")}
+                  onClick={() => {
+                    setPurchaseType("one-time");
+                    fitCartToStock();
+                  }}
                 >
                   One-time purchase
                 </button>
               </div>
 
-              {purchaseType === "one-time" ? (
+              {purchaseType === "one-time" && soldOutPanelCardId ? (
+                <SoldOutNotice cardId={cartProduct.productId} panelCardId={soldOutPanelCardId} />
+              ) : purchaseType === "one-time" ? (
                 <>
                   {/* One-time purchase: the units in the cart, the bill, and Checkout to Cart */}
                   <div className={styles["subscription-one-time-summary"]}>

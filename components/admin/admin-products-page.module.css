@@ -573,6 +573,24 @@
   color: #1f4d2e;
 }
 
+/* The status the system sets (colours from the old stock buttons) */
+.admin-product-stock-status {
+  display: inline-block;
+  margin: 0;
+  padding: calc(8 * var(--admin-pixel)) calc(16 * var(--admin-pixel));
+  border: 1px solid transparent;
+  border-radius: calc(10 * var(--admin-pixel));
+  font-size: calc(14 * var(--admin-pixel));
+  font-weight: 600;
+}
+
+.admin-product-stock-details-title {
+  margin: calc(14 * var(--admin-pixel)) 0 0;
+  font-size: calc(14 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1f4d2e;
+}
+
 .admin-product-stock-count-note {
   margin-top: calc(8 * var(--admin-pixel));
   font-size: calc(12 * var(--admin-pixel));

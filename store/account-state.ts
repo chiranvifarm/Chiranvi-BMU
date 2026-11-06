@@ -34,6 +34,9 @@ let userId: string | null = null;
 let isLoaded = false;
 let isFollowing = false;
 let saveTimer: number | null = null;
+// What changed since the last save. Only that is saved: an old tab (the panel, say) marking a page as seen must
+// not write back the cart it still remembers, or a cart emptied by an order comes back
+let changedFields = new Set<keyof AccountState>();
 const listeners = new Set<() => void>();
 
 function announce() {
@@ -84,6 +87,7 @@ async function load() {
   isLoaded = true;
   announce();
   // Things kept before the login go into the saved row
+  if (keptInMemory !== EMPTY_STATE) changedFields = new Set(["cart", "cartSubscription", "cartCoupon", "wishlist"]);
   if (keptInMemory !== EMPTY_STATE && (keptInMemory.cart.length > 0 || keptInMemory.wishlist.length > 0 || keptInMemory.cartSubscription)) {
     scheduleSave();
   }
@@ -92,15 +96,17 @@ async function load() {
 async function save() {
   saveTimer = null;
   if (!userId) return;
+  const fieldsToSave = changedFields;
+  changedFields = new Set();
   const { error } = await createClient()
     .from("account_state")
     .upsert({
       user_id: userId,
-      cart: state.cart,
-      cart_subscription: state.cartSubscription,
-      cart_coupon: state.cartCoupon,
-      wishlist: state.wishlist,
-      panel_seen: state.panelSeen,
+      ...(fieldsToSave.has("cart") && { cart: state.cart }),
+      ...(fieldsToSave.has("cartSubscription") && { cart_subscription: state.cartSubscription }),
+      ...(fieldsToSave.has("cartCoupon") && { cart_coupon: state.cartCoupon }),
+      ...(fieldsToSave.has("wishlist") && { wishlist: state.wishlist }),
+      ...(fieldsToSave.has("panelSeen") && { panel_seen: state.panelSeen }),
     });
   if (error) {
     console.error("Could not save the cart", error);
@@ -142,6 +148,7 @@ export function getAccountState() {
 // Changes the person's things: shown at once, saved a moment later (logged in)
 export function updateAccountState(change: Partial<AccountState>) {
   state = { ...state, ...change };
+  (Object.keys(change) as (keyof AccountState)[]).forEach((field) => changedFields.add(field));
   announce();
   scheduleSave();
 }

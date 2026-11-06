@@ -35,6 +35,7 @@ export type ShopProduct = {
   subscriptionPrice?: number; // milk only
   stock: StockLevel;
   stockCounts?: Record<string, number>; // how many are in stock, by the id the cart uses for each pack size
+  stockForPlans?: Record<string, number>; // how many of each pack today's running plans take (the rest is for one-time orders)
   isVisible: boolean; // false: switched off in the panel, the website shows it as Sold out
   showOnBestSellers?: boolean;
   bestSellerOrder?: number; // place in the landing page's Best Sellers (new ones go last)
@@ -231,7 +232,7 @@ type CardRow = {
   original_price_paise: number | null;
   subscription_price_paise: number | null;
   stock: StockLevel;
-  stock_counts: Record<string, number> | null;
+  stock_counts: Record<string, number | Record<string, number>> | null;
   is_visible: boolean;
   show_on_best_sellers: boolean;
   best_seller_order: number | null;
@@ -247,6 +248,13 @@ type CardRow = {
 const rupees = (paise: number | null) => (paise === null ? undefined : paise / 100);
 const paise = (amount: number | undefined) => (amount === undefined ? null : Math.round(amount * 100));
 
+// The database keeps the plans' share (forPlans, migration 0049) beside the pack numbers
+function splitStockCounts(savedCounts: CardRow["stock_counts"]) {
+  if (!savedCounts) return {};
+  const { forPlans, ...stockCounts } = savedCounts as Record<string, number> & { forPlans?: Record<string, number> };
+  return { stockCounts, stockForPlans: forPlans };
+}
+
 function toProduct(row: CardRow, waiting: string[]): ShopProduct {
   return {
     productId: row.product_id,
@@ -257,7 +265,7 @@ function toProduct(row: CardRow, waiting: string[]): ShopProduct {
     originalPrice: rupees(row.original_price_paise),
     subscriptionPrice: rupees(row.subscription_price_paise),
     stock: row.stock,
-    stockCounts: row.stock_counts ?? undefined,
+    ...splitStockCounts(row.stock_counts),
     isVisible: row.is_visible,
     showOnBestSellers: row.show_on_best_sellers,
     bestSellerOrder: row.best_seller_order ?? undefined,
@@ -413,6 +421,18 @@ export async function saveStockCounts(productId: string, counts: Record<string, 
     return error.message || "Couldn't save the stock counts. Please try again.";
   }
   return null;
+}
+
+// An order was paid: the counts have changed
+export function refreshProducts() {
+  void loadProducts();
+}
+
+// How many of this pack are left for one-time orders, after the plans' share. Null: the pack isn't counted.
+export function getStockLeftOfPack(cartProductId: string) {
+  const product = products.find((candidate) => candidate.stockCounts?.[cartProductId] !== undefined);
+  if (!product?.stockCounts) return null;
+  return product.stockCounts[cartProductId] - (product.stockForPlans?.[cartProductId] ?? 0);
 }
 
 // "Notify me" on the website (once per mobile number; the database keeps one request per customer)

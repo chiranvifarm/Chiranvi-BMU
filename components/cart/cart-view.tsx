@@ -26,11 +26,13 @@ import {
   addProductToCart,
   changeCartItemQuantity,
   emptyTheCart,
+  fitCartToStock,
   setAppliedCouponCode,
   setCartSubscription,
   removeCartItem,
   useAppliedCouponCode,
   useCartItems,
+  useCartLimitMessage,
   useCartSubscription,
   useIsCartLoaded,
   type CartSubscription,
@@ -54,6 +56,7 @@ import { serviceProblemOf, useDeliveryService } from "@/store/admin-routes-store
 // Delivery charges and the platform fee set by the owner (Products & pricing → Set delivery charge)
 import { planPlatformFee, productIdOfCartItem, quoteDelivery, useDeliverySettings } from "@/store/delivery-settings-store";
 import { useProductPages } from "@/store/product-pages-store";
+import { refreshProducts, useShopProducts } from "@/store/products-store";
 import styles from "./cart-view.module.css";
 
 /*
@@ -343,6 +346,13 @@ function SameAddressPlanDialog({
 
 export default function CartView() {
   const cartItems = useCartItems();
+  const cartLimitMessage = useCartLimitMessage();
+  // One-time items never stay above what is left (bottles chosen on a milk page's Subscribe tab can be)
+  const shopProducts = useShopProducts();
+  const isCartReady = useIsCartLoaded();
+  useEffect(() => {
+    if (isCartReady) fitCartToStock();
+  }, [isCartReady, cartItems, shopProducts]);
   // A milk plan from "Start subscription" (checked out together with the one-time items)
   const cartSubscription = useCartSubscription();
   // The one-time items: while a plan waits, its milk from Add Quantity (the plan's bottles a day) is left out
@@ -764,6 +774,7 @@ export default function CartView() {
   // Paid: the cart empties (with the milk's quantity from Add Quantity: the plan pays for those bottles now)
   function finishPaidOrder(planOrder: Order | null, itemsOrder: Order | null) {
     emptyTheCart();
+    refreshProducts();
     setPlanAtPickedAddress(null);
     setIsAddressPickerOpen(false);
     setHasPickedAddress(false);
@@ -941,6 +952,11 @@ export default function CartView() {
 
   return (
     <div className={styles["checkout-page"]}>
+      {cartLimitMessage && (
+        <p role="status" className={styles["checkout-cart-limit-message"]}>
+          {cartLimitMessage}
+        </p>
+      )}
       <header className={styles["checkout-top-bar"]}>
         <Link href="/" className={styles["checkout-logo"]} aria-label="Chiranvi Farm home">
           <Image src="/images/brand/chiranvi-farm-logo.webp" alt="Chiranvi Farm" width={516} height={240} priority />

@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useIsLoggedIn } from "@/components/login/login-status";
 import SiteFooter from "@/components/footer/site-footer";
 import SiteNavigationPlacement from "@/components/navigation/site-navigation-placement";
-import { addProductToCart, changeCartItemQuantity, rememberPendingCartProduct, useCartItems, type CartProduct } from "@/store/cart-store";
+import { addProductToCart, changeCartItemQuantity, rememberPendingCartProduct, useCartItems, useCartLimitMessage, type CartProduct } from "@/store/cart-store";
 import { getDiscountPercent, useShopProducts } from "@/store/products-store";
 import { ROW_SIZE, productRowFor, useProductRows } from "@/store/admin-product-rows-store";
 import { FREE_DELIVERY_FROM } from "./product-page-data";
@@ -205,6 +205,7 @@ export default function OneTimeProductPage({ page }: { page: OneTimePageData }) 
   // Switched off or out of stock in the panel: it cannot be ordered (its card id, for Notify me)
   const soldOutPanelCardId = useSoldOutPanelCardId(page);
   const cartItems = useCartItems();
+  const cartLimitMessage = useCartLimitMessage();
   const chosenPackCartProduct = chosenPack ? toCartProduct(page, chosenPack) : null;
   const router = useRouter();
   const chosenPackCartId = chosenPackCartProduct?.productId ?? "";
@@ -255,6 +256,12 @@ export default function OneTimeProductPage({ page }: { page: OneTimePageData }) 
 
   return (
     <div className={styles["one-time-product-page"]}>
+      {cartLimitMessage && (
+        <p role="status" className={styles["one-time-cart-limit-message"]}>
+          {cartLimitMessage}
+        </p>
+      )}
+
       {/* Green timings strip above the navigation bar, like the milk page (scrolls away; the bar stays at the top) */}
       <p className={styles["one-time-delivery-timings-strip"]}>Order by 9 PM for delivery tomorrow by 7 AM</p>
 

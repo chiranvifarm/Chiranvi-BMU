@@ -235,6 +235,14 @@
   background: #d9e9d1;
 }
 
+/* Off duty: switched off, like the buttons below (see OnDutyLink) */
+.ongoing-contact-button:disabled {
+  background: #e6f0e1;
+  font-family: inherit;
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .ongoing-contact-button svg,
 .ongoing-navigate-icon {
   width: calc(16 * var(--delivery-pixel));

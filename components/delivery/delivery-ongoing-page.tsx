@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import {
   AGENT_REQUEST_KINDS,
@@ -14,6 +14,7 @@ import {
   raiseRequest,
   rupees,
   saveStopLocation,
+  shownPlaceOf,
   setStopStep,
   photoFromVideo,
   shrinkPhoto,
@@ -46,10 +47,40 @@ import styles from "./delivery-ongoing-page.module.css";
     The stop then moves to Completed and the next stop comes here.
   - Raise a request to the manager (customer unavailable, wrong address, damaged product, missing item,
     reschedule, other); the stop's requests are listed with their status.
-  Off duty: everything shows, but nothing can be changed until the agent goes on duty.
+  Off duty: the stop shows with the customer's name and area only, nothing can be changed, and Call, Message and
+  Navigate can't be used, until the agent goes on duty. The phone number, full address, landmark and gate code
+  come then.
 */
 
 type OpenSheet = { kind: "finish"; outcome: StopOutcome } | { kind: "request" } | null;
+
+// A link that works only on duty: off duty it is a switched-off button with the same look (a link can't be switched off)
+function OnDutyLink({
+  href,
+  canWork,
+  className,
+  opensNewTab,
+  children,
+}: {
+  href: string;
+  canWork: boolean;
+  className: string;
+  opensNewTab?: boolean;
+  children: ReactNode;
+}) {
+  if (!canWork) {
+    return (
+      <button type="button" disabled className={className}>
+        {children}
+      </button>
+    );
+  }
+  return (
+    <a href={href} className={className} {...(opensNewTab ? { target: "_blank", rel: "noreferrer" } : {})}>
+      {children}
+    </a>
+  );
+}
 
 // Further than this from the spot (the phone's own estimate): not saved, the agent tries again
 const ROUGH_SPOT_METRES = 50;
@@ -145,13 +176,13 @@ export default function DeliveryOngoingPage() {
 const columnId = "order";
 
 // A customer waiting in the queue: Priority and Up next
-function WaitingStop({ stop, label, isPriority }: { stop: AgentStop; label?: string; isPriority?: boolean }) {
+function WaitingStop({ stop, label, isPriority, canWork }: { stop: AgentStop; label?: string; isPriority?: boolean; canWork: boolean }) {
   return (
     <div className={styles["ongoing-next-stop"]}>
       <div className={styles["ongoing-next-stop-words"]}>
         {label && <span className={styles["ongoing-next-stop-label"]}>{label}</span>}
         <span className={styles["ongoing-next-stop-name"]}>{stop.customerName}</span>
-        <span className={styles["ongoing-next-stop-address"]}>{stop.address}</span>
+        <span className={styles["ongoing-next-stop-address"]}>{shownPlaceOf(stop, canWork)}</span>
       </div>
       <div className={styles["ongoing-next-stop-tags"]}>
         {isPriority && <span className={styles["ongoing-priority-tag"]}>Priority</span>}
@@ -193,20 +224,20 @@ function OngoingStop() {
             <h3 id={`${columnId}-customer-name`} className={styles["ongoing-customer-name"]}>
               {stop.customerName}
             </h3>
-            <p className={styles["ongoing-customer-phone"]}>+91 {stop.phone}</p>
+            <p className={styles["ongoing-customer-phone"]}>{canWork ? `+91 ${stop.phone}` : "Phone number shows when you go on duty"}</p>
 
             <dl className={styles["ongoing-address-list"]}>
               <div>
-                <dt>Address</dt>
-                <dd>{/bengaluru/i.test(stop.address) ? stop.address : `${stop.address}, Bengaluru`}</dd>
+                <dt>{canWork ? "Address" : "Area"}</dt>
+                <dd>{!canWork ? shownPlaceOf(stop, false) : /bengaluru/i.test(stop.address) ? stop.address : `${stop.address}, Bengaluru`}</dd>
               </div>
-              {stop.landmark && (
+              {canWork && stop.landmark && (
                 <div>
                   <dt>Landmark</dt>
                   <dd>{stop.landmark}</dd>
                 </div>
               )}
-              {stop.gateCode && (
+              {canWork && stop.gateCode && (
                 <div>
                   <dt>Gate code</dt>
                   <dd className={styles["ongoing-gate-code"]}>{stop.gateCode}</dd>
@@ -215,26 +246,31 @@ function OngoingStop() {
             </dl>
 
             <div className={styles["ongoing-contact-buttons"]}>
-              <a href={callLink(stop.phone)} className={styles["ongoing-contact-button"]}>
+              <OnDutyLink href={callLink(stop.phone)} canWork={canWork} className={styles["ongoing-contact-button"]}>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z" />
                 </svg>
                 Call
-              </a>
-              <a href={messageLink(stop.phone)} className={styles["ongoing-contact-button"]}>
+              </OnDutyLink>
+              <OnDutyLink href={messageLink(stop.phone)} canWork={canWork} className={styles["ongoing-contact-button"]}>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M4 5h16v11H8l-4 4V5Z" />
                 </svg>
                 Message
-              </a>
+              </OnDutyLink>
             </div>
-            <a href={navigationLink(stop)} target="_blank" rel="noreferrer" className={`${deliveryButtonStyles.filled} ${styles["ongoing-navigate-button"]}`}>
+            <OnDutyLink
+              href={navigationLink(stop)}
+              canWork={canWork}
+              opensNewTab
+              className={`${deliveryButtonStyles.filled} ${styles["ongoing-navigate-button"]}`}
+            >
               <svg viewBox="0 0 24 24" aria-hidden="true" className={styles["ongoing-navigate-icon"]}>
                 <path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z" />
                 <path d="M12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
               </svg>
               Navigate in Google Maps
-            </a>
+            </OnDutyLink>
             {/* A new stop starts the location box again */}
             <SaveStopSpot key={stop.id} stop={stop} canWork={canWork} />
 
@@ -354,7 +390,7 @@ function OngoingStop() {
               {waitingStops.length > 0 ? (
                 <div className={styles["ongoing-waiting-list"]}>
                   {waitingStops.map((waiting) => (
-                    <WaitingStop key={waiting.id} stop={waiting} label={waiting.isSubscription ? "Subscription" : "One-time"} isPriority={waiting.isSubscription} />
+                    <WaitingStop key={waiting.id} stop={waiting} canWork={canWork} label={waiting.isSubscription ? "Subscription" : "One-time"} isPriority={waiting.isSubscription} />
                   ))}
                 </div>
               ) : (

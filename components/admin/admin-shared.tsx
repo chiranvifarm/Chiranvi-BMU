@@ -3,9 +3,9 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import { useCurrentStaffAccess, type PanelModule, type PermissionAction } from "@/store/staff-access-store";
-import { useNewOrders, useOrderStepNews } from "@/store/admin-orders-store";
+import { useNewOrders, useOrderStepNews, useRealAdminOrders } from "@/store/admin-orders-store";
 import { useNewCustomers } from "@/store/admin-customers-store";
-import { useDeliveryTransferNews } from "@/store/admin-deliveries-store";
+import { orderNeedsAgent, toDateKey, useDeliveryTransferNews, useTodayDeliveries } from "@/store/admin-deliveries-store";
 import { usePanelSeenAt } from "@/store/account-state";
 import { useDashboardAlerts } from "./admin-dashboard-data";
 import AdminDateRangePicker from "./admin-date-range-picker";
@@ -111,7 +111,7 @@ const NEW_ITEMS_SHOWN = 6;
 /*
   The bell next to the search (every panel page and the dashboard): the dot shows while there are new
   website orders, orders that moved to a new step, or new customers (since their page was last opened, as on
-  the sidebar badges). Its
+  the sidebar badges), or today's paid orders that no agent has (they stay until one is assigned). Its
   pop-up lists them newest first, each opening its page (which marks them seen), then the alerts.
 */
 export function AdminNotificationsBell() {
@@ -126,7 +126,24 @@ export function AdminNotificationsBell() {
   const transfersSeenAt = usePanelSeenAt("delivery-transfers");
   const newTransfers = useDeliveryTransferNews().filter((news) => news.event.at > transfersSeenAt);
   const alerts = useDashboardAlerts();
+  // Today's only: an earlier order's stop may not have moved to today's list yet (the Orders page shows those)
+  const realOrders = useRealAdminOrders();
+  const todaysStops = useTodayDeliveries();
+  const todayKey = toDateKey(new Date());
+  const ordersNeedingAgent = realOrders.filter(
+    (order) =>
+      toDateKey(new Date(order.placedAt)) === todayKey &&
+      orderNeedsAgent(order, todaysStops.some((stop) => stop.orderNumber === order.orderNumber)),
+  );
   const newItems = [
+    ...(access?.can("orders", "view") ? ordersNeedingAgent : []).map((order) => ({
+      key: `needs-agent-${order.orderNumber}`,
+      href: "/admin/orders",
+      time: order.placedAt,
+      title: `${order.orderNumber} needs an agent`,
+      detail: `${order.customerName}${order.area ? ` · ${order.area}` : ""}`,
+      icon: ["M12 11.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M4.5 20.5a7.5 7.5 0 0 1 15 0"],
+    })),
     ...(access?.can("orders", "view") ? newOrders : []).map((order) => ({
       key: `order-${order.orderNumber}`,
       href: "/admin/orders",

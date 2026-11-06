@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { MapPin } from "./address-store";
 import { agentPhoneOf } from "./admin-routes-store";
+import { getSavedOrders } from "./orders-store";
 import { createPanelRecordStore } from "./panel-records";
 
 /*
@@ -50,6 +51,7 @@ export type Delivery = {
   orderNumber?: string; // "#CF-60084": the order this stop delivers (given to the agent on the Orders page)
   area?: string; // the order's area ("Kengeri")
   isSubscription?: boolean; // the order is a milk plan (the agent's Ongoing shows it under Subscriptions)
+  isAutoAssigned?: boolean; // given to the route's agent by the database when paid (0050_auto_assign_orders.sql)
   // An order's stop: what to hand over and the cash to collect (only for a cash order), copied from the order
   // (the agent can't read the orders themselves)
   items?: { name: string; packSize: string; quantity: number; price: number }[];
@@ -143,6 +145,14 @@ export function areaOfDelivery(delivery: Pick<Delivery, "area" | "address">) {
   return delivery.area?.trim() || delivery.address.split(",").pop()?.trim() || "";
 }
 
+// A paid website order that no agent has: its route had no agent, or the agent was on leave, when it was paid
+// (0050_auto_assign_orders.sql). Staff assign it. An extended plan has none: its plan already has a stop each day.
+export function orderNeedsAgent(order: { websiteOrderId?: string; status: string }, hasStop: boolean) {
+  if (hasStop || !order.websiteOrderId || order.status !== "Placed") return false;
+  const saved = getSavedOrders().find((existing) => existing.orderId === order.websiteOrderId);
+  return saved?.paymentStatus === "paid" && !saved.subscription?.extendsOrderId;
+}
+
 // Not finished yet (it can still change agent)
 export function isDeliveryOpen(delivery: Delivery) {
   return delivery.status === "Pending" || delivery.status === "Out for delivery";
@@ -188,7 +198,7 @@ export function assignOrderDelivery(details: {
     void store.change(
       existing.id,
       (delivery) =>
-        withEvent({ ...delivery, agent: details.agent, routeId: details.routeId, transferRequest: undefined, items: details.items, cashToCollect: details.cashToCollect, isSubscription: details.isSubscription, ...pinOf(delivery) }, {
+        withEvent({ ...delivery, agent: details.agent, routeId: details.routeId, transferRequest: undefined, isAutoAssigned: false, items: details.items, cashToCollect: details.cashToCollect, isSubscription: details.isSubscription, ...pinOf(delivery) }, {
           kind: "reassigned",
           fromAgent: delivery.agent,
           toAgent: details.agent,

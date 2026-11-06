@@ -17,6 +17,7 @@ import {
   cancelDeliveryTransfer,
   describeDeliveryEvent,
   isDeliveryOpen,
+  orderNeedsAgent,
   removeOrderDelivery,
   useAgentOnDutyReader,
   useAgentRequestsToday,
@@ -419,6 +420,13 @@ function OrdersPage() {
                         </button>
                       ) : (
                         <span className={dashboardStyles["admin-orders-muted"]}>{agentName ?? "—"}</span>
+                      )}
+                      {/* Given by itself when paid, or waiting for staff (its route had no agent) */}
+                      {isOpen && deliveryOfOrder.get(order.orderNumber)?.isAutoAssigned && (
+                        <span className={dashboardStyles["admin-orders-area"]}>Auto-assigned</span>
+                      )}
+                      {areDeliveriesLoaded && orderNeedsAgent(order, Boolean(agentName)) && (
+                        <span className={dashboardStyles["admin-orders-area"]}>Needs an agent</span>
                       )}
                     </td>
                   </tr>

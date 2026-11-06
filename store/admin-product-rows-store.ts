@@ -12,6 +12,9 @@ import { createClient } from "@/lib/supabase/client";
   The page's own product never shows in its row; a slot whose product is gone is skipped, and the page fills
   the row up to five (see FastSellingRow in components/product/one-time-product-page.tsx).
   Saved in the database (app_settings → product_rows), so every customer sees the same rows.
+  Automatic on (isAutomatic): the Best Sellers, Fast selling and You may also like rows come from real orders
+  first (auto_product_rows(), supabase/migrations/0050_automatic_product_rows.sql); the lists picked by hand only
+  fill the places left. A page with its own order keeps it. Off: the lists picked by hand.
 */
 
 export type NoodlesKind = "instant-noodles" | "pasta" | "macaroni";
@@ -27,7 +30,12 @@ export const sameFlavourSlot = (kind: NoodlesKind) => `same-flavour:${kind}`;
 export type ProductRows = {
   fastSelling: RowSlot[];
   youMayAlsoLike: Record<NoodlesKind, RowSlot[]>;
+  isAutomatic?: boolean;
 };
+
+// What real orders say: product addresses, most ordered first
+export type AutoProductRows = { bestSellers: string[]; fastSelling: string[]; boughtWith: Record<string, string[]> };
+const NO_AUTO_ROWS: AutoProductRows = { bestSellers: [], fastSelling: [], boughtWith: {} };
 
 export const ROW_SIZE = 5;
 
@@ -44,6 +52,7 @@ export const DEFAULT_PRODUCT_ROWS: ProductRows = {
 // Saved in the database: the "product_rows" setting in the app_settings table (everyone reads it; staff
 // with Products → Edit change it). Read when first needed and again when the window comes back into focus.
 let productRows: ProductRows = DEFAULT_PRODUCT_ROWS;
+let autoProductRows: AutoProductRows = NO_AUTO_ROWS;
 const listeners = new Set<() => void>();
 let isFollowing = false;
 
@@ -60,6 +69,18 @@ async function loadProductRows() {
     return;
   }
   productRows = withEveryList(data?.value as Partial<ProductRows> | null);
+  listeners.forEach((onChange) => onChange());
+  if (productRows.isAutomatic) void loadAutoProductRows();
+}
+
+// Read only while Automatic is on
+async function loadAutoProductRows() {
+  const { data, error } = await createClient().rpc("auto_product_rows");
+  if (error) {
+    console.error("Could not read the automatic product rows", error);
+    return;
+  }
+  autoProductRows = { ...NO_AUTO_ROWS, ...(data as Partial<AutoProductRows> | null) };
   listeners.forEach((onChange) => onChange());
 }
 
@@ -78,6 +99,7 @@ function getProductRows(): ProductRows {
 export function saveProductRows(rows: ProductRows) {
   productRows = rows;
   listeners.forEach((onChange) => onChange());
+  if (rows.isAutomatic) void loadAutoProductRows();
   void createClient()
     .from("app_settings")
     .update({ value: rows })
@@ -102,6 +124,10 @@ export function useProductRows() {
   return useSyncExternalStore(subscribe, getProductRows, () => DEFAULT_PRODUCT_ROWS);
 }
 
+export function useAutoProductRows() {
+  return useSyncExternalStore(subscribe, () => autoProductRows, () => NO_AUTO_ROWS);
+}
+
 // "beetroot-pasta" → its kind and flavour; any other page: null
 export function noodlesPageOf(slug: string): { kind: NoodlesKind; flavour: string } | null {
   const kind = NOODLES_KINDS.find((oneKind) => slug.endsWith(`-${oneKind}`));
@@ -114,7 +140,7 @@ export function noodlesPageOf(slug: string): { kind: NoodlesKind; flavour: strin
   wins; otherwise the shared list for its kind of page. "Another flavour" slots take the next flavours in
   order; "same flavour" of the page's own product counts as another flavour.
 */
-export function productRowFor(currentSlug: string, rows: ProductRows, override?: RowSlot[]) {
+export function productRowFor(currentSlug: string, rows: ProductRows, override?: RowSlot[], autoRows: AutoProductRows = NO_AUTO_ROWS) {
   const noodlesPage = noodlesPageOf(currentSlug);
   const slots = override?.length ? override : noodlesPage ? rows.youMayAlsoLike[noodlesPage.kind] : rows.fastSelling;
   const slugs: string[] = [];
@@ -134,5 +160,11 @@ export function productRowFor(currentSlug: string, rows: ProductRows, override?:
     }
     if (slug && slug !== currentSlug && !slugs.includes(slug)) slugs.push(slug);
   });
+  // Automatic: what orders say comes first, the list above fills the places left
+  if (rows.isAutomatic && !override?.length) {
+    const picked = noodlesPage ? (autoRows.boughtWith[currentSlug] ?? []) : autoRows.fastSelling;
+    const merged = [...new Set([...picked.filter((slug) => slug !== currentSlug), ...slugs])];
+    return { slugs: merged, isYouMayAlsoLike: Boolean(noodlesPage) };
+  }
   return { slugs, isYouMayAlsoLike: Boolean(noodlesPage) };
 }

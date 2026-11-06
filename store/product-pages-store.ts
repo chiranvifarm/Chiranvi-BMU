@@ -78,10 +78,17 @@ function getAllPages() {
 
 // After a change: show it at once, save it, and read the pages again if the database refused it (e.g. a
 // price changed by someone who is not the owner)
+let lastPageSave: Promise<unknown> = Promise.resolve();
+
+// Done when the last page change has reached the database (a new pack's stock number waits for this)
+export function whenPageIsSaved() {
+  return lastPageSave;
+}
+
 function saveThenCheck(change: (current: PageRow[]) => PageRow[], write: () => PromiseLike<{ error: unknown }>) {
   rows = change(rows ?? startingProductPages.map((page, index) => ({ slug: page.slug, page, is_starting_page: true, is_changed: false, is_hidden: false, sort_order: index })));
   combinePages();
-  void Promise.resolve(write()).then(({ error }) => {
+  lastPageSave = Promise.resolve(write()).then(({ error }) => {
     if (error) {
       console.error("The database did not accept the page change", error);
       void loadPages();

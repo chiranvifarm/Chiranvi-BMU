@@ -20,9 +20,9 @@ import {
 } from "@/store/products-store";
 import { useCurrentStaffAccess, useStaffMembers } from "@/store/staff-access-store";
 import { AdminFeatureGate } from "./admin-panel-layout";
-import type { ProductKind, ProductPage, ShopCategory } from "@/components/product/product-page-data";
+import { toProductSlug, type ProductKind, type ProductPage, type ShopCategory } from "@/components/product/product-page-data";
 import { POWDER_PRODUCT_IDS } from "@/components/product/all-products-page";
-import { deleteProductPage, isStartingProductPage, useProductPages } from "@/store/product-pages-store";
+import { deleteProductPage, isStartingProductPage, useProductPages, whenPageIsSaved } from "@/store/product-pages-store";
 import {
   DEFAULT_PRODUCT_ROWS,
   NOODLES_KINDS,
@@ -100,9 +100,36 @@ const CATEGORY_FROM_SHOP_CATEGORY: Record<ShopCategory, ProductCategory> = {
       the page (another flavour, or the same flavour of another product) or be any product.
   A page with its own order (Edit page → "Product row on this page") keeps it. "Back to the original rows"
   fills in the rows the website started with (saved only with Save rows).
+  Automatic on: the rows and Best Sellers come from real orders; the lists below only fill places left, so they
+  are locked. Off: the lists below are used.
 */
+const BEST_SELLER_PLACES = 6;
+
 function ProductRowsDialog({ onClose, showToast }: { onClose: () => void; showToast: (message: string) => void }) {
-  const [rows, setRows] = useState<ProductRows>(useProductRows());
+  // The saved rows until the first change: they may still be loading when the pop-up opens
+  const savedRows = useProductRows();
+  const [changedRows, setRows] = useState<ProductRows | null>(null);
+  const rows = changedRows ?? savedRows;
+  // Best Sellers: the same choice as each product's "Show in Best Sellers" tick, so the two always agree
+  // Only products with a website page can show there, so only they are listed and changed here
+  const pages = useProductPages();
+  const shopProducts = useShopProducts().filter((product) => pages.some((page) => page.slug === product.productId));
+  const [bestSellerSlots, setBestSellerSlots] = useState<string[]>(() =>
+    shopProducts
+      .filter((product) => product.showOnBestSellers)
+      .sort((first, second) => (first.bestSellerOrder ?? 99) - (second.bestSellerOrder ?? 99))
+      .map((product) => product.productId)
+      .slice(0, BEST_SELLER_PLACES),
+  );
+  function saveBestSellers() {
+    const chosen = [...new Set(bestSellerSlots.filter(Boolean))];
+    shopProducts.forEach((product) => {
+      const place = chosen.indexOf(product.productId);
+      const bestSellerOrder = place === -1 ? undefined : place + 1;
+      if (Boolean(product.showOnBestSellers) === (place !== -1) && product.bestSellerOrder === bestSellerOrder) return;
+      updateProduct(product.productId, { showOnBestSellers: place !== -1, bestSellerOrder });
+    });
+  }
   return (
     <AdminDialog
       title="Product rows"
@@ -110,14 +137,41 @@ function ProductRowsDialog({ onClose, showToast }: { onClose: () => void; showTo
       onClose={onClose}
       onSubmit={() => {
         saveProductRows(rows);
+        saveBestSellers();
         showToast("Product rows saved");
         onClose();
       }}
     >
       <p className={styles["admin-product-rows-intro"]}>
-        Five products in each row, in this order. The page&apos;s own product is always left out; an empty place is skipped and the row is
-        filled up to five.
+        Each row shows its products in this order. The page&apos;s own product is always left out. Any place set to &quot;Let the system
+        choose&quot; is filled automatically, so a row never has an empty space.
       </p>
+      <div className={styles["admin-product-rows-automatic"]}>
+        <span>
+          <span className={styles["admin-product-rows-group-title"]}>Automatic</span>
+          <span className={styles["admin-product-rows-group-note"]}>
+            {rows.isAutomatic
+              ? "On: Best Sellers, Fast selling and You may also like are picked from real orders. The lists below only fill any places left."
+              : "Off: choose the products yourself in the lists below."}
+          </span>
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={Boolean(rows.isAutomatic)}
+          aria-label="Automatic product rows"
+          className={`${styles["admin-product-switch"]} ${rows.isAutomatic ? styles["admin-product-switch-on"] : ""}`}
+          onClick={() => setRows({ ...rows, isAutomatic: !rows.isAutomatic })}
+        >
+          <span className={styles["admin-product-switch-knob"]} />
+        </button>
+      </div>
+      <fieldset disabled={Boolean(rows.isAutomatic)} className={styles["admin-product-rows-lists"]}>
+      <section className={styles["admin-product-rows-group"]}>
+        <h3 className={styles["admin-product-rows-group-title"]}>Best Sellers</h3>
+        <p className={styles["admin-product-rows-group-note"]}>Landing page, six products</p>
+        <ProductRowSlotsEditor slots={bestSellerSlots} onChange={setBestSellerSlots} label="Best Sellers" placeCount={BEST_SELLER_PLACES} />
+      </section>
       <section className={styles["admin-product-rows-group"]}>
         <h3 className={styles["admin-product-rows-group-title"]}>Fast selling products</h3>
         <p className={styles["admin-product-rows-group-note"]}>Milk, ghee, paneer, butter, flours, batter and powders pages</p>
@@ -134,9 +188,14 @@ function ProductRowsDialog({ onClose, showToast }: { onClose: () => void; showTo
           />
         </section>
       ))}
-      <button type="button" className={styles["admin-product-rows-reset-button"]} onClick={() => setRows(DEFAULT_PRODUCT_ROWS)}>
+      <button
+        type="button"
+        className={styles["admin-product-rows-reset-button"]}
+        onClick={() => setRows({ ...DEFAULT_PRODUCT_ROWS, isAutomatic: rows.isAutomatic })}
+      >
         Back to the original rows
       </button>
+      </fieldset>
     </AdminDialog>
   );
 }
@@ -262,9 +321,13 @@ function toForm(product: ShopProduct): ProductForm {
 const onlyDigits = (text: string) => text.replace(/\D/g, "");
 
 // The pack sizes with a stock count, by the id the cart uses (the database checks the same list)
-function stockSizesOf(product: ShopProduct, page?: ProductPage) {
+function stockSizesOf(product: ShopProduct, page?: ProductPage, typedPackLabels?: string[] | null) {
   if (!page) return [{ key: product.productId, label: product.packSize || "Stock" }];
-  if ("packs" in page) return page.packs.map((pack) => ({ key: `${page.slug}-${pack.packId}`, label: pack.label }));
+  if ("packs" in page) {
+    // The packs as typed below, before they are saved (the same id the page saves them with)
+    const labels = typedPackLabels ?? page.packs.map((pack) => pack.label);
+    return labels.map((label) => ({ key: `${page.slug}-${toProductSlug(label)}`, label }));
+  }
   return [{ key: page.slug, label: "1 L" }, ...(page.hasHalfLitreBottle ? [{ key: `${page.slug}-half-litre`, label: "500 ml" }] : [])];
 }
 
@@ -772,7 +835,8 @@ function ProductPopup({
   const canDelete = useAdminCan("delete");
   const isOutOfStock = product?.stock === "out";
   // The stock boxes, one per pack size (empty: not counted, the label is set by hand)
-  const stockSizes = product ? stockSizesOf(product, page) : [];
+  const [typedPackLabels, setTypedPackLabels] = useState<string[] | null>(null);
+  const stockSizes = product ? stockSizesOf(product, page, typedPackLabels) : [];
   const savedCounts = product?.stockCounts ?? {};
   const [countTexts, setCountTexts] = useState<Record<string, string>>(() =>
     Object.fromEntries(Object.entries(savedCounts).map(([key, count]) => [key, String(count)])),
@@ -780,6 +844,8 @@ function ProductPopup({
   const hasCounts = stockSizes.some((size) => countTexts[size.key]);
   // What the stock is counted in: bottles, jars, packets
   const stockWord = !page ? "packs" : "itemWord" in page ? page.itemWord.many : page.quantityWord.many;
+  const oneStockWord = !page ? "pack" : "itemWord" in page ? page.itemWord.one : page.quantityWord.one;
+  const countOf = (count: number) => `${count} ${count === 1 ? oneStockWord : stockWord}`;
   const startingPhoto = product ? getStartingPhoto(product.productId) : null;
   const waitingCount = product?.waitingCustomers?.length ?? 0;
   const [isDeleteAsked, setIsDeleteAsked] = useState(false);
@@ -923,9 +989,12 @@ function ProductPopup({
     }
     const saveCounts = () => {
       if (Object.keys(changedCounts).length === 0) return;
-      void saveStockCounts(product.productId, changedCounts).then((problem) => {
-        if (problem) showToast(problem);
-      });
+      // After the page: a new pack's number is refused until the database has the pack
+      void whenPageIsSaved()
+        .then(() => saveStockCounts(product.productId, changedCounts))
+        .then((problem) => {
+          if (problem) showToast(problem);
+        });
     };
 
     // Out of stock and a new count entered: that is a restock (the manager and waiting customers are told)
@@ -1160,6 +1229,8 @@ function ProductPopup({
                       // Off: stock 0, so the website shows this pack as Out of stock
                       const isPackOn = countTexts[size.key] !== "0";
                       const forPlans = product.stockForPlans?.[size.key] ?? 0;
+                      const inStock = Number(savedCounts[size.key] ?? 0);
+                      const forOneTime = Math.max(inStock - forPlans, 0);
                       return (
                         <PopupField key={size.key} label={`${size.label} ${stockWord}`}>
                           <input
@@ -1170,8 +1241,22 @@ function ProductPopup({
                             onChange={(changeEvent) => setCountTexts({ ...countTexts, [size.key]: onlyDigits(changeEvent.target.value) })}
                           />
                           {forPlans > 0 && (
-                            <span className={styles["admin-product-stock-count-note"]}>
-                              Plans today: {forPlans} · For one-time: {Math.max(Number(savedCounts[size.key] ?? 0) - forPlans, 0)}
+                            <span className={styles["admin-product-stock-split"]}>
+                              <span className={styles["admin-product-stock-split-cards"]}>
+                                <span className={`${styles["admin-product-stock-split-card"]} ${styles["admin-product-stock-split-card-plans"]}`}>
+                                  <strong>{forPlans}</strong>
+                                  Plans today
+                                </span>
+                                <span className={`${styles["admin-product-stock-split-card"]} ${styles["admin-product-stock-split-card-one-time"]}`}>
+                                  <strong>{forOneTime}</strong>
+                                  For one-time
+                                </span>
+                              </span>
+                              <span className={styles["admin-product-stock-split-note"]}>
+                                {countOf(inStock)} in stock. Subscriptions come first, so {countOf(forPlans)} {forPlans === 1 ? "is" : "are"} kept for
+                                today&apos;s deliveries{" "}
+                                {forOneTime > 0 ? `and ${countOf(forOneTime)} ${forOneTime === 1 ? "is" : "are"} left for one-time orders.` : "and none are left for one-time orders."}
+                              </span>
                             </span>
                           )}
                           {page && "packs" in page && (
@@ -1253,6 +1338,7 @@ function ProductPopup({
               onSaved: (savedPage) => {
                 savedPageRef.current = savedPage;
               },
+              onPackLabelsChange: setTypedPackLabels,
               canChangePrices: isOwner,
               newKind: newProduct?.kind,
               category: form.category,

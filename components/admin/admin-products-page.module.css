@@ -591,6 +591,52 @@
   color: #1f4d2e;
 }
 
+/* How a pack's stock is split: today's plans first, the rest for one-time orders */
+.admin-product-stock-split {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--admin-pixel));
+  margin-top: calc(8 * var(--admin-pixel));
+}
+
+.admin-product-stock-split-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(8 * var(--admin-pixel));
+}
+
+.admin-product-stock-split-card {
+  display: flex;
+  flex-direction: column;
+  padding: calc(8 * var(--admin-pixel)) calc(12 * var(--admin-pixel));
+  border-radius: calc(10 * var(--admin-pixel));
+  font-size: calc(12 * var(--admin-pixel));
+  font-weight: 500;
+}
+
+.admin-product-stock-split-card strong {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(20 * var(--admin-pixel));
+  line-height: 1.2;
+}
+
+.admin-product-stock-split-card-plans {
+  background: #e6f0e1;
+  color: #1f4d2e;
+}
+
+.admin-product-stock-split-card-one-time {
+  background: #fbf3e1;
+  color: #8a6a12;
+}
+
+.admin-product-stock-split-note {
+  font-size: calc(12 * var(--admin-pixel));
+  font-weight: 400;
+  line-height: 1.45;
+  color: #7a837c;
+}
+
 .admin-product-stock-count-note {
   margin-top: calc(8 * var(--admin-pixel));
   font-size: calc(12 * var(--admin-pixel));
@@ -899,6 +945,32 @@
 .admin-product-rows-group,
 .admin-product-rows-reset-button {
   grid-column: 1 / -1;
+}
+
+/* The Automatic switch, and the hand-picked lists it locks */
+.admin-product-rows-automatic {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(14 * var(--admin-pixel));
+  padding: calc(12 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  border-radius: calc(10 * var(--admin-pixel));
+  background: #e6f0e1;
+}
+
+.admin-product-rows-automatic > span {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--admin-pixel));
+}
+
+.admin-product-rows-lists {
+  display: contents;
+}
+
+.admin-product-rows-lists:disabled .admin-product-rows-group {
+  opacity: 0.55;
 }
 
 .admin-product-rows-intro {

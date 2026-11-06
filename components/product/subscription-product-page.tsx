@@ -18,7 +18,7 @@ import {
   type CartProduct,
 } from "@/store/cart-store";
 import { getDiscountPercent } from "@/store/products-store";
-import { ROW_SIZE, productRowFor, useProductRows } from "@/store/admin-product-rows-store";
+import { ROW_SIZE, productRowFor, useAutoProductRows, useProductRows } from "@/store/admin-product-rows-store";
 import type { DeliveryStepIcon, PictureFit, SubscriptionPlanSetting, SubscriptionProductPage as SubscriptionPageData } from "./product-page-data";
 import { ProductCardTile, SoldOutNotice, useIsOutForOneTimeOnly, useProductCards, useSoldOutPanelCardId } from "./all-products-page";
 import oneTimeStyles from "./one-time-product-page.module.css";
@@ -276,7 +276,7 @@ function CheckoutToCartButton({
 */
 function FastSellingRow({ currentSlug, override }: { currentSlug: string; override?: string[] }) {
   const allCards = useProductCards();
-  const { slugs } = productRowFor(currentSlug, useProductRows(), override);
+  const { slugs } = productRowFor(currentSlug, useProductRows(), override, useAutoProductRows());
   const listedCards = slugs.flatMap((slug) => allCards.filter((card) => card.slug === slug));
   const extraCards = allCards.filter(
     (card) => card.hasPage && card.slug !== currentSlug && !listedCards.some((listed) => listed.slug === card.slug),

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { toDateKey } from "@/store/admin-deliveries-store";
-import { STOP_OUTCOME_LABELS, formatTime, rupees, type AgentStop, type StopOutcome } from "@/store/delivery-agent-store";
+import { STOP_OUTCOME_LABELS, formatTime, rupees, shownPlaceOf, type AgentStop, type StopOutcome } from "@/store/delivery-agent-store";
 import { DeliveryNotice, DeliveryPageHeading, DeliveryShiftNotices, deliveryButtonStyles, useDeliveryPanel } from "./delivery-panel-layout";
 import styles from "./delivery-completed-page.module.css";
 
@@ -14,6 +14,7 @@ import styles from "./delivery-completed-page.module.css";
     (the customer's OTP, or the photo), and the requests raised for it with their status.
   - All requests raised today, Pending or Resolved.
   - Download the day's delivery report (a CSV file that opens in Excel or Google Sheets).
+  Off duty: the area instead of the address, and no report (it has the phone numbers and addresses).
   Stops the panel already shows as delivered count too (their bottles and cash as expected).
 */
 
@@ -57,9 +58,9 @@ export default function DeliveryCompletedPage() {
     return completed.filter(
       (stop) =>
         (outcomeFilter === "all" || stop.outcome === outcomeFilter) &&
-        (!words || `${stop.customerName} ${stop.address} ${stop.id}`.toLowerCase().includes(words)),
+        (!words || `${stop.customerName} ${shownPlaceOf(stop, stops.isOnDuty)} ${stop.id}`.toLowerCase().includes(words)),
     );
-  }, [completed, search, outcomeFilter]);
+  }, [completed, search, outcomeFilter, stops.isOnDuty]);
 
   // The day's report: one row per finished stop
   function downloadReport() {
@@ -91,7 +92,12 @@ export default function DeliveryCompletedPage() {
     <>
       <DeliveryPageHeading title="Completed" description="Today's finished stops, newest first.">
         {completed.length > 0 && (
-          <button type="button" className={`${deliveryButtonStyles.outlined} ${deliveryButtonStyles.small}`} onClick={downloadReport}>
+          <button
+            type="button"
+            disabled={!stops.isOnDuty}
+            className={`${deliveryButtonStyles.outlined} ${deliveryButtonStyles.small}`}
+            onClick={downloadReport}
+          >
             Download today&apos;s report
           </button>
         )}
@@ -167,7 +173,7 @@ export default function DeliveryCompletedPage() {
                       )}
                     </div>
                     <p className={styles["completed-stop-address"]}>
-                      {stop.address} · {stop.id}
+                      {shownPlaceOf(stop, stops.isOnDuty)} · {stop.id}
                     </p>
                     {stop.notDeliveredReason && <p className={styles["completed-stop-reason"]}>Reason: {stop.notDeliveredReason}</p>}
                     <div className={styles["completed-stop-details"]}>

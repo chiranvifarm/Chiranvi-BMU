@@ -12,6 +12,7 @@ import {
   optimiseRoute,
   routeLink,
   rupees,
+  shownPlaceOf,
   type AgentStop,
 } from "@/store/delivery-agent-store";
 import {
@@ -27,7 +28,8 @@ import styles from "./delivery-up-next-page.module.css";
   Deliveries → Up next (/delivery/up-next): the stops after the ongoing ones, in route order.
   - Totals: stops left, distance left and the estimated finish time (riding plus a few minutes per stop).
   - Optimise route (nearest stop next, each time slot kept together) and Open route in Google Maps (from the
-    farm hub until the first stop of the day is finished; after that, from wherever the agent is).
+    farm hub until the first stop of the day is finished; after that, from wherever the agent is). Open route
+    works only on duty.
   - Route map: the same map as Routes & agents on the panel, with only this agent's routes. A route changed on
     the panel changes here. Under it, the farm hub (the pick-up point) with Navigate to hub, once its spot is saved.
   - Load check: the products needed for the stops still to go (the ongoing ones too), bottles to collect and
@@ -94,16 +96,22 @@ export default function DeliveryUpNextPage() {
             Optimise route
           </button>
         )}
-        {stopsLeft.length > 0 && (
-          <a
-            href={routeLink(stopsLeft, stops.completed.length === 0 ? hub : null)}
-            target="_blank"
-            rel="noreferrer"
-            className={`${deliveryButtonStyles.filled} ${deliveryButtonStyles.small}`}
-          >
-            Open route in Google Maps
-          </a>
-        )}
+        {/* Customers' locations: only on duty (a link can't be switched off, so off duty it is a button) */}
+        {stopsLeft.length > 0 &&
+          (stops.isOnDuty ? (
+            <a
+              href={routeLink(stopsLeft, stops.completed.length === 0 ? hub : null)}
+              target="_blank"
+              rel="noreferrer"
+              className={`${deliveryButtonStyles.filled} ${deliveryButtonStyles.small}`}
+            >
+              Open route in Google Maps
+            </a>
+          ) : (
+            <button type="button" disabled className={`${deliveryButtonStyles.filled} ${deliveryButtonStyles.small}`}>
+              Open route in Google Maps
+            </button>
+          ))}
       </DeliveryPageHeading>
       <DeliveryShiftNotices />
 
@@ -195,6 +203,7 @@ export default function DeliveryUpNextPage() {
                 stop={stop}
                 number={index + 1}
                 isOngoing={index < ongoing.length}
+                isOnDuty={stops.isOnDuty}
                 distanceFromBefore={legs[index]}
                 canMoveUp={index > ongoing.length}
                 canMoveDown={index >= ongoing.length && index < stopsLeft.length - 1}
@@ -212,6 +221,7 @@ function StopRow({
   stop,
   number,
   isOngoing,
+  isOnDuty,
   distanceFromBefore,
   canMoveUp,
   canMoveDown,
@@ -220,6 +230,7 @@ function StopRow({
   stop: AgentStop;
   number: number;
   isOngoing: boolean;
+  isOnDuty: boolean;
   distanceFromBefore: number;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -243,8 +254,8 @@ function StopRow({
         </div>
         <p className={styles["up-next-stop-customer"]}>{stop.customerName}</p>
         <p className={styles["up-next-stop-address"]}>
-          {stop.address}
-          {stop.landmark ? ` · ${stop.landmark}` : ""}
+          {shownPlaceOf(stop, isOnDuty)}
+          {isOnDuty && stop.landmark ? ` · ${stop.landmark}` : ""}
         </p>
         <p className={styles["up-next-stop-items"]}>
           {stop.items.map((item) => `${item.name} ${item.packSize} × ${item.quantity}`).join(", ")}

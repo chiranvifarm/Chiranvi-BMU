@@ -454,7 +454,8 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
           ...added.map((stop) => ({
             id: `new-${stop.id}`,
             kind: "new-stop" as const,
-            text: `New stop: ${stop.customerName}, ${stop.address} (${stop.slot})`,
+            // The area only: the bell also shows while off duty
+            text: `New stop: ${stop.customerName}, ${stop.area || "your route"} (${stop.slot})`,
             at: now,
           })),
           ...(removed.length > 0
@@ -722,6 +723,11 @@ export function callLink(phone: string) {
 
 export function messageLink(phone: string) {
   return `sms:+91${phone}`;
+}
+
+// The address to show: off duty only the area (the phone number and full address come when the agent goes on duty)
+export function shownPlaceOf(stop: Pick<AgentStop, "address" | "area">, isOnDuty: boolean) {
+  return isOnDuty ? stop.address : stop.area || "Shown when you go on duty";
 }
 
 // Where Google Maps goes: the exact pin ("12.9081,77.4826"), else the address text for Maps to search

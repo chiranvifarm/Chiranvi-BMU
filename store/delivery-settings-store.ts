@@ -39,6 +39,8 @@ export type DeliverySettings = {
 export type PlanFeeRule = {
   percent: number; // of the plan's price before any coupon
   gstPercent: number; // of that percentage's amount
+  extraPaise?: number; // the convenience and digital processing fee on a new plan (none: not in the database yet)
+  extensionExtraPaise?: number; // the same on "Extend Plan"
 };
 
 // Until the database answers: the rules the shop started with
@@ -135,14 +137,16 @@ export function productIdOfCartItem(cartProductId: string, pages: ProductPage[])
 }
 
 /*
-  The platform fee on a milk plan, new or extended (the same sum as the database's private.plan_fee_paise): the
-  percentage of the plan's price before any coupon plus the GST on that, to the nearest paisa (money can't go
-  smaller). ₹10,000: 200 + 36 = ₹236. ₹9,900: 198 + 35.64 = ₹233.64. Until the rule is in the database: the flat fee.
+  The platform fee on a milk plan (the same sum as the database's private.plan_fee_paise): the percentage of the
+  plan's price before any coupon plus the GST on that, to the nearest paisa (money can't go smaller), plus the
+  convenience and digital processing fee. ₹10,000: 200 + 36 + 500 = ₹736; extending it: 200 + 36 + 400 = ₹636.
+  Until the rule is in the database: the flat fee.
 */
-export function planPlatformFee(planTotal: number, deliverySettings: DeliverySettings) {
+export function planPlatformFee(planTotal: number, isExtension: boolean, deliverySettings: DeliverySettings) {
   const rule = deliverySettings.planFeeRule;
   if (!rule) return deliverySettings.platformFee;
-  return Math.round((Math.round(planTotal * 100) * rule.percent * (100 + rule.gstPercent)) / 10000) / 100;
+  const percentAndGstPaise = Math.round((Math.round(planTotal * 100) * rule.percent * (100 + rule.gstPercent)) / 10000);
+  return (percentAndGstPaise + ((isExtension ? rule.extensionExtraPaise : rule.extraPaise) ?? 0)) / 100;
 }
 
 function combine(fees: number[], rule: DeliveryCombineRule, mixedFee: number) {

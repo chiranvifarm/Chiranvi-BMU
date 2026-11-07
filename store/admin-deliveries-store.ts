@@ -78,6 +78,45 @@ const store = createPanelRecordStore<Delivery>({
   refreshEveryMs: 30_000,
 });
 
+// The date some days from today
+function dayFromToday(days: number) {
+  const day = new Date();
+  day.setDate(day.getDate() + days);
+  return toDateKey(day);
+}
+
+/*
+  A stop is dated its delivery morning (0051_nine_pm_cut_off.sql), one or two days after the order was paid, so
+  the Orders page and the bell read those days too: an order for tomorrow already has its agent. Everything else
+  works on today's list, and the agent only sees a stop on its day.
+*/
+const tomorrowStore = createPanelRecordStore<Delivery>({
+  module: "deliveries",
+  filters: () => [["data->>date", dayFromToday(1)]],
+  refreshEveryMs: 30_000,
+});
+const dayAfterTomorrowStore = createPanelRecordStore<Delivery>({
+  module: "deliveries",
+  filters: () => [["data->>date", dayFromToday(2)]],
+  refreshEveryMs: 30_000,
+});
+const upcomingStores = [tomorrowStore, dayAfterTomorrowStore];
+
+// The list an order's stop is on, if it has one
+function storeOfOrder(orderNumber: string) {
+  return [store, ...upcomingStores].find((list) => list.getRecords().some((delivery) => delivery.orderNumber === orderNumber));
+}
+
+// The stops of the next two mornings, and whether they have been read
+export function useUpcomingStops() {
+  const tomorrows = tomorrowStore.useRecords();
+  const dayAfterTomorrows = dayAfterTomorrowStore.useRecords();
+  const isTomorrowLoaded = tomorrowStore.useIsLoaded();
+  const isDayAfterTomorrowLoaded = dayAfterTomorrowStore.useIsLoaded();
+  const stops = useMemo(() => [...tomorrows, ...dayAfterTomorrows], [tomorrows, dayAfterTomorrows]);
+  return { stops, areLoaded: isTomorrowLoaded && isDayAfterTomorrowLoaded };
+}
+
 // When this browser last changed today's list (the "Updated 2 minutes ago" line)
 let lastChangedAt = "";
 
@@ -163,8 +202,8 @@ function withEvent(delivery: Delivery, event: Omit<DeliveryEvent, "at">): Delive
 }
 
 /*
-  An order given to an agent (Orders page): its stop today changes agent (any waiting transfer is dropped),
-  or a new stop is added for it, waiting to go out.
+  An order given to an agent (Orders page): its stop changes agent (any waiting transfer is dropped), or a new
+  stop is added for it, waiting to go out, on the morning the order was promised (today if that has gone).
 */
 export function assignOrderDelivery(details: {
   orderNumber: string;
@@ -183,19 +222,20 @@ export function assignOrderDelivery(details: {
   // The order's pin, else the one already on the stop (the agent may have saved it at the door)
   const pinOf = (delivery?: Delivery) =>
     pin ? { latitude: pin.latitude, longitude: pin.longitude } : { latitude: delivery?.latitude, longitude: delivery?.longitude };
-  const existing = store.getRecords().find((delivery) => delivery.orderNumber === details.orderNumber);
+  const stopList = storeOfOrder(details.orderNumber);
+  const existing = stopList?.getRecords().find((delivery) => delivery.orderNumber === details.orderNumber);
   changed();
-  if (existing) {
+  if (stopList && existing) {
     // The same agent again: their number and the order's items are put on it again
     if (existing.agent === details.agent && existing.routeId === details.routeId) {
-      void store.change(
+      void stopList.change(
         existing.id,
         (delivery) => ({ ...delivery, items: details.items, cashToCollect: details.cashToCollect, isSubscription: details.isSubscription, ...pinOf(delivery) }),
         agentPhoneOf(details.agent) ?? null,
       );
       return existing;
     }
-    void store.change(
+    void stopList.change(
       existing.id,
       (delivery) =>
         withEvent({ ...delivery, agent: details.agent, routeId: details.routeId, transferRequest: undefined, isAutoAssigned: false, items: details.items, cashToCollect: details.cashToCollect, isSubscription: details.isSubscription, ...pinOf(delivery) }, {
@@ -207,8 +247,11 @@ export function assignOrderDelivery(details: {
     );
     return existing;
   }
-  const date = toDateKey(new Date());
-  const highest = Math.max(0, ...store.getRecords().map((delivery) => Number(delivery.id.slice(-4)) || 0));
+  const promisedAt = getSavedOrders().find((order) => `#${order.orderId}` === details.orderNumber)?.promisedAt;
+  const promisedDay = promisedAt ? toDateKey(new Date(promisedAt)) : "";
+  const list = promisedDay === dayFromToday(1) ? tomorrowStore : promisedDay === dayFromToday(2) ? dayAfterTomorrowStore : store;
+  const date = list === tomorrowStore ? dayFromToday(1) : list === dayAfterTomorrowStore ? dayFromToday(2) : toDateKey(new Date());
+  const highest = Math.max(0, ...list.getRecords().map((delivery) => Number(delivery.id.slice(-4)) || 0));
   const newDelivery = withEvent(
     {
       ...stopDetails,
@@ -220,16 +263,17 @@ export function assignOrderDelivery(details: {
     },
     { kind: "assigned", toAgent: details.agent },
   );
-  void store.add(newDelivery, agentPhoneOf(details.agent));
+  void list.add(newDelivery, agentPhoneOf(details.agent));
   return newDelivery;
 }
 
 // The order was cancelled: its stop goes
 export function removeOrderDelivery(orderNumber: string) {
-  const delivery = store.getRecords().find((existing) => existing.orderNumber === orderNumber);
-  if (!delivery) return;
+  const stopList = storeOfOrder(orderNumber);
+  const delivery = stopList?.getRecords().find((existing) => existing.orderNumber === orderNumber);
+  if (!stopList || !delivery) return;
   changed();
-  void store.remove(delivery.id);
+  void stopList.remove(delivery.id);
 }
 
 // An agent asks another to take one of their open stops (only one transfer waits at a time)

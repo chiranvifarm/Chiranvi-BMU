@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCurrentStaffAccess, type PanelModule, type PermissionAction } from "@/store/staff-access-store";
 import { useNewOrders, useOrderStepNews, useRealAdminOrders } from "@/store/admin-orders-store";
 import { useNewCustomers } from "@/store/admin-customers-store";
-import { orderNeedsAgent, toDateKey, useDeliveryTransferNews, useTodayDeliveries } from "@/store/admin-deliveries-store";
+import { orderNeedsAgent, toDateKey, useDeliveryTransferNews, useTodayDeliveries, useUpcomingStops } from "@/store/admin-deliveries-store";
 import { usePanelSeenAt } from "@/store/account-state";
 import { useDashboardAlerts } from "./admin-dashboard-data";
 import AdminDateRangePicker from "./admin-date-range-picker";
@@ -129,12 +129,15 @@ export function AdminNotificationsBell() {
   // Today's only: an earlier order's stop may not have moved to today's list yet (the Orders page shows those)
   const realOrders = useRealAdminOrders();
   const todaysStops = useTodayDeliveries();
+  const { stops: upcomingStops, areLoaded: areUpcomingStopsLoaded } = useUpcomingStops();
   const todayKey = toDateKey(new Date());
-  const ordersNeedingAgent = realOrders.filter(
-    (order) =>
-      toDateKey(new Date(order.placedAt)) === todayKey &&
-      orderNeedsAgent(order, todaysStops.some((stop) => stop.orderNumber === order.orderNumber)),
-  );
+  const ordersNeedingAgent = !areUpcomingStopsLoaded
+    ? []
+    : realOrders.filter(
+        (order) =>
+          toDateKey(new Date(order.placedAt)) === todayKey &&
+          orderNeedsAgent(order, [...todaysStops, ...upcomingStops].some((stop) => stop.orderNumber === order.orderNumber)),
+      );
   const newItems = [
     ...(access?.can("orders", "view") ? ordersNeedingAgent : []).map((order) => ({
       key: `needs-agent-${order.orderNumber}`,

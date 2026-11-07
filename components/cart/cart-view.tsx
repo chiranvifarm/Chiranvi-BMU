@@ -39,9 +39,11 @@ import {
 } from "@/store/cart-store";
 import { checkCouponOnServer, useCartCoupons, useCouponCheck, type CouponCart } from "@/store/coupons-store";
 import {
+  deliveryDayWords,
   findRunningPlans,
   confirmPayment,
   formatPlanDate,
+  promisedMorningFrom,
   priceCartOnServer,
   reportFailedPayment,
   startPayment,
@@ -150,6 +152,8 @@ function rupees(amount: number) {
   const exact = Math.round(amount * 100) / 100;
   return `₹${exact.toLocaleString("en-IN", Number.isInteger(exact) ? undefined : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
+
+const capitalised = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 // The address's mobile number as 10 digits ("+91 98450 12345" → "9845012345"), for the order's delivery contact
 function deliveryMobileOf(address: { mobileNumber: string } | null | undefined) {
@@ -832,8 +836,9 @@ export default function CartView() {
     setCartSubscription(null);
   }
 
-  // Tomorrow before 7 AM
-  const deliveryLine = "Delivery tomorrow by 7 AM";
+  // The next morning, or from 9 PM the one after (the database sets the real promise when it is paid)
+  const deliveryDay = deliveryDayWords(promisedMorningFrom());
+  const deliveryLine = `Delivery ${deliveryDay}`;
 
   /*
     Delivery address card (under the items): the default address until one is confirmed in the pop-up
@@ -994,7 +999,7 @@ export default function CartView() {
             {/* Paid together with the plan: the one-time items' own order */}
             {placedItemsOrder && (
               <p className={styles["order-placed-text"]}>
-                Your {placedItemsOrder.items.length} {placedItemsOrder.items.length === 1 ? "item arrives" : "items arrive"} (order {placedItemsOrder.orderId}) tomorrow by 7 AM ·{" "}
+                Your {placedItemsOrder.items.length} {placedItemsOrder.items.length === 1 ? "item arrives" : "items arrive"} (order {placedItemsOrder.orderId}) {deliveryDayWords(placedItemsOrder.promisedAt)} ·{" "}
                 <Link href="/account/orders">Track them</Link>
               </p>
             )}
@@ -1009,7 +1014,7 @@ export default function CartView() {
               </div>
               <div>
                 <dt>{placedOrder.subscription?.extendsOrderId ? "Plan runs until" : placedOrder.subscription ? "First delivery" : "Delivery"}</dt>
-                <dd>{placedOrder.subscription?.extendsOrderId && placedPlan ? formatPlanDate(placedPlan.endsOn) : "Tomorrow by 7 AM"}</dd>
+                <dd>{placedOrder.subscription?.extendsOrderId && placedPlan ? formatPlanDate(placedPlan.endsOn) : capitalised(deliveryDayWords(placedOrder.promisedAt))}</dd>
               </div>
             </dl>
             {placedOrder.deliverTo && <p className={styles["order-placed-address"]}>Delivering to {placedOrder.deliverTo}</p>}
@@ -1050,7 +1055,7 @@ export default function CartView() {
               {planBeingExtended
                 ? `Extending your ${planBeingExtended.planName} plan (currently ends on ${formatPlanDate(planBeingExtended.endsOn)})`
                 : cartSubscription
-                ? `${cartSubscription.planName} subscription${itemCount > 0 ? ` + ${itemCount} ${itemCount === 1 ? "item" : "items"}` : ""} · First delivery tomorrow by 7 AM`
+                ? `${cartSubscription.planName} subscription${itemCount > 0 ? ` + ${itemCount} ${itemCount === 1 ? "item" : "items"}` : ""} · First delivery ${deliveryDay}`
                 : `${itemCount} ${itemCount === 1 ? "item" : "items"} · ${deliveryLine}`}
             </p>
 

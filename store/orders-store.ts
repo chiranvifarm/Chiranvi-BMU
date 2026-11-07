@@ -555,6 +555,28 @@ export type RunningPlan = {
 
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 
+/*
+  The morning an order paid now would be delivered: the next one, or from 9 PM (India time) the one after that.
+  The database's private.promised_morning() sets the real promise; this is only for showing it before paying.
+*/
+export function promisedMorningFrom(now = new Date()) {
+  const hourInIndia = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hourCycle: "h23", timeZone: "Asia/Kolkata" }).format(now));
+  const morning = new Date(now);
+  morning.setDate(morning.getDate() + (hourInIndia >= 21 ? 2 : 1));
+  return morning.getTime();
+}
+
+// "tomorrow by 7 AM", or "on Tue, 10 Nov by 7 AM"
+export function deliveryDayWords(promisedAt: number | undefined) {
+  if (!promisedAt) return "soon";
+  const startOfDay = (time: number) => new Date(time).setHours(0, 0, 0, 0);
+  const daysAway = Math.round((startOfDay(promisedAt) - startOfDay(Date.now())) / DAY_IN_MILLISECONDS);
+  if (daysAway < 0) return "soon";
+  if (daysAway === 0) return "today by 7 AM";
+  if (daysAway === 1) return "tomorrow by 7 AM";
+  return `on ${new Date(promisedAt).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} by 7 AM`;
+}
+
 // Plans whose last delivery day is today or later; the first one bought comes first
 export function findRunningPlans(orderList: Order[], today = new Date()) {
   const plansByOrderId = new Map<string, RunningPlan>();
@@ -567,9 +589,9 @@ export function findRunningPlans(orderList: Order[], today = new Date()) {
       extendedPlan.endsOn = new Date(extendedPlan.endsOn.getTime() + subscription.days * DAY_IN_MILLISECONDS);
       continue;
     }
-    const firstDay = new Date(order.placedAt);
+    // The morning it was promised: the day after it was paid, or the day after that from 9 PM (older orders have none)
+    const firstDay = new Date(order.promisedAt ?? order.placedAt + DAY_IN_MILLISECONDS);
     firstDay.setHours(0, 0, 0, 0);
-    firstDay.setDate(firstDay.getDate() + 1);
     plansByOrderId.set(order.orderId, {
       orderId: order.orderId,
       planName: subscription.planName,

@@ -224,7 +224,7 @@ export default function OrderReceiptDialog({ order, onClose }: { order: Order; o
             {/* Once per checkout (on the plan's order when there was one) */}
             {order.platformFee ? (
               <div className={styles["receipt-bill-total-row"]}>
-                <dt>Platform fee</dt>
+                <dt>Platform fee{order.subscription ? " (includes convenience and digital processing fee)" : ""}</dt>
                 <dd>{rupees(order.platformFee)}</dd>
               </div>
             ) : null}

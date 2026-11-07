@@ -264,7 +264,7 @@ function SameAddressPlanDialog({
 }: {
   plan: RunningPlan;
   newPlan: CartSubscription;
-  amountToPay: number; // the plan's total after any coupon
+  amountToPay: number; // what extending the plan charges
   isLoggedIn: boolean;
   onExtend: (plan: RunningPlan) => void;
   onClose: () => void;
@@ -525,7 +525,9 @@ export default function CartView() {
   // Platform fee: only with a milk plan, once per checkout, on the plan's price before any coupon, paid with the
   // plan's order. One-time items alone pay none (their delivery fee still applies). It doesn't count towards
   // free delivery or a coupon's minimum order.
-  const platformFee = cartSubscription ? planPlatformFee(cartSubscription.planTotal, deliverySettings) : 0;
+  // (extending pays its own amount, and the same-address pop-up can turn a new plan into an extension)
+  const platformFeeFor = (isExtension: boolean) => (cartSubscription ? planPlatformFee(cartSubscription.planTotal, isExtension, deliverySettings) : 0);
+  const platformFee = platformFeeFor(Boolean(planBeingExtended));
   const isDeliveryFree = deliveryFee === 0;
   const toPay = afterDiscounts + deliveryFee;
   const youSave = discountOnMrp + itemsCouponDiscount + (deliveryQuote.crossedOutFee ?? deliveryFee) - deliveryFee;
@@ -647,7 +649,7 @@ export default function CartView() {
         },
       ],
       checkout: {
-        total: cartSubscription.planTotal - planCouponDiscount + platformFee,
+        total: cartSubscription.planTotal - planCouponDiscount + platformFeeFor(Boolean(planToExtend)),
         couponCode: isCouponForPlan ? appliedCoupon?.code : undefined,
         // Which coupon list the database checks the code against
         cartType: oneTimeItems.length > 0 ? "subscription-and-one-time" : "subscription",
@@ -723,7 +725,7 @@ export default function CartView() {
     const addressId = planToExtend ? undefined : chosenAddress?.id;
     if (plan) plan.checkout.addressId = addressId;
     if (items) items.checkout.addressId = addressId;
-    const started = await startPayment(plan, items, amountToPay);
+    const started = await startPayment(plan, items, amountToPay - platformFee + platformFeeFor(Boolean(planToExtend)));
     if ("error" in started) {
       setIsPlacingOrder(false);
       setPlaceOrderError(started.error);
@@ -1343,6 +1345,10 @@ export default function CartView() {
                     </div>
                   )}
                 </dl>
+                {/* What the platform fee is for */}
+                {platformFee > 0 && deliverySettings.planFeeRule?.extraPaise ? (
+                  <p className={styles["checkout-free-delivery-hint"]}>Platform fee includes the convenience and digital processing fee</p>
+                ) : null}
                 {/* One-time orders: free delivery from the owner's amount (₹500 → "above ₹499") */}
                 {!cartSubscription && (
                   <p className={styles["checkout-free-delivery-hint"]}>
@@ -1553,7 +1559,7 @@ export default function CartView() {
         <SameAddressPlanDialog
           plan={planAtPickedAddress}
           newPlan={cartSubscription}
-          amountToPay={amountToPay}
+          amountToPay={amountToPay - platformFee + platformFeeFor(true)}
           isLoggedIn={isLoggedIn}
           onExtend={(plan) => {
             closeSameAddressDialog();

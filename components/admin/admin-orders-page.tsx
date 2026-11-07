@@ -25,6 +25,7 @@ import {
   useAreTodayDeliveriesLoaded,
   useCarryOverOrderDeliveries,
   useTodayDeliveries,
+  useUpcomingStops,
   type Delivery,
 } from "@/store/admin-deliveries-store";
 import { useDeliveryAgents, useDeliveryRoutes, type DeliveryAgent, type DeliveryRoute } from "@/store/admin-routes-store";
@@ -147,13 +148,15 @@ function OrdersPage() {
   // A new stop is numbered after today's ones, and yesterday's unfinished ones must be in today's list first
   const areTodaysDeliveriesLoaded = useAreTodayDeliveriesLoaded();
   const areOrderStopsCarriedOver = useAreOrderStopsCarriedOver();
-  const areDeliveriesLoaded = areTodaysDeliveriesLoaded && areOrderStopsCarriedOver;
+  // An order for tomorrow already has its stop, dated that morning
+  const { stops: upcomingStops, areLoaded: areUpcomingStopsLoaded } = useUpcomingStops();
+  const areDeliveriesLoaded = areTodaysDeliveriesLoaded && areOrderStopsCarriedOver && areUpcomingStopsLoaded;
   const routes = useDeliveryRoutes();
   const deliveryOfOrder = useMemo(() => {
     const byOrder = new Map<string, Delivery>();
-    for (const delivery of todaysDeliveries) if (delivery.orderNumber) byOrder.set(delivery.orderNumber, delivery);
+    for (const delivery of [...upcomingStops, ...todaysDeliveries]) if (delivery.orderNumber) byOrder.set(delivery.orderNumber, delivery);
     return byOrder;
-  }, [todaysDeliveries]);
+  }, [todaysDeliveries, upcomingStops]);
   useCarryOverOrderDeliveries();
 
   // Opening this page counts as seeing the new orders: the sidebar badge and the bell's list clear

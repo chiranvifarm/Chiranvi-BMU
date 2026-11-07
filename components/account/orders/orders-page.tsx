@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import BestSellersSection from "@/components/landing/best-sellers/best-sellers-section";
 import { addProductToCart } from "@/store/cart-store";
-import { isFailedPayment, isOnItsWay, useOrdersAndFailedPayments, type Order, type OrderStatus } from "@/store/orders-store";
+import { deliveryDayWords, isFailedPayment, isOnItsWay, useOrdersAndFailedPayments, type Order, type OrderStatus } from "@/store/orders-store";
 import { AccountPageHeading } from "../account-dashboard-layout";
 import OrderReceiptDialog from "./order-receipt-dialog";
 import styles from "./orders-page.module.css";
@@ -197,7 +197,7 @@ export default function OrdersPage() {
                     {hasPaymentFailed ? (
                       <p className={styles["order-payment-failed-line"]}>The payment did not go through. No order was placed.</p>
                     ) : isActive ? (
-                      <p className={styles["order-arrival"]}>Arriving tomorrow by 7:00 AM</p>
+                      <p className={styles["order-arrival"]}>Arriving {deliveryDayWords(order.promisedAt)}</p>
                     ) : (
                       <p className={styles["order-number-and-date"]}>
                         {order.status === "cancelled" ? "Order cancelled · refund to your original payment method" : `Delivered ${formatOrderDate(order.placedAt)}`}

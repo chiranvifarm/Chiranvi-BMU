@@ -23,7 +23,7 @@ const frequentlyAskedQuestions = [
   {
     topicId: "subscription",
     question: "How do I pause my delivery?",
-    answer: "Go to Subscription and press Pause subscription. A pause is for 8 days or more. Ask before 8 PM; our team approves it, and your plan ends later by those days.",
+    answer: "Go to Subscription and press Pause subscription. You can pause for 1 to 22 days, between 9 AM and 9 PM, and the pause starts the next day. Your plan ends later by the days you pause.",
   },
   {
     topicId: "delivery",

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { rememberPageAfterLogin, useIsLoggedIn, useIsLoginStatusKnown, useLoggedInMobileNumber } from "@/components/login/login-status";
 import SiteFooter from "@/components/footer/site-footer";
@@ -332,10 +333,107 @@ function CardCartControl({ card, quantityInCart, isLoggedIn }: { card: ProductCa
       </Link>
     );
   }
+  return <AddButtonWithNightNotice cartProduct={cartProduct} />;
+}
+
+/*
+  The 9 PM rule (0051_nine_pm_cut_off.sql): an order paid before 9 PM (India time) arrives the next morning; at
+  9 PM or later, the morning after that. After 9 PM every ADD first says so in a pop-up: "Add to cart" goes on,
+  "Not now" (or Escape, or the dimmed page) adds nothing.
+*/
+const NIGHT_CUTOFF_HOUR = 21;
+
+// The time in India now: its hour, "10:15 PM", and the delivery day after 9 PM ("Wednesday, 11 November")
+function nightOrderDetails() {
+  const now = new Date();
+  const hour = Number(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata", hour: "numeric", hourCycle: "h23" }));
+  const timeNow = now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit", hour12: true }).toUpperCase();
+  const deliveryDay = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString("en-GB", {
+    timeZone: "Asia/Kolkata",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  return { isAfterCutoff: hour >= NIGHT_CUTOFF_HOUR, timeNow, deliveryDay };
+}
+
+// Where the pop-up goes: the outermost element that still has the site's fonts (app/layout.tsx sets them on a
+// wrapper inside <body>), so it is above the page and in Poppins / Ubuntu
+function popupHostOf(start: HTMLElement) {
+  let host: HTMLElement = start;
+  while (host.parentElement && getComputedStyle(host.parentElement).getPropertyValue("--font-poppins").trim()) host = host.parentElement;
+  return host === start ? document.body : host;
+}
+
+function AddButtonWithNightNotice({ cartProduct }: { cartProduct: CartProduct }) {
+  const [notice, setNotice] = useState<{ timeNow: string; deliveryDay: string; host: HTMLElement } | null>(null);
+
+  function pressAdd(event: MouseEvent<HTMLButtonElement>) {
+    const details = nightOrderDetails();
+    if (details.isAfterCutoff) setNotice({ timeNow: details.timeNow, deliveryDay: details.deliveryDay, host: popupHostOf(event.currentTarget) });
+    else addProductToCart(cartProduct);
+  }
+
+  // Escape closes it, like "Not now"
+  useEffect(() => {
+    if (!notice) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setNotice(null);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [notice]);
+
   return (
-    <button type="button" className={styles["all-products-add-button"]} onClick={() => addProductToCart(cartProduct)}>
-      ADD
-    </button>
+    <>
+      <button type="button" className={styles["all-products-add-button"]} onClick={pressAdd}>
+        ADD
+      </button>
+      {notice &&
+        createPortal(
+          <div className={styles["night-order-overlay"]} data-lenis-prevent>
+            <button type="button" aria-label="Not now" className={styles["night-order-dimmed-page"]} onClick={() => setNotice(null)} />
+            <div role="dialog" aria-modal="true" aria-labelledby="night-order-heading" className={styles["night-order-dialog"]}>
+              <span className={styles["night-order-icon"]} aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />
+                </svg>
+              </span>
+              <h2 id="night-order-heading" className={styles["night-order-heading"]}>
+                Ordering after 9 PM?
+              </h2>
+              <p className={styles["night-order-text"]}>
+                Orders placed before 9 PM arrive the next morning. It&apos;s <strong>{notice.timeNow}</strong> now, so yours will
+                arrive on
+              </p>
+              <p className={styles["night-order-day"]}>
+                {notice.deliveryDay}
+                <span>by 7 AM</span>
+              </p>
+              <p className={styles["night-order-product"]}>
+                {cartProduct.name} · {cartProduct.packSize}
+              </p>
+              <div className={styles["night-order-buttons"]}>
+                <button type="button" className={styles["night-order-cancel-button"]} onClick={() => setNotice(null)}>
+                  Not now
+                </button>
+                <button
+                  type="button"
+                  autoFocus
+                  className={styles["night-order-add-button"]}
+                  onClick={() => {
+                    addProductToCart(cartProduct);
+                    setNotice(null);
+                  }}
+                >
+                  Add to cart
+                </button>
+              </div>
+            </div>
+          </div>,
+          notice.host,
+        )}
+    </>
   );
 }
 

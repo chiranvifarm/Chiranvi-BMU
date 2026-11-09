@@ -296,7 +296,7 @@ export default function AboutUsPage() {
           Taste the difference of real desi dairy
         </h2>
         <p className={styles["about-us-call-to-action-text"]}>
-          Start with a trial pack or set up a daily milk subscription in under a minute.
+          Fresh from our farm to your door, every morning.
         </p>
         <div className={styles["about-us-call-to-action-buttons"]}>
           <Link href="/products" className={styles["about-us-button-filled"]}>

@@ -395,6 +395,84 @@ export type AgentStops = {
 
 const SLOT_ORDER: DeliverySlot[] = ["5–6 AM", "6–7 AM", "7–8 AM"];
 
+// A delivery as the agent's stop, with what the agent saved for it that day
+function agentStopOf(delivery: Delivery, routes: DeliveryRoute[], day: AgentDay): AgentStop {
+  const route = routes.find((existing) => existing.id === delivery.routeId);
+  const details = stopDetails(delivery, route);
+  const progress = progressOf(delivery, day.progress[delivery.id]);
+  return {
+    id: delivery.id,
+    status: delivery.status,
+    customerName: delivery.customerName,
+    phone: delivery.phone,
+    address: delivery.address,
+    slot: delivery.slot,
+    // The route's own stops, with no order behind them, are the daily milk round
+    isSubscription: delivery.orderNumber ? Boolean(delivery.isSubscription) : true,
+    routeRank: route ? routes.indexOf(route) : routes.length,
+    ...details,
+    ...progress,
+    requests: day.requests.filter((request) => request.deliveryId === delivery.id),
+  };
+}
+
+/*
+  Another day's stops, for the Up next calendar (view only; today's stops are useAgentStops):
+  - an earlier day: that day's stops, delivered or not;
+  - a later day: the stops already dated that day (one-time orders reach up to the day after tomorrow, 9 PM
+    rule) and the plans that will run that morning, which have no stop yet (my_plan_stops_for_day, 0053_…sql).
+  Order: the agent's saved order of that day, else as each morning lists them.
+*/
+export function useAgentStopsForDay(login: DeliveryAgentLogin, dateKey: string | null) {
+  const mobileNumber = login.state === "agent" ? login.mobileNumber : null;
+  const agentName = login.state === "agent" && login.agent ? login.agent.name : null;
+  const routes = useDeliveryRoutes();
+  const dayRecords = dayStore.useRecords();
+  // The day read last, kept with its date so a new date shows "loading" until its own answer is back
+  const [answer, setAnswer] = useState<{ dateKey: string; deliveries: Delivery[]; hasProblem: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!dateKey || !agentName) return;
+    let isCurrent = true;
+    async function readDay(day: string, agent: string) {
+      const supabase = createClient();
+      const isLater = day > toDateKey(new Date());
+      const [dated, plans] = await Promise.all([
+        supabase.from("panel_records").select("id, data").eq("module", "deliveries").eq("data->>date", day).eq("data->>agent", agent),
+        isLater ? supabase.rpc("my_plan_stops_for_day", { p_day: day }) : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (!isCurrent) return;
+      const datedStops = ((dated.data ?? []) as { id: string; data: Delivery }[]).map((row) => ({ ...row.data, id: row.id }));
+      const datedOrders = new Set(datedStops.map((delivery) => delivery.orderNumber).filter(Boolean));
+      const planStops = ((plans.data ?? []) as Delivery[]).filter((delivery) => !datedOrders.has(delivery.orderNumber));
+      setAnswer({ dateKey: day, deliveries: [...datedStops, ...planStops], hasProblem: Boolean(dated.error || plans.error) });
+    }
+    void readDay(dateKey, agentName);
+    return () => {
+      isCurrent = false;
+    };
+  }, [dateKey, agentName]);
+
+  return useMemo(() => {
+    const isLoaded = Boolean(dateKey) && answer?.dateKey === dateKey;
+    if (!dateKey || !mobileNumber || !answer || !isLoaded) return { stops: [] as AgentStop[], isLoaded, hasProblem: false };
+    const day = dayRecords.find((record) => record.id === dayIdOf(mobileNumber, dateKey)) ?? freshDay(dateKey);
+    const position = new Map(day.order.map((id, index) => [id, index]));
+    const stops = answer.deliveries
+      .map((delivery) => agentStopOf(delivery, routes, day))
+      .sort(
+        (first, second) =>
+          (position.get(first.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(second.id) ?? Number.MAX_SAFE_INTEGER) ||
+          (first.finishedAt ?? "").localeCompare(second.finishedAt ?? "") ||
+          first.routeRank - second.routeRank ||
+          Number(second.isSubscription) - Number(first.isSubscription) ||
+          SLOT_ORDER.indexOf(first.slot) - SLOT_ORDER.indexOf(second.slot) ||
+          first.id.localeCompare(second.id),
+      );
+    return { stops, isLoaded, hasProblem: answer.hasProblem };
+  }, [dateKey, mobileNumber, answer, dayRecords, routes]);
+}
+
 export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
   const mobileNumber = login.state === "agent" ? login.mobileNumber : null;
   const agentName = login.state === "agent" && login.agent ? login.agent.name : null;
@@ -412,25 +490,7 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
   const stops = useMemo(() => {
     if (!agentName) return [];
     const mine = deliveries.filter((delivery) => delivery.agent === agentName);
-    return mine.map((delivery): AgentStop => {
-      const route = routes.find((existing) => existing.id === delivery.routeId);
-      const details = stopDetails(delivery, route);
-      const progress = progressOf(delivery, day.progress[delivery.id]);
-      return {
-        id: delivery.id,
-        status: delivery.status,
-        customerName: delivery.customerName,
-        phone: delivery.phone,
-        address: delivery.address,
-        slot: delivery.slot,
-        // The route's own stops, with no order behind them, are the daily milk round
-        isSubscription: delivery.orderNumber ? Boolean(delivery.isSubscription) : true,
-        routeRank: route ? routes.indexOf(route) : routes.length,
-        ...details,
-        ...progress,
-        requests: day.requests.filter((request) => request.deliveryId === delivery.id),
-      };
-    });
+    return mine.map((delivery) => agentStopOf(delivery, routes, day));
   }, [agentName, deliveries, routes, day]);
 
   // New stops and stops moved away since the agent last looked: notifications

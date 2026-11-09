@@ -52,6 +52,9 @@ export type Delivery = {
   area?: string; // the order's area ("Kengeri")
   isSubscription?: boolean; // the order is a milk plan (the agent's Ongoing shows it under Subscriptions)
   isAutoAssigned?: boolean; // given to the route's agent by the database when paid (0050_auto_assign_orders.sql)
+  // One-time products outside the 8 areas, given to the route running nearest (0054_one_time_orders_anywhere_in_bengaluru.sql):
+  // the agent's app slots it in where it adds the least riding
+  isOutsideRoutes?: boolean;
   // A milk plan's delivery on a coming day, worked out by the database (0053_upcoming_plan_stops.sql), not saved:
   // the real stop is made that morning
   isPlanned?: boolean;

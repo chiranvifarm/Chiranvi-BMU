@@ -70,18 +70,30 @@ export default function AddressPage() {
               >
                 <div className={styles["address-card-heading-row"]}>
                   <h2 className={styles["address-label"]}>{address.label}</h2>
-                  {isDefault ? (
-                    <span className={styles["address-default-badge"]}>Default</span>
-                  ) : (
-                    <button
-                      type="button"
-                      aria-label={`Make ${address.label} the default address`}
-                      className={styles["address-switch-button"]}
-                      onClick={() => setDefaultAddress(address.id)}
-                    >
-                      Set as Default
-                    </button>
-                  )}
+                  <div className={styles["address-card-badges"]}>
+                    {/* The address on their Profile (changed only on the Profile page) */}
+                    {address.isProfileAddress && (
+                      <span className={styles["address-profile-badge"]} title="This is the address on your Profile. Change it on your Profile page.">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <circle cx="12" cy="8" r="4" />
+                          <path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6" />
+                        </svg>
+                        Profile address
+                      </span>
+                    )}
+                    {isDefault ? (
+                      <span className={styles["address-default-badge"]}>Default</span>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={`Make ${address.label} the default address`}
+                        className={styles["address-switch-button"]}
+                        onClick={() => setDefaultAddress(address.id)}
+                      >
+                        Set as Default
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <p className={styles["address-name"]}>{address.name}</p>
                 <p className={styles["address-line"]}>{formatAddressLine(address)}</p>

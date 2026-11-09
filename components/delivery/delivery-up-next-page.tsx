@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RouteMap } from "@/components/admin/admin-routes-page";
+import { toDateKey } from "@/store/admin-deliveries-store";
 import { useDeliveryRoutes, useDeliveryService } from "@/store/admin-routes-store";
 import {
+  STOP_OUTCOME_LABELS,
+  useAgentStopsForDay,
   distanceBetween,
   formatTime,
   hubNavigationLink,
@@ -28,8 +31,12 @@ import styles from "./delivery-up-next-page.module.css";
   Deliveries → Up next (/delivery/up-next): the stops after the ongoing ones, in route order.
   - Totals: stops left, distance left and the estimated finish time (riding plus a few minutes per stop).
   - Optimise route (nearest stop next, each time slot kept together) and Open route in Google Maps (from the
-    farm hub until the first stop of the day is finished; after that, from wherever the agent is). Open route
-    works only on duty.
+    farm hub until the first stop of the day is finished; after that, from wherever the agent is), under the
+    duty switch. Open route works only on duty.
+  - Under the map: < Nov 9 >, the day shown. Arrows move a day; the date opens a month calendar. Another day is
+    view only: an earlier day shows its stops (delivered or not); a later day the stops already dated it
+    (one-time orders reach up to the day after tomorrow) and the plans that will run that morning. The totals,
+    Load check and the list follow the day.
   - Route map: the same map as Routes & agents on the panel, with only this agent's routes. A route changed on
     the panel changes here. Under it, the farm hub (the pick-up point) with Navigate to hub, once its spot is saved.
   - Load check: the products needed for the stops still to go (the ongoing ones too), bottles to collect and
@@ -48,10 +55,20 @@ export default function DeliveryUpNextPage() {
   // The ongoing stops and everything after them, in order
   const stopsLeft = useMemo(() => [...ongoing, ...upNext], [ongoing, upNext]);
 
+  // The day on the calendar: today (the stops to work on) or another day, view only
+  const todayKey = toDateKey(new Date());
+  const [pickedDay, setPickedDay] = useState<string | null>(null);
+  const shownDay = pickedDay ?? todayKey;
+  const isToday = shownDay === todayKey;
+  const isEarlierDay = shownDay < todayKey;
+  const otherDay = useAgentStopsForDay(login, isToday ? null : shownDay);
+  const shownStops = isToday ? stopsLeft : otherDay.stops;
+  const shownDayName = dayName(shownDay);
+
   // Distance from the stop before (the first one has none: the agent is there or going there)
   const legs = useMemo(
-    () => stopsLeft.map((stop, index) => (index === 0 ? 0 : distanceBetween(stopsLeft[index - 1], stop))),
-    [stopsLeft],
+    () => shownStops.map((stop, index) => (index === 0 ? 0 : distanceBetween(shownStops[index - 1], stop))),
+    [shownStops],
   );
   const distanceLeft = legs.reduce((sum, leg) => sum + leg, 0);
   // The time now, moved on every minute so the estimated finish stays current
@@ -60,12 +77,13 @@ export default function DeliveryUpNextPage() {
     const clock = window.setInterval(() => setNow(Date.now()), 60000);
     return () => window.clearInterval(clock);
   }, []);
-  const finishTime = new Date(now + minutesFor(distanceLeft, stopsLeft.length) * 60000);
+  const ridingMinutes = minutesFor(distanceLeft, shownStops.length);
+  const finishTime = new Date(now + ridingMinutes * 60000);
 
-  // Load check: what has to be on the vehicle for the stops still to go
+  // Load check: what has to be on the vehicle for the stops shown
   const load = useMemo(() => {
     const products = new Map<string, { name: string; packSize: string; quantity: number }>();
-    for (const stop of stopsLeft) {
+    for (const stop of shownStops) {
       for (const item of stop.items) {
         const key = `${item.name}|${item.packSize}`;
         const kept = products.get(key);
@@ -74,66 +92,70 @@ export default function DeliveryUpNextPage() {
     }
     return {
       products: [...products.values()].sort((first, second) => second.quantity - first.quantity),
-      bottles: stopsLeft.reduce((sum, stop) => sum + stop.bottlesToCollect, 0),
-      cash: stopsLeft.reduce((sum, stop) => sum + stop.cashToCollect, 0),
+      bottles: shownStops.reduce((sum, stop) => sum + stop.bottlesToCollect, 0),
+      cash: shownStops.reduce((sum, stop) => sum + stop.cashToCollect, 0),
     };
-  }, [stopsLeft]);
+  }, [shownStops]);
 
   const unfinishedIds = stopsLeft.map((stop) => stop.id);
+  const stopWord = (count: number) => `${count} stop${count === 1 ? "" : "s"}`;
+  const loadText = isToday
+    ? `What you need on the vehicle for the ${stopWord(shownStops.length)} left.`
+    : isEarlierDay
+      ? `What the ${stopWord(shownStops.length)} on ${shownDayName} needed.`
+      : `What you'll need on the vehicle for the ${stopWord(shownStops.length)} on ${shownDayName}.`;
 
   return (
     <>
-      <DeliveryPageHeading
-        title="Up next"
-        description="Your stops after the current ones, in the order you'll ride them."
-      >
-        {upNext.length > 1 && (
-          <button
-            type="button"
-            className={`${deliveryButtonStyles.outlined} ${deliveryButtonStyles.small}`}
-            onClick={() => optimiseRoute(login.mobileNumber, ongoing, upNext)}
-          >
-            Optimise route
-          </button>
+      {/* The heading, with the route buttons under the duty switch (today only: other days are view only) */}
+      <div className={styles["up-next-heading-row"]}>
+        <DeliveryPageHeading title="Up next" description="Your stops after the current ones, in the order you'll ride them." />
+        {isToday && stopsLeft.length > 0 && (
+          <div className={styles["up-next-route-actions"]}>
+            {upNext.length > 1 && (
+              <button
+                type="button"
+                className={`${deliveryButtonStyles.outlined} ${deliveryButtonStyles.small}`}
+                onClick={() => optimiseRoute(login.mobileNumber, ongoing, upNext)}
+              >
+                Optimise route
+              </button>
+            )}
+            {/* Customers' locations: only on duty (a link can't be switched off, so off duty it is a button) */}
+            {stops.isOnDuty ? (
+              <a
+                href={routeLink(stopsLeft, stops.completed.length === 0 ? hub : null)}
+                target="_blank"
+                rel="noreferrer"
+                className={`${deliveryButtonStyles.filled} ${deliveryButtonStyles.small}`}
+              >
+                Open route in Google Maps
+              </a>
+            ) : (
+              <button type="button" disabled className={`${deliveryButtonStyles.filled} ${deliveryButtonStyles.small}`}>
+                Open route in Google Maps
+              </button>
+            )}
+          </div>
         )}
-        {/* Customers' locations: only on duty (a link can't be switched off, so off duty it is a button) */}
-        {stopsLeft.length > 0 &&
-          (stops.isOnDuty ? (
-            <a
-              href={routeLink(stopsLeft, stops.completed.length === 0 ? hub : null)}
-              target="_blank"
-              rel="noreferrer"
-              className={`${deliveryButtonStyles.filled} ${deliveryButtonStyles.small}`}
-            >
-              Open route in Google Maps
-            </a>
-          ) : (
-            <button type="button" disabled className={`${deliveryButtonStyles.filled} ${deliveryButtonStyles.small}`}>
-              Open route in Google Maps
-            </button>
-          ))}
-      </DeliveryPageHeading>
+      </div>
       <DeliveryShiftNotices />
 
-      {login.route && stopsLeft.length === 0 && (
-        <DeliveryNotice title="No stops left" text="Every stop on your list is finished for today." />
-      )}
-
-      {stopsLeft.length > 0 && (
+      {shownStops.length > 0 && (
         <>
-          {/* Stops left, distance left, estimated finish */}
+          {/* Stops, distance, and the finish time (today) or riding time (another day) */}
           <div className={styles["up-next-totals"]}>
             <div className={styles["up-next-total"]}>
-              <span className={styles["up-next-total-value"]}>{stopsLeft.length}</span>
-              <span className={styles["up-next-total-label"]}>Stops left</span>
+              <span className={styles["up-next-total-value"]}>{shownStops.length}</span>
+              <span className={styles["up-next-total-label"]}>{isToday ? "Stops left" : "Stops"}</span>
             </div>
             <div className={styles["up-next-total"]}>
               <span className={styles["up-next-total-value"]}>{distanceLeft.toFixed(1)} km</span>
-              <span className={styles["up-next-total-label"]}>Distance left</span>
+              <span className={styles["up-next-total-label"]}>{isToday ? "Distance left" : "Distance"}</span>
             </div>
             <div className={styles["up-next-total"]}>
-              <span className={styles["up-next-total-value"]}>{formatTime(finishTime)}</span>
-              <span className={styles["up-next-total-label"]}>Estimated finish</span>
+              <span className={styles["up-next-total-value"]}>{isToday ? formatTime(finishTime) : durationText(ridingMinutes)}</span>
+              <span className={styles["up-next-total-label"]}>{isToday ? "Estimated finish" : "Riding time"}</span>
             </div>
           </div>
 
@@ -166,11 +188,11 @@ export default function DeliveryUpNextPage() {
               )}
             </section>
 
-            <section className={styles["up-next-card"]} aria-labelledby="up-next-load-title">
+            <section className={`${styles["up-next-card"]} ${styles["up-next-load-card"]}`} aria-labelledby="up-next-load-title">
               <h2 id="up-next-load-title" className={styles["up-next-card-title"]}>
                 Load check
               </h2>
-              <p className={styles["up-next-card-text"]}>What you need on the vehicle for the {stopsLeft.length} stops left.</p>
+              <p className={styles["up-next-card-text"]}>{loadText}</p>
               <ul className={styles["up-next-load-list"]}>
                 {load.products.map((product) => (
                   <li key={`${product.name}-${product.packSize}`} className={styles["up-next-load-item"]}>
@@ -194,10 +216,31 @@ export default function DeliveryUpNextPage() {
               )}
             </section>
           </div>
+        </>
+      )}
 
-          {/* The stops, in order */}
-          <ol className={styles["up-next-stop-list"]} aria-label="Stops left">
-            {stopsLeft.map((stop, index) => (
+      {/* The day: arrows a day back or forward, the date opens a month calendar */}
+      {login.agent && <DayPicker shownDay={shownDay} todayKey={todayKey} onPick={(day) => setPickedDay(day === todayKey ? null : day)} />}
+
+      {isToday && login.route && stopsLeft.length === 0 && (
+        <DeliveryNotice title="No stops left" text="Every stop on your list is finished for today." />
+      )}
+      {!isToday && !otherDay.isLoaded && <p className={styles["up-next-day-loading"]}>Loading {shownDayName}…</p>}
+      {!isToday && otherDay.isLoaded && otherDay.hasProblem && (
+        <DeliveryNotice title="Couldn't load this day" text="Check your internet and pick the day again." />
+      )}
+      {!isToday && otherDay.isLoaded && !otherDay.hasProblem && shownStops.length === 0 && (
+        <DeliveryNotice
+          title={`No stops on ${shownDayName}`}
+          text={isEarlierDay ? "You had no deliveries that day." : "Nothing is planned for that day yet."}
+        />
+      )}
+
+      {/* The stops, in order (another day: view only) */}
+      {shownStops.length > 0 && (
+        <ol className={styles["up-next-stop-list"]} aria-label={isToday ? "Stops left" : `Stops on ${shownDayName}`}>
+          {shownStops.map((stop, index) =>
+            isToday ? (
               <StopRow
                 key={stop.id}
                 stop={stop}
@@ -209,11 +252,155 @@ export default function DeliveryUpNextPage() {
                 canMoveDown={index >= ongoing.length && index < stopsLeft.length - 1}
                 onMove={(direction) => moveStop(login.mobileNumber, unfinishedIds, ongoing.length, stop.id, direction)}
               />
-            ))}
-          </ol>
-        </>
+            ) : (
+              <StopRow key={stop.id} stop={stop} number={index + 1} isOngoing={false} isOnDuty={stops.isOnDuty} distanceFromBefore={legs[index]} isViewOnly />
+            ),
+          )}
+        </ol>
       )}
     </>
+  );
+}
+
+// "Nov 9"
+function dayName(dateKey: string) {
+  return new Date(`${dateKey}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// 135 → "2 h 15 min"
+function durationText(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  return hours > 0 ? `${hours} h ${minutes % 60} min` : `${minutes} min`;
+}
+
+function moveDay(dateKey: string, days: number) {
+  const day = new Date(`${dateKey}T12:00:00`);
+  day.setDate(day.getDate() + days);
+  return toDateKey(day);
+}
+
+const WEEKDAY_INITIALS = ["M", "T", "W", "T", "F", "S", "S"];
+
+/*
+  < Nov 9 >: the arrows move a day back or forward; the date opens a month calendar (the account Subscription
+  calendar's style) to pick any day. Today has a yellow ring, the picked day is green. Escape or a click outside
+  closes it.
+*/
+function DayPicker({ shownDay, todayKey, onPick }: { shownDay: string; todayKey: string; onPick: (dateKey: string) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const areaRef = useRef<HTMLDivElement>(null);
+  // First day of the month the calendar shows (opens on the picked day's month)
+  const [shownMonth, setShownMonth] = useState(() => new Date(`${shownDay.slice(0, 7)}-01T12:00:00`));
+
+  useEffect(() => {
+    if (!isOpen) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsOpen(false);
+    }
+    function closeOnOutsideClick(event: PointerEvent) {
+      if (!areaRef.current?.contains(event.target as Node)) setIsOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+    };
+  }, [isOpen]);
+
+  function toggleCalendar() {
+    if (!isOpen) setShownMonth(new Date(`${shownDay.slice(0, 7)}-01T12:00:00`));
+    setIsOpen(!isOpen);
+  }
+
+  // The month's days in Monday-to-Sunday rows, with blanks before the 1st
+  const year = shownMonth.getFullYear();
+  const month = shownMonth.getMonth();
+  const blanks = (new Date(year, month, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthDays = Array.from({ length: daysInMonth }, (_, index) => toDateKey(new Date(year, month, index + 1)));
+
+  return (
+    <div className={styles["up-next-day-picker"]}>
+      <button type="button" aria-label="Previous day" className={styles["up-next-day-arrow"]} onClick={() => onPick(moveDay(shownDay, -1))}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M15 6l-6 6 6 6" />
+        </svg>
+      </button>
+      <div ref={areaRef} className={styles["up-next-day-button-area"]}>
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={isOpen}
+          aria-label={`${dayName(shownDay)}${shownDay === todayKey ? ", today" : ""}. Choose a day`}
+          className={styles["up-next-day-button"]}
+          onClick={toggleCalendar}
+        >
+          {dayName(shownDay)}
+        </button>
+        {isOpen && (
+          <div role="dialog" aria-label="Choose a day" className={styles["up-next-day-calendar"]}>
+            <div className={styles["up-next-day-calendar-month-row"]}>
+              <button
+                type="button"
+                aria-label="Previous month"
+                className={styles["up-next-day-calendar-month-arrow"]}
+                onClick={() => setShownMonth(new Date(year, month - 1, 1))}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M15 6l-6 6 6 6" />
+                </svg>
+              </button>
+              <p className={styles["up-next-day-calendar-month-name"]}>
+                {shownMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
+              </p>
+              <button
+                type="button"
+                aria-label="Next month"
+                className={styles["up-next-day-calendar-month-arrow"]}
+                onClick={() => setShownMonth(new Date(year, month + 1, 1))}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9 6l6 6-6 6" />
+                </svg>
+              </button>
+            </div>
+            <div className={styles["up-next-day-calendar-weekdays"]} aria-hidden="true">
+              {WEEKDAY_INITIALS.map((initial, index) => (
+                <span key={index}>{initial}</span>
+              ))}
+            </div>
+            <div className={styles["up-next-day-calendar-days"]}>
+              {Array.from({ length: blanks }, (_, index) => (
+                <span key={`blank-${index}`} />
+              ))}
+              {monthDays.map((dateKey) => (
+                <button
+                  key={dateKey}
+                  type="button"
+                  aria-pressed={dateKey === shownDay}
+                  aria-label={dayName(dateKey)}
+                  className={`${styles["up-next-day-calendar-day"]} ${dateKey === todayKey ? styles["up-next-day-calendar-day-today"] : ""} ${
+                    dateKey === shownDay ? styles["up-next-day-calendar-day-picked"] : ""
+                  }`}
+                  onClick={() => {
+                    onPick(dateKey);
+                    setIsOpen(false);
+                  }}
+                >
+                  {Number(dateKey.slice(8))}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      <button type="button" aria-label="Next day" className={styles["up-next-day-arrow"]} onClick={() => onPick(moveDay(shownDay, 1))}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+      </button>
+    </div>
   );
 }
 
@@ -223,18 +410,20 @@ function StopRow({
   isOngoing,
   isOnDuty,
   distanceFromBefore,
-  canMoveUp,
-  canMoveDown,
+  canMoveUp = false,
+  canMoveDown = false,
   onMove,
+  isViewOnly = false,
 }: {
   stop: AgentStop;
   number: number;
   isOngoing: boolean;
   isOnDuty: boolean;
   distanceFromBefore: number;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  onMove: (direction: -1 | 1) => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onMove?: (direction: -1 | 1) => void;
+  isViewOnly?: boolean; // another day on the calendar: no moving
 }) {
   const hasHighlight = Boolean(stop.note) || stop.changedByDispatch || stop.bottlesToCollect > 0;
   return (
@@ -250,6 +439,16 @@ function StopRow({
             <span className={styles["up-next-stop-now"]}>Now</span>
           ) : (
             <span className={styles["up-next-stop-distance"]}>{distanceFromBefore.toFixed(1)} km from the stop before</span>
+          )}
+          {/* An earlier day: how the stop ended */}
+          {stop.outcome && (
+            <span
+              className={`${styles["up-next-stop-outcome"]} ${
+                stop.outcome === "not-delivered" ? styles["up-next-stop-outcome-missed"] : styles["up-next-stop-outcome-delivered"]
+              }`}
+            >
+              {STOP_OUTCOME_LABELS[stop.outcome]}
+            </span>
           )}
         </div>
         <p className={styles["up-next-stop-customer"]}>{stop.customerName}</p>
@@ -273,7 +472,7 @@ function StopRow({
           </div>
         )}
       </div>
-      {!isOngoing && (
+      {!isOngoing && !isViewOnly && onMove && (
         <div className={styles["up-next-stop-move"]}>
           <button type="button" className={styles["up-next-move-button"]} aria-label={`Move ${stop.customerName} up`} disabled={!canMoveUp} onClick={() => onMove(-1)}>
             <svg viewBox="0 0 24 24" aria-hidden="true">

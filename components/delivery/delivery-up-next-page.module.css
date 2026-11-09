@@ -1,7 +1,26 @@
 /*
   Deliveries → Up next. Sizes in --delivery-pixel (set by the Delivery Panel frame).
-  Totals in a row, then the route map and load check side by side (stacked on phones), then the stops.
+  Totals in a row, then the route map and load check side by side (stacked on phones), then the day picker
+  (< Nov 9 >) and the stops.
 */
+
+/* The heading, with the route buttons at the right under the duty switch (switch 38 + gap 10) */
+.up-next-heading-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  column-gap: calc(12 * var(--delivery-pixel));
+}
+
+.up-next-route-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: calc(8 * var(--delivery-pixel));
+  margin-top: calc(48 * var(--delivery-pixel));
+  margin-bottom: calc(16 * var(--delivery-pixel));
+}
 
 .up-next-totals {
   display: grid;
@@ -54,12 +73,15 @@
   flex-direction: column;
 }
 
-/* Never shorter than this shape, so a long route is not cut off; it grows with the Load check card */
+/* A wide, short map that still shows each route to its end (the map crops above and below this shape) */
 .up-next-map-area {
   position: relative;
-  flex: 1 0 auto;
-  aspect-ratio: 520 / 340;
-  min-height: calc(240 * var(--delivery-pixel));
+  aspect-ratio: 520 / 330;
+  /* Big screens: no wider (so no taller) than this, in the middle of its card */
+  width: 100%;
+  max-width: calc(520 * var(--delivery-pixel));
+  margin-right: auto;
+  margin-left: auto;
   margin-top: calc(10 * var(--delivery-pixel));
   overflow: hidden;
   border-radius: calc(10 * var(--delivery-pixel));
@@ -99,11 +121,22 @@
 }
 
 /* Route map */
-/* Load check */
+/* Load check: a long list scrolls inside the card, so the card stays short */
+.up-next-load-card {
+  display: flex;
+  flex-direction: column;
+}
+
 .up-next-load-list {
   display: flex;
   flex-direction: column;
+  /* Takes the room the map gives the row, never sets the row height itself */
+  flex-grow: 1;
+  height: 0;
+  min-height: calc(130 * var(--delivery-pixel));
+  overflow-y: auto;
   list-style: none;
+  scrollbar-width: thin;
 }
 
 .up-next-load-item {
@@ -147,6 +180,188 @@
 .up-next-load-extra strong {
   font-family: var(--font-ubuntu), sans-serif;
   color: #1f4d2e;
+}
+
+/* < Nov 9 >: the day shown, as the account Subscription calendar's week buttons */
+.up-next-day-picker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(10 * var(--delivery-pixel));
+  margin-bottom: calc(16 * var(--delivery-pixel));
+}
+
+.up-next-day-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(36 * var(--delivery-pixel));
+  height: calc(36 * var(--delivery-pixel));
+  border: 1px solid #d9e2d8;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #1f4d2e;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.up-next-day-arrow:hover,
+.up-next-day-arrow:focus-visible {
+  background: #e6f0e1;
+}
+
+.up-next-day-arrow svg,
+.up-next-day-calendar-month-arrow svg {
+  width: 50%;
+  height: 50%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The month calendar opens under the date */
+.up-next-day-button-area {
+  position: relative;
+}
+
+.up-next-day-button {
+  min-width: calc(110 * var(--delivery-pixel));
+  height: calc(36 * var(--delivery-pixel));
+  padding: 0 calc(18 * var(--delivery-pixel));
+  border: 1px solid #d9e2d8;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(15 * var(--delivery-pixel));
+  font-weight: 700;
+  white-space: nowrap;
+  color: #1f4d2e;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.up-next-day-button:hover,
+.up-next-day-button:focus-visible,
+.up-next-day-button[aria-expanded="true"] {
+  border-color: #2f6b3a;
+  background: #e6f0e1;
+}
+
+.up-next-day-calendar {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8 * var(--delivery-pixel));
+  left: 50%;
+  width: calc(290 * var(--delivery-pixel));
+  padding: calc(14 * var(--delivery-pixel));
+  border: 1px solid #e7e8e2;
+  border-radius: calc(14 * var(--delivery-pixel));
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(22, 26, 23, 0.16);
+  transform: translateX(-50%);
+}
+
+.up-next-day-calendar-month-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.up-next-day-calendar-month-name {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(15 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #1b2a20;
+}
+
+.up-next-day-calendar-month-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(30 * var(--delivery-pixel));
+  height: calc(30 * var(--delivery-pixel));
+  border-radius: 50%;
+  color: #1b2a20;
+  cursor: pointer;
+}
+
+.up-next-day-calendar-month-arrow:hover,
+.up-next-day-calendar-month-arrow:focus-visible {
+  background: #e6f0e1;
+}
+
+/* M T W T F S S, and the days under them: seven equal columns */
+.up-next-day-calendar-weekdays,
+.up-next-day-calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: calc(3 * var(--delivery-pixel));
+}
+
+.up-next-day-calendar-weekdays {
+  margin-top: calc(10 * var(--delivery-pixel));
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(11 * var(--delivery-pixel));
+  font-weight: 700;
+  text-align: center;
+  color: #6b736c;
+}
+
+.up-next-day-calendar-days {
+  margin-top: calc(6 * var(--delivery-pixel));
+}
+
+.up-next-day-calendar-day {
+  height: calc(32 * var(--delivery-pixel));
+  border-radius: 50%;
+  font-size: calc(12.5 * var(--delivery-pixel));
+  color: #1b2a20;
+  cursor: pointer;
+}
+
+.up-next-day-calendar-day:hover,
+.up-next-day-calendar-day:focus-visible {
+  background: #e6f0e1;
+}
+
+/* Today: a yellow ring; the picked day: green */
+.up-next-day-calendar-day-today {
+  box-shadow: inset 0 0 0 1.5px #f5bf2c;
+  font-weight: 700;
+}
+
+.up-next-day-calendar-day-picked,
+.up-next-day-calendar-day-picked:hover,
+.up-next-day-calendar-day-picked:focus-visible {
+  background: #2f6b3a;
+  color: #ffffff;
+}
+
+.up-next-day-loading {
+  margin-bottom: calc(16 * var(--delivery-pixel));
+  font-size: calc(13 * var(--delivery-pixel));
+  text-align: center;
+  color: #6b736c;
+}
+
+/* An earlier day: how each stop ended (red only for Not delivered) */
+.up-next-stop-outcome {
+  padding: calc(2 * var(--delivery-pixel)) calc(10 * var(--delivery-pixel));
+  border-radius: 9999px;
+  font-size: calc(11.5 * var(--delivery-pixel));
+  font-weight: 600;
+}
+
+.up-next-stop-outcome-delivered {
+  background: #e6f0e1;
+  color: #1f4d2e;
+}
+
+.up-next-stop-outcome-missed {
+  background: #fdecea;
+  color: #b3261e;
 }
 
 /* The stops */
@@ -319,9 +534,16 @@
 }
 
 @media (max-width: 900px) {
+  /* The duty switch is in the top bar here, so the buttons sit right under the heading */
+  .up-next-route-actions {
+    justify-content: flex-start;
+    margin-top: 0;
+  }
+
   .up-next-card {
     padding: 18px;
   }
+
 
   .up-next-totals {
     gap: 8px;
@@ -336,12 +558,24 @@
   }
 
   .up-next-columns {
-    grid-template-columns: 1fr;
     gap: 12px;
   }
 
   .up-next-move-button {
     width: 40px;
     height: 40px;
+  }
+}
+
+/* Phones: the map and Load check stacked; the list has its own short height */
+@media (max-width: 600px) {
+  .up-next-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .up-next-load-list {
+    flex-grow: 0;
+    height: auto;
+    max-height: 260px;
   }
 }

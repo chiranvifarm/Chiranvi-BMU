@@ -47,7 +47,7 @@ import styles from "./admin-deliveries-page.module.css";
                "Reassign missed deliveries" gives the missed ones to another agent
   Route colours are Chiranvi greens and yellows. Earlier days (Custom range) can be looked at, not
   changed. Deliveries come from store/admin-deliveries-store.ts, routes and agents from
-  store/admin-routes-store.ts (Routes & agents page); both saved in this browser for now.
+  store/admin-routes-store.ts (Routes & agents page); both in the database.
 */
 
 const PAGE_SIZE = 14;

@@ -59,8 +59,8 @@ import styles from "./admin-product-page-form.module.css";
   - ProductPageCardActions: the page's Open, Edit page, Delete page (and Restore) buttons, inside its card's
     pop-up on Products & pricing (the cards themselves look as before).
   The pages are drawn by the template for their kind (components/product/*-product-page.tsx); nothing is
-  coded per product. Saved by store/product-pages-store.ts: in this browser until Supabase is connected, so
-  for now changes show only in this browser. A product added here also gets its card(s) on Products &
+  coded per product. Saved by store/product-pages-store.ts in the database ("product_pages"), so a published
+  page shows to every customer and a draft only in the panel. A product added here also gets its card(s) on Products &
   pricing (products-store); editing or deleting it updates or removes those cards too.
 */
 
@@ -1026,7 +1026,7 @@ export function ProductPageForm({
             {status === "draft" ? "Preview" : "Open"} /products/{savedSlug}
           </a>
           <p className={styles["admin-product-page-hint"]}>
-            Until the database (Supabase) is connected, this is saved in this browser only, so customers do not see it yet.
+            {status === "draft" ? "Saved as a draft: only the panel can preview it. Publish it to show it to customers." : "Saved and published: customers can see it on the website now."}
           </p>
         </div>
       </AdminDialog>

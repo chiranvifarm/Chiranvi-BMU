@@ -47,7 +47,7 @@ export const STOP_OUTCOME_LABELS: Record<StopOutcome, string> = {
   "not-delivered": "Not delivered",
 };
 
-// Proof of delivery: the OTP the customer read out, or a photo (small, kept in this browser)
+// Proof of delivery: the OTP the customer read out, or a photo (small, saved with the agent's day in the database)
 export type StopProof = { kind: "otp"; code: string } | { kind: "photo"; photo: string };
 
 export const NOT_DELIVERED_REASONS = [
@@ -776,7 +776,7 @@ export function photoFromVideo(video: HTMLVideoElement) {
   return canvas.toDataURL("image/jpeg", 0.7);
 }
 
-// A photo taken for proof, made small (longest side 480) so it fits in the browser's storage
+// A photo taken for proof, made small (longest side 480) so the agent's day stays small in the database
 export function shrinkPhoto(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

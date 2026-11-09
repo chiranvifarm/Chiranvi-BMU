@@ -1,7 +1,7 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { markPanelPageSeen, useIsAccountStateLoaded, usePanelSeenAt } from "./account-state";
-import { useLoggedInMobileNumber } from "@/components/login/login-status";
+import { readLoggedInMobileNumber, useLoggedInMobileNumber } from "@/components/login/login-status";
 import type { CartItem } from "./cart-store";
 import type { OrderPaymentMethod } from "./admin-orders-store";
 import type { MapPin } from "./address-store";
@@ -355,16 +355,6 @@ export function markOrderUpdatesSeen() {
 // Paid (or placed before payments) and not yet delivered or cancelled
 export function isOnItsWay(order: Order) {
   return !isFailedPayment(order) && order.status !== "delivered" && order.status !== "cancelled";
-}
-
-// The logged-in number, read from the login saved in this browser
-function readLoggedInMobileNumber(): string | null {
-  try {
-    const savedLogin = JSON.parse(window.localStorage.getItem("chiranvi-login") ?? "null");
-    return typeof savedLogin?.mobileNumber === "string" ? savedLogin.mobileNumber : null;
-  } catch {
-    return null;
-  }
 }
 
 // Orders still on their way (shown as the badge next to "Orders" in the dashboard sidebar).

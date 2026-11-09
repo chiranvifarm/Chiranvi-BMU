@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { useLoggedInMobileNumber } from "@/components/login/login-status";
+import { readLoggedInMobileNumber, useLoggedInMobileNumber } from "@/components/login/login-status";
 import { createClient } from "@/lib/supabase/client";
 import { ensureCustomerRowId, loadCustomerProfile, saveCustomerProfile, useCustomerProfile, type CustomerProfile } from "./customer-profiles-store";
 
@@ -103,16 +103,6 @@ function toRow(details: AddressDetails) {
     pincode: details.pincode.trim(),
     ...(details.pin === undefined ? {} : { latitude: details.pin?.latitude ?? null, longitude: details.pin?.longitude ?? null }),
   };
-}
-
-// The logged-in number, read from the login saved in this browser (store functions are not hooks)
-function readLoggedInMobileNumber(): string | null {
-  try {
-    const savedLogin = JSON.parse(window.localStorage.getItem("chiranvi-login") ?? "null");
-    return typeof savedLogin?.mobileNumber === "string" ? savedLogin.mobileNumber : null;
-  } catch {
-    return null;
-  }
 }
 
 function announce() {

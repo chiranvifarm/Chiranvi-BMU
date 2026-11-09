@@ -27,7 +27,7 @@ import sharedStyles from "./admin-shared.module.css";
                average pause length
     table      Paused / Unpaused / Resumed tabs; 14 a page; for information only: customers pause and
                unpause by themselves
-  Requests come from store/admin-pause-requests-store.ts (saved in this browser for now).
+  Requests come from store/admin-pause-requests-store.ts (in the database).
 */
 
 const PAGE_SIZE = 14;

@@ -40,7 +40,7 @@ import sharedStyles from "./admin-shared.module.css";
     table      All / Open / In progress / Resolved tabs; 14 a page; "..." changes the status or who
                handles it
   Red only where it is serious: open tickets and high priority. Tickets come from
-  store/admin-complaints-store.ts (saved in this browser for now).
+  store/admin-complaints-store.ts (in the database).
 */
 
 const PAGE_SIZE = 14;

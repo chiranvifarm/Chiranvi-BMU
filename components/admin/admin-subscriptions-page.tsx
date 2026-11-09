@@ -47,7 +47,7 @@ import leadStyles from "./admin-leads-page.module.css";
                the Plan column shows how long the customer subscribed for (3 months, 6 months, 1 year);
                "..." shows the plan's details (customer, address, order ID, payment, like an order's
                details on Orders), pauses, resumes or cancels a plan
-  Subscriptions come from store/admin-subscriptions-store.ts (saved in this browser for now), plans bought on
+  Subscriptions come from store/admin-subscriptions-store.ts (in the database), plans bought on
   the website included; a plan inside a pause approved on Pause requests shows as Paused.
 */
 

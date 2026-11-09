@@ -6,53 +6,33 @@ import { createClient } from "@/lib/supabase/client";
   session in this browser and renews it, so the login stays after a refresh and after closing the tab,
   until Log out. This file follows that session and gives the rest of the site the logged-in mobile
   number (10 digits), with the same functions as before, so the cart, account pages and Chiranvi Panel
-  did not have to change.
-  A copy of the number is also kept under "chiranvi-login" in localStorage: a few stores (addresses,
-  orders, panel team) still read it directly until they move to the database. That copy follows the
-  Supabase session: a copy without a session (e.g. from before real login) is cleared.
+  did not have to change. The number comes only from the Supabase session: nothing about the login is kept
+  in browser storage. (An older copy, "chiranvi-login" in localStorage, is deleted.) Stores that aren't
+  React components read it with readLoggedInMobileNumber().
   Other open tabs follow along (Supabase tells every tab about a login or logout).
 
   Page after login: the cart icon, profile icon and account pages note where the visitor wanted to go,
   so the login opens that page afterwards (the cart page when nothing was noted).
 */
 
-const LOGIN_STORAGE_KEY = "chiranvi-login";
+// Where an older version kept a copy of the number in this browser (deleted, never read)
+const OLD_LOGIN_STORAGE_KEY = "chiranvi-login";
 
 // The logged-in mobile number, 10 digits (for example "8754852810"), or null when logged out.
 let loggedInMobileNumber: string | null = null;
-let hasReadSavedLogin = false;
 // True once Supabase has said whether there is a session (pages wait for this before sending anyone to the login)
 let isSessionChecked = false;
 let isFollowingSupabase = false;
 let pageAfterLogin: string | null = null;
 const loginStatusListeners = new Set<() => void>();
 
-// Reads the saved copy once, so the first screen can already show the logged-in state
-function readSavedLogin() {
-  if (hasReadSavedLogin || typeof window === "undefined") return;
-  hasReadSavedLogin = true;
-  try {
-    const savedLogin = JSON.parse(window.localStorage.getItem(LOGIN_STORAGE_KEY) ?? "null");
-    loggedInMobileNumber = typeof savedLogin?.mobileNumber === "string" ? savedLogin.mobileNumber : null;
-  } catch {
-    loggedInMobileNumber = null;
-  }
-}
-
 function announceLoginStatusChange() {
   loginStatusListeners.forEach((onChange) => onChange());
 }
 
-// Saves (or clears) the copy of the logged-in number that the other stores read
-function saveLoginCopy(mobileNumber: string | null) {
+// The logged-in number changed (a login, a renewal for another number, or a logout)
+function setLoggedInMobileNumber(mobileNumber: string | null) {
   loggedInMobileNumber = mobileNumber;
-  hasReadSavedLogin = true;
-  try {
-    if (mobileNumber) window.localStorage.setItem(LOGIN_STORAGE_KEY, JSON.stringify({ mobileNumber }));
-    else window.localStorage.removeItem(LOGIN_STORAGE_KEY);
-  } catch {
-    // Storage blocked (private window): the login still works until the page is refreshed.
-  }
   announceLoginStatusChange();
 }
 
@@ -69,11 +49,16 @@ function tenDigitsOf(phone: string | undefined) {
 function followSupabaseSession() {
   if (isFollowingSupabase || typeof window === "undefined") return;
   isFollowingSupabase = true;
+  try {
+    window.localStorage.removeItem(OLD_LOGIN_STORAGE_KEY);
+  } catch {
+    // Storage blocked (private window): there is no old copy to delete
+  }
   createClient().auth.onAuthStateChange((event, session) => {
     // Called from inside Supabase: the work is done just after, as Supabase advises
     window.setTimeout(() => {
       const sessionMobile = tenDigitsOf(session?.user?.phone);
-      if (sessionMobile !== loggedInMobileNumber) saveLoginCopy(sessionMobile);
+      if (sessionMobile !== loggedInMobileNumber) setLoggedInMobileNumber(sessionMobile);
       if (event === "INITIAL_SESSION" && !isSessionChecked) {
         isSessionChecked = true;
         announceLoginStatusChange();
@@ -85,13 +70,13 @@ function followSupabaseSession() {
 // After "Verify & log in" succeeded with Supabase: show the logged-in state straight away.
 // mobileNumber: the 10 digits that were typed on the login page.
 export function rememberLogin(mobileNumber: string) {
-  saveLoginCopy(mobileNumber);
+  setLoggedInMobileNumber(mobileNumber);
 }
 
-// Log out of Supabase (in every tab of this browser) and forget the copy and the noted page
+// Log out of Supabase (in every tab of this browser) and forget the number and the noted page
 export function logOut() {
   pageAfterLogin = null;
-  saveLoginCopy(null);
+  setLoggedInMobileNumber(null);
   void createClient().auth.signOut();
 }
 
@@ -116,7 +101,14 @@ function subscribeToLoginStatus(onChange: () => void) {
 }
 
 function getLoggedInMobileNumber() {
-  readSavedLogin();
+  return loggedInMobileNumber;
+}
+
+/*
+  The logged-in number (10 digits) or null, for code that isn't a React component (a store saving an address
+  or an order). It is known once a page has shown the login state, which every page does before anyone can save.
+*/
+export function readLoggedInMobileNumber() {
   return loggedInMobileNumber;
 }
 

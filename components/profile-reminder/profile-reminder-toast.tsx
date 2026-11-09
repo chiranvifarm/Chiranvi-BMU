@@ -11,7 +11,7 @@ import {
   PROFILE_REMINDER_DONE_EVENT,
 } from "@/components/bulk-order/bulk-order-popup";
 import { useCustomerProfile, useIsCustomerProfileKnown } from "@/store/customer-profiles-store";
-import { useOrderUpdates, type OrderStatus, type OrderUpdate } from "@/store/orders-store";
+import { useOrders, useOrderUpdates, type OrderStatus, type OrderUpdate } from "@/store/orders-store";
 import styles from "./profile-reminder-toast.module.css";
 
 /*
@@ -50,18 +50,29 @@ const REMINDER_WORDS: Record<Reminder, { title: string; text: string; button: st
   per visit and slides out by itself after 8 seconds. Not on My Orders (the tracker is right there) or inside
   the panels.
 */
-const ORDER_UPDATE_WORDS: Partial<Record<OrderStatus, string>> = {
-  packed: "is packed",
-  "out-for-delivery": "is out for delivery",
-  delivered: "was delivered",
-  cancelled: "was cancelled",
+// The words after the products: one product, or more than one
+const ORDER_UPDATE_WORDS: Partial<Record<OrderStatus, { one: string; many: string }>> = {
+  packed: { one: "is packed", many: "are packed" },
+  "out-for-delivery": { one: "is out for delivery", many: "are out for delivery" },
+  delivered: { one: "was delivered", many: "were delivered" },
+  cancelled: { one: "was cancelled", many: "were cancelled" },
 };
+
+// The order by what is in it, not its number: "Your Jersey Cow Paneer", "Your Jersey Milk and 2 more items"
+function orderProductsText(items: { name: string }[] | undefined) {
+  const names = [...new Set((items ?? []).map((item) => item.name.trim()).filter(Boolean))];
+  if (names.length === 0) return { text: "Your order", isMany: false };
+  if (names.length === 1) return { text: `Your ${names[0]}`, isMany: false };
+  if (names.length === 2) return { text: `Your ${names[0]} and ${names[1]}`, isMany: true };
+  return { text: `Your ${names[0]} and ${names.length - 1} more items`, isMany: true };
+}
 
 const shownOrderUpdates = new Set<string>();
 
 export function OrderUpdateToast() {
   const pathname = usePathname();
   const newestUpdate = useOrderUpdates()[0];
+  const orders = useOrders();
   const [shownUpdate, setShownUpdate] = useState<OrderUpdate | null>(null);
   const isHiddenPage = pathname === "/account/orders" || pathname.startsWith("/admin") || pathname.startsWith("/delivery");
 
@@ -81,6 +92,8 @@ export function OrderUpdateToast() {
   }, [shownUpdate]);
 
   if (!shownUpdate || isHiddenPage) return null;
+  const products = orderProductsText(orders.find((order) => order.orderId === shownUpdate.orderId)?.items);
+  const statusWords = ORDER_UPDATE_WORDS[shownUpdate.status];
 
   return (
     <aside className={`${styles["profile-reminder-toast"]} ${styles["order-update-toast"]}`} role="status" aria-labelledby="order-update-title">
@@ -94,7 +107,7 @@ export function OrderUpdateToast() {
       </span>
       <div className={styles["profile-reminder-words"]}>
         <p id="order-update-title" className={styles["profile-reminder-title"]}>
-          Order {shownUpdate.orderId} {ORDER_UPDATE_WORDS[shownUpdate.status]}
+          {products.text} {products.isMany ? statusWords?.many : statusWords?.one}
         </p>
         <Link href="/account/orders" className={styles["profile-reminder-link"]} onClick={() => setShownUpdate(null)}>
           View order

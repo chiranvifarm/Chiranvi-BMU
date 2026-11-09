@@ -16,7 +16,7 @@ import {
   formatAddressLine,
   removeAddress,
   setDefaultAddress,
-  updateAddress,
+  saveAddressEdit,
   useAddressBook,
   type AddressDetails,
   type SavedAddress,
@@ -598,8 +598,8 @@ export default function CartView() {
   function saveAddress(addressDetails: AddressDetails, shouldBeDefault: boolean, profileDetails?: ProfileDetailsFromAddress) {
     let savedAddressId: string;
     if (addressBeingEdited) {
-      updateAddress(addressBeingEdited.id, addressDetails, shouldBeDefault);
-      savedAddressId = addressBeingEdited.id;
+      // The Profile's address stays as it is: a change to it is saved as a new address for this order
+      savedAddressId = saveAddressEdit(addressBeingEdited, addressDetails, shouldBeDefault);
     } else {
       savedAddressId = addAddress(addressDetails, shouldBeDefault);
     }

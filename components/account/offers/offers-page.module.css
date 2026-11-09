@@ -50,7 +50,7 @@
 .offers-coupon-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: calc(22 * var(--account-design-pixel));
+  gap: calc(16 * var(--account-design-pixel));
   margin-top: calc(14 * var(--account-design-pixel));
 }
 
@@ -61,8 +61,8 @@
 .offers-coupon-ticket {
   position: relative;
   display: flex;
-  gap: calc(24 * var(--account-design-pixel));
-  padding: calc(24 * var(--account-design-pixel));
+  gap: calc(16 * var(--account-design-pixel));
+  padding: calc(16 * var(--account-design-pixel));
   border-radius: calc(16 * var(--account-design-pixel));
   background: #ffffff;
 }
@@ -92,14 +92,14 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: calc(100 * var(--account-design-pixel));
-  height: calc(100 * var(--account-design-pixel));
+  width: calc(64 * var(--account-design-pixel));
+  height: calc(64 * var(--account-design-pixel));
   border-radius: calc(12 * var(--account-design-pixel));
 }
 
 .offers-coupon-icon-box svg {
-  width: 30%;
-  height: 30%;
+  width: 38%;
+  height: 38%;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -143,7 +143,7 @@
 
 .offers-coupon-title {
   font-family: var(--font-ubuntu), sans-serif;
-  font-size: calc(22 * var(--account-design-pixel));
+  font-size: calc(17 * var(--account-design-pixel));
   font-weight: 700;
   line-height: 1.3;
 }
@@ -167,7 +167,7 @@
   justify-content: space-between;
   gap: calc(12 * var(--account-design-pixel));
   margin-top: auto;
-  padding-top: calc(12 * var(--account-design-pixel));
+  padding-top: calc(8 * var(--account-design-pixel));
 }
 
 /* Code in a dashed box with a copy icon */
@@ -296,4 +296,69 @@
     align-items: flex-start;
     gap: 4px;
   }
+}
+
+/* Loading, couldn't load, and empty lists: a centred card with an icon, a heading and a line */
+.offers-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: calc(440 * var(--account-design-pixel));
+  margin: calc(36 * var(--account-design-pixel)) auto 0;
+  padding: calc(28 * var(--account-design-pixel)) calc(24 * var(--account-design-pixel));
+  border: 1px solid #e6f0e1;
+  border-radius: calc(16 * var(--account-design-pixel));
+  background: #ffffff;
+  text-align: center;
+}
+
+.offers-message-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(52 * var(--account-design-pixel));
+  height: calc(52 * var(--account-design-pixel));
+  border-radius: 50%;
+  background: #e6f0e1;
+  color: #2f6b3a;
+}
+
+.offers-message-icon svg {
+  width: 48%;
+  height: 48%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.offers-message-title {
+  margin-top: calc(14 * var(--account-design-pixel));
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(17 * var(--account-design-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+.offers-message-text {
+  margin-top: calc(6 * var(--account-design-pixel));
+  font-size: calc(13.5 * var(--account-design-pixel));
+  line-height: 1.5;
+  color: #6b736c;
+}
+
+/* Couldn't load: light yellow (not red, nothing is lost) */
+.offers-message-problem {
+  border-color: #f0e2bd;
+  background: #fbf3e1;
+}
+
+.offers-message-problem .offers-message-icon {
+  background: #ffffff;
+  color: #c99a1e;
+}
+
+.offers-message-problem .offers-message-title {
+  color: #7a5c0f;
 }

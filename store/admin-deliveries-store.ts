@@ -52,6 +52,9 @@ export type Delivery = {
   area?: string; // the order's area ("Kengeri")
   isSubscription?: boolean; // the order is a milk plan (the agent's Ongoing shows it under Subscriptions)
   isAutoAssigned?: boolean; // given to the route's agent by the database when paid (0050_auto_assign_orders.sql)
+  // A milk plan's delivery on a coming day, worked out by the database (0053_upcoming_plan_stops.sql), not saved:
+  // the real stop is made that morning
+  isPlanned?: boolean;
   // An order's stop: what to hand over and the cash to collect (only for a cash order), copied from the order
   // (the agent can't read the orders themselves)
   items?: { name: string; packSize: string; quantity: number; price: number }[];
@@ -533,7 +536,47 @@ export async function readEarlierDeliveries(from: Date, to: Date) {
   return rows.map((row) => ({ ...row.data, id: row.id }));
 }
 
-// Deliveries for the chosen dates: today's live list (nothing for other days yet)
+/*
+  Deliveries page, Custom range: the stops on the chosen days other than today (today's are in the live list).
+  The saved ones (earlier days, and orders already dated a coming morning), and for days after today the milk
+  plan deliveries the morning will make (0053_upcoming_plan_stops.sql, marked isPlanned). Earliest day first.
+  If the database can't work out the planned ones, only the saved stops come back.
+*/
+export async function readOtherDaysDeliveries(from: Date, to: Date) {
+  const todayKey = toDateKey(new Date());
+  const fromKey = toDateKey(from);
+  const toKey = toDateKey(to);
+  const supabase = createClient();
+  const saved: Delivery[] = [];
+  const pageSize = 1000;
+  for (let start = 0; ; start += pageSize) {
+    const { data, error } = await supabase
+      .from("panel_records")
+      .select("id, data")
+      .eq("module", "deliveries")
+      .gte("data->>date", fromKey)
+      .lte("data->>date", toKey)
+      .neq("data->>date", todayKey)
+      .order("id")
+      .range(start, start + pageSize - 1);
+    if (error) {
+      console.error("Could not read the deliveries for these dates", error);
+      break;
+    }
+    saved.push(...((data ?? []) as { id: string; data: Delivery }[]).map((row) => ({ ...row.data, id: row.id })));
+    if (!data || data.length < pageSize) break;
+  }
+  let planned: Delivery[] = [];
+  if (toKey > todayKey) {
+    const { data, error } = await supabase.rpc("upcoming_plan_stops", { from_day: fromKey, to_day: toKey });
+    if (error) console.error("Could not work out the planned plan deliveries", error);
+    else planned = (data ?? []) as Delivery[];
+  }
+  // Same day: keep the order they came in
+  return [...saved, ...planned].sort((first, second) => first.date.localeCompare(second.date));
+}
+
+// Deliveries for the chosen dates: today's live list (other days: readEarlierDeliveries, readOtherDaysDeliveries)
 export function getDeliveriesForRange(from: Date, to: Date, todaysDeliveries: Delivery[]) {
   const todayKey = toDateKey(new Date());
   const rows: Delivery[] = [];

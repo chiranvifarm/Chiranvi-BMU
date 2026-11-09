@@ -7,6 +7,7 @@ import {
   addDelivery,
   cancelDeliveryTransfer,
   getDeliveriesForRange,
+  readOtherDaysDeliveries,
   reassignMissed,
   setDeliveryStatus,
   toDateKey,
@@ -45,8 +46,9 @@ import styles from "./admin-deliveries-page.module.css";
     table      today's deliveries, 14 a page; the phone calls the customer; "..." marks a delivery
     side card  route progress: delivered / total per route with its agent, done time or expected finish;
                "Reassign missed deliveries" gives the missed ones to another agent
-  Route colours are Chiranvi greens and yellows. Earlier days (Custom range) can be looked at, not
-  changed. Deliveries come from store/admin-deliveries-store.ts, routes and agents from
+  Route colours are Chiranvi greens and yellows. Custom range shows earlier and coming days too; they
+  can be looked at, not changed. A coming day has the stops already dated that morning (orders) and the
+  milk plans' deliveries the morning will make, shown "Planned". Deliveries come from store/admin-deliveries-store.ts, routes and agents from
   store/admin-routes-store.ts (Routes & agents page); both in the database.
 */
 
@@ -123,10 +125,34 @@ function DeliveriesPage() {
 
   const todayKey = toDateKey(today);
   const isOnlyToday = toDateKey(rangeFrom) === todayKey && toDateKey(rangeTo) === todayKey;
+  const hasComingDays = toDateKey(rangeTo) > todayKey;
+
+  // Custom range: the other days' stops, read from the database for the chosen dates (null while reading)
+  const [otherDays, setOtherDays] = useState<{ fromKey: string; toKey: string; deliveries: Delivery[] } | null>(null);
+  useEffect(() => {
+    if (isOnlyToday) return;
+    let isStillWanted = true;
+    void readOtherDaysDeliveries(rangeFrom, rangeTo).then((deliveries) => {
+      if (isStillWanted) setOtherDays({ fromKey: toDateKey(rangeFrom), toKey: toDateKey(rangeTo), deliveries });
+    });
+    return () => {
+      isStillWanted = false;
+    };
+  }, [isOnlyToday, rangeFrom, rangeTo]);
+  // Read for these dates (not the dates chosen before)
+  const otherDaysDeliveries =
+    otherDays && otherDays.fromKey === toDateKey(rangeFrom) && otherDays.toKey === toDateKey(rangeTo) ? otherDays.deliveries : null;
+  const isReadingOtherDays = !isOnlyToday && otherDaysDeliveries === null;
 
   const inRange = useMemo(
-    () => getDeliveriesForRange(rangeFrom, rangeTo, todaysDeliveries),
-    [rangeFrom, rangeTo, todaysDeliveries],
+    () =>
+      isOnlyToday
+        ? todaysDeliveries
+        : // Earliest day first, today's live list in its place
+          [...getDeliveriesForRange(rangeFrom, rangeTo, todaysDeliveries), ...(otherDaysDeliveries ?? [])].sort((first, second) =>
+            first.date.localeCompare(second.date),
+          ),
+    [isOnlyToday, rangeFrom, rangeTo, todaysDeliveries, otherDaysDeliveries],
   );
   const words = searchText.trim().toLowerCase();
   const matching = useMemo(
@@ -261,6 +287,7 @@ function DeliveriesPage() {
           setRangeTo(to);
           setPage(1);
         }}
+        allowFutureDays
         onExport={exportDeliveries}
       />
 
@@ -314,7 +341,11 @@ function DeliveriesPage() {
                 {isOnlyToday ? "Today’s deliveries" : `Deliveries · ${formatDateRange(rangeFrom, rangeTo)}`}
               </h2>
               <p className={dashboardStyles["admin-card-subtitle"]}>
-                {isOnlyToday ? "Live status from agents’ app" : "Earlier days can be looked at, not changed"}
+                {isOnlyToday
+                  ? "Live status from agents’ app"
+                  : hasComingDays
+                    ? "Other days can be looked at, not changed · Planned: a milk plan’s delivery, made on its morning"
+                    : "Earlier days can be looked at, not changed"}
               </p>
             </div>
             {statusFilter && (
@@ -379,7 +410,9 @@ function DeliveriesPage() {
                       </td>
                       <td className={dashboardStyles["admin-orders-muted"]}>{delivery.slot}</td>
                       <td>
-                        <span className={`${dashboardStyles["admin-status"]} ${STATUS_CLASS_NAMES[delivery.status]}`}>{delivery.status}</span>
+                        <span className={`${dashboardStyles["admin-status"]} ${STATUS_CLASS_NAMES[delivery.status]}`}>
+                          {delivery.isPlanned ? "Planned" : delivery.status}
+                        </span>
                       </td>
                       <td>
                         <a
@@ -427,7 +460,11 @@ function DeliveriesPage() {
                 {pageItems.length === 0 && (
                   <tr>
                     <td colSpan={7} className={dashboardStyles["admin-orders-empty"]}>
-                      {inRange.length === 0 ? "No deliveries are scheduled for these dates." : "No deliveries match these filters."}
+                      {isReadingOtherDays
+                        ? "Reading the deliveries for these dates…"
+                        : inRange.length === 0
+                          ? "No deliveries are scheduled for these dates."
+                          : "No deliveries match these filters."}
                     </td>
                   </tr>
                 )}

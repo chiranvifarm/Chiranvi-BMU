@@ -258,6 +258,7 @@ export function AdminPageTop({
   rangeFrom,
   rangeTo,
   onRangeChange,
+  allowFutureDays = false,
   onExport,
   beforeExport,
   belowSearch,
@@ -275,6 +276,8 @@ export function AdminPageTop({
   rangeFrom?: Date;
   rangeTo?: Date;
   onRangeChange?: (from: Date, to: Date) => void;
+  // Days after today can be picked in Custom range (Deliveries: the coming mornings' deliveries)
+  allowFutureDays?: boolean;
   onExport?: () => void;
   // Shown just before Export (Products: the owner's "Set delivery charge" button)
   beforeExport?: ReactNode;
@@ -354,6 +357,7 @@ export function AdminPageTop({
                     rangeFrom={rangeFrom}
                     rangeTo={rangeTo}
                     today={today}
+                    allowFutureDays={allowFutureDays}
                     onChooseRange={(from, to) => {
                       onRangeChange(from, to);
                       setIsRangePickerOpen(false);

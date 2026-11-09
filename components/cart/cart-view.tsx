@@ -450,14 +450,17 @@ export default function CartView() {
   const chosenAddress =
     addresses.find((address) => address.id === (chosenAddressId ?? defaultAddressId)) ?? addresses[0] ?? null;
   /*
-    Can the picked address take a new order? Outside the service areas, or too far from the hub: contact the
-    farm, and a lead is saved so the team sees where people are asking from. No map pin: it has to be added.
+    Can the picked address take a new order? A milk plan: only the service areas (and near enough to the hub).
+    One-time products only: also anywhere in Bengaluru (the address's city). Otherwise: contact the farm, and a
+    lead is saved so the team sees where people are asking from. No map pin: it has to be added.
     The database checks the same at Pay now. Extending a plan keeps its address, so it isn't asked.
   */
   const deliveryService = useDeliveryService();
   const serviceProblem =
-    deliveryService && hasPickedAddress && chosenAddress && !planBeingExtended ? serviceProblemOf(chosenAddress, deliveryService) : null;
-  const isOutsideService = serviceProblem === "area" || serviceProblem === "far";
+    deliveryService && hasPickedAddress && chosenAddress && !planBeingExtended
+      ? serviceProblemOf(chosenAddress, deliveryService, Boolean(cartSubscription))
+      : null;
+  const isOutsideService = serviceProblem === "area" || serviceProblem === "city" || serviceProblem === "far";
   const leadSentForAddressRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isOutsideService || !chosenAddress || leadSentForAddressRef.current === chosenAddress.id) return;
@@ -1414,7 +1417,13 @@ export default function CartView() {
                 {isOutsideService && deliveryService && (
                   <div className={styles["checkout-service-notice"]} role="status">
                     <p>
-                      We don&apos;t deliver to {serviceProblem === "area" && chosenAddress ? chosenAddress.area : "this address"} yet. Please contact the farm and we&apos;ll
+                      We don&apos;t deliver to{" "}
+                      {serviceProblem === "area" && chosenAddress
+                        ? chosenAddress.area
+                        : serviceProblem === "city" && chosenAddress?.city.trim()
+                          ? chosenAddress.city.trim()
+                          : "this address"}{" "}
+                      yet. Please contact the farm and we&apos;ll
                       help you.
                     </p>
                     <div className={styles["checkout-service-contact-row"]}>

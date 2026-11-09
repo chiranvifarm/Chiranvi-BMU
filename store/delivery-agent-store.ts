@@ -12,7 +12,7 @@ import {
   type DeliveryStatus,
   createTodaysPlanStops,
 } from "./admin-deliveries-store";
-import { useDeliveryAgents, useDeliveryRoutes, type DeliveryAgent, type DeliveryRoute } from "./admin-routes-store";
+import { useDeliveryAgents, useDeliveryRoutes, useDeliveryService, type DeliveryAgent, type DeliveryRoute } from "./admin-routes-store";
 import { createPanelRecordStore } from "./panel-records";
 import { createClient } from "@/lib/supabase/client";
 
@@ -104,6 +104,7 @@ export type AgentStop = {
   cashToCollect: number; // rupees; 0 for prepaid orders
   changedByDispatch: boolean; // the panel added this stop today or moved it to this agent
   isSubscription: boolean; // a daily milk delivery (else a one-time order)
+  isOutsideRoutes: boolean; // one-time products outside the 8 areas, given to this route as the nearest (0054_…sql)
   routeRank: number; // its area's place in the route order
   latitude: number;
   longitude: number;
@@ -378,6 +379,47 @@ export function minutesFor(distanceKm: number, stops: number) {
   return Math.round((distanceKm / RIDING_KM_PER_HOUR) * 60 + stops * MINUTES_AT_EACH_STOP);
 }
 
+/*
+  One-time orders outside the 8 areas (isOutsideRoutes) that the agent hasn't placed themselves: each goes where
+  it adds the least riding between the stops around it; at the very beginning of the list, from `start` (the
+  last stop finished, else the hub once its spot is saved; none: no riding counted before the first stop). The
+  other stops keep their order, finished ones stay before, and a stop already picked up stays first.
+  Once the agent moves a stop or uses Optimise route, their saved order decides.
+*/
+function slotInOutsideStops(
+  stops: AgentStop[],
+  savedOrder: string[],
+  start: { latitude: number; longitude: number } | null,
+) {
+  const placedByAgent = new Set(savedOrder);
+  const toSlotIn = stops.filter((stop) => stop.isOutsideRoutes && !stop.outcome && !placedByAgent.has(stop.id));
+  if (toSlotIn.length === 0) return stops;
+  const list = stops.filter((stop) => !toSlotIn.includes(stop));
+  for (const stop of toSlotIn) {
+    // Not before the finished stops, nor before a stop already picked up
+    let firstIndex = list.findIndex((other) => !other.outcome);
+    if (firstIndex === -1) firstIndex = list.length;
+    if (list[firstIndex]?.step) firstIndex += 1;
+    let bestIndex = list.length;
+    let leastExtraKm = Number.POSITIVE_INFINITY;
+    for (let index = firstIndex; index <= list.length; index += 1) {
+      // Where the agent rides from: the stop before, or at the very beginning the start
+      const before = index === 0 ? start : list[index - 1];
+      const after = list[index] ?? null;
+      const extraKm =
+        (before ? distanceBetween(before, stop) : 0) +
+        (after ? distanceBetween(stop, after) : 0) -
+        (before && after ? distanceBetween(before, after) : 0);
+      if (extraKm < leastExtraKm) {
+        leastExtraKm = extraKm;
+        bestIndex = index;
+      }
+    }
+    list.splice(bestIndex, 0, stop);
+  }
+  return list;
+}
+
 // ---------- The agent's stops ----------
 
 export type AgentStops = {
@@ -409,6 +451,7 @@ function agentStopOf(delivery: Delivery, routes: DeliveryRoute[], day: AgentDay)
     slot: delivery.slot,
     // The route's own stops, with no order behind them, are the daily milk round
     isSubscription: delivery.orderNumber ? Boolean(delivery.isSubscription) : true,
+    isOutsideRoutes: Boolean(delivery.isOutsideRoutes),
     routeRank: route ? routes.indexOf(route) : routes.length,
     ...details,
     ...progress,
@@ -427,6 +470,7 @@ export function useAgentStopsForDay(login: DeliveryAgentLogin, dateKey: string |
   const mobileNumber = login.state === "agent" ? login.mobileNumber : null;
   const agentName = login.state === "agent" && login.agent ? login.agent.name : null;
   const routes = useDeliveryRoutes();
+  const hub = useDeliveryService()?.hub ?? null;
   const dayRecords = dayStore.useRecords();
   // The day read last, kept with its date so a new date shows "loading" until its own answer is back
   const [answer, setAnswer] = useState<{ dateKey: string; deliveries: Delivery[]; hasProblem: boolean } | null>(null);
@@ -469,8 +513,9 @@ export function useAgentStopsForDay(login: DeliveryAgentLogin, dateKey: string |
           SLOT_ORDER.indexOf(first.slot) - SLOT_ORDER.indexOf(second.slot) ||
           first.id.localeCompare(second.id),
       );
-    return { stops, isLoaded, hasProblem: answer.hasProblem };
-  }, [dateKey, mobileNumber, answer, dayRecords, routes]);
+    // Orders outside the 8 areas go where they add the least riding, as on the day itself
+    return { stops: slotInOutsideStops(stops, day.order, hub), isLoaded, hasProblem: answer.hasProblem };
+  }, [dateKey, mobileNumber, answer, dayRecords, routes, hub]);
 }
 
 export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
@@ -478,6 +523,7 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
   const agentName = login.state === "agent" && login.agent ? login.agent.name : null;
   const deliveries = useTodayDeliveries();
   const routes = useDeliveryRoutes();
+  const hub = useDeliveryService()?.hub ?? null;
   const day = useAgentDay(mobileNumber);
   const areDeliveriesLoaded = useAreTodayDeliveriesLoaded();
   // Each plan's stop for today
@@ -560,9 +606,11 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
       );
     });
     finished.sort((first, second) => (second.finishedAt ?? "").localeCompare(first.finishedAt ?? ""));
+    // Orders outside the 8 areas go where they add the least riding (from the last stop finished, else the hub)
+    const queue = slotInOutsideStops(unfinished, day.order, finished[0] ?? hub);
     return {
-      ongoing: unfinished.slice(0, 1),
-      upNext: unfinished.slice(1),
+      ongoing: queue.slice(0, 1),
+      upNext: queue.slice(1),
       completed: finished,
       isOnDuty: day.isOnDuty,
       isLoaded,
@@ -572,7 +620,7 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
       unreadNotifications: uniqueNotifications(day.notifications).filter((notification) => !day.readNotificationIds?.includes(notification.id)),
       knownPlanEvents: day.knownPlanEvents,
     };
-  }, [stops, day, isLoaded]);
+  }, [stops, day, isLoaded, hub]);
 }
 
 // ---------- The milk plans given to this agent (0035_… and 0036_…sql) ----------

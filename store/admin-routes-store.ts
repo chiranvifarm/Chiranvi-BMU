@@ -21,6 +21,10 @@ export type DeliveryRoute = {
   area: string;
   agent: string; // full name of the agent on this route ("": no agent yet)
   colour: string;
+  // The area's centre (0054_one_time_orders_anywhere_in_bengaluru.sql): how near the route runs to a one-time
+  // order outside the 8 areas. Dropped when the area changes (its stops' pins still count).
+  latitude?: number;
+  longitude?: number;
 };
 
 export type DeliveryHub = { name: string; latitude: number; longitude: number };
@@ -32,8 +36,9 @@ export type DeliveryService = {
   contactPhone: string; // 10 digits
 };
 
-// Why an address can't take a new order: not a service area, no map pin, or too far from the hub
-export type ServiceProblem = "area" | "pin" | "far";
+// Why an address can't take a new order: not a service area (milk plan), not in Bengaluru (one-time products),
+// no map pin, or too far from the hub (milk plan)
+export type ServiceProblem = "area" | "city" | "pin" | "far";
 
 export type DeliveryAgent = {
   name: string;
@@ -63,7 +68,12 @@ export function updateRoutes(changes: { id: string; area: string; agent: string 
   for (const change of changes) {
     const route = routeStore.getRecords().find((existing) => existing.id === change.id);
     if (!route || (route.area === change.area && route.agent === change.agent)) continue;
-    void routeStore.change(change.id, (existing) => ({ ...existing, area: change.area, agent: change.agent }),
+    void routeStore.change(
+      change.id,
+      (existing) =>
+        existing.area === change.area
+          ? { ...existing, agent: change.agent }
+          : { ...existing, area: change.area, agent: change.agent, latitude: undefined, longitude: undefined },
       route.agent === change.agent ? undefined : (agentPhoneOf(change.agent) ?? null));
   }
 }
@@ -144,15 +154,27 @@ export function kmBetween(from: { latitude: number; longitude: number }, to: { l
   return 2 * 6371 * Math.asin(Math.sqrt(a));
 }
 
-// The same check as the database's private.check_delivery_address (it has the last word at Pay now)
+// "Bengaluru", "Bangalore", "Bengaluru Urban", "Bangalore City"... (as the database's private.is_bengaluru)
+export function isBengaluruCity(city: string) {
+  return /^(bengaluru|bangalore)(urban|city)?$/.test(city.toLowerCase().replace(/[^a-z]/g, ""));
+}
+
+/*
+  The same check as the database's private.check_delivery_address (it has the last word at Pay now,
+  0054_one_time_orders_anywhere_in_bengaluru.sql). With a milk plan: the service areas only, and the hub's
+  distance limit. One-time products only: a service area or any address in Bengaluru (its city).
+*/
 export function serviceProblemOf(
-  address: { area: string; pin?: { latitude: number; longitude: number } | null },
+  address: { area: string; city: string; pin?: { latitude: number; longitude: number } | null },
   service: DeliveryService,
+  hasPlan: boolean,
 ): ServiceProblem | null {
   const area = address.area.trim().toLowerCase();
-  if (!service.areas.some((served) => served.trim().toLowerCase() === area)) return "area";
+  const isServiceArea = service.areas.some((served) => served.trim().toLowerCase() === area);
+  if (hasPlan && !isServiceArea) return "area";
+  if (!hasPlan && !isServiceArea && !isBengaluruCity(address.city)) return "city";
   if (!address.pin) return "pin";
-  if (service.hub && service.limitKm !== null && kmBetween(service.hub, address.pin) > service.limitKm) return "far";
+  if (hasPlan && service.hub && service.limitKm !== null && kmBetween(service.hub, address.pin) > service.limitKm) return "far";
   return null;
 }
 

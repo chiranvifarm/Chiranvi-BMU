@@ -1,64 +1,56 @@
 "use client";
 
 import { useState } from "react";
+import { useMyOffers, type CouponKind, type OfferCoupon } from "@/store/coupons-store";
 import { AccountPageHeading } from "../account-dashboard-layout";
 import styles from "./offers-page.module.css";
 
 /*
-  "My Offers" dashboard page (design): filter buttons (All / Available / Used / Expired), the available
-  coupons as tickets (copy the code, Apply or Share) and the used and expired coupons, faded.
-  The coupons are placeholders from the design. There is no checkout yet, so "Apply" only marks the
-  coupon as chosen (one at a time) until the page is refreshed.
+  "My Offers" dashboard page: filter buttons (All / Available / Used), the coupons the customer can use now as
+  tickets (tap the code to copy it, then use it in the cart) and the coupons they already used, faded, with the
+  day. The coupons are the admin's (Chiranvi Panel → Coupons & offers): every running one, read from the
+  database (useMyOffers, 0055_my_offers.sql).
 */
 
-type CouponFilter = "all" | "available" | "used" | "expired";
+type CouponFilter = "all" | "available" | "used";
 
 const couponFilters: { id: CouponFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "available", label: "Available" },
   { id: "used", label: "Used" },
-  { id: "expired", label: "Expired" },
 ];
 
-const availableCoupons = [
-  {
-    code: "FLAT100",
-    title: "₹50 off",
-    description: "On orders above ₹499",
-    validity: "Valid till 20 Oct",
-    iconColour: "green",
-    action: "apply",
-  },
-  {
-    code: "GHEE20",
-    title: "20% off",
-    description: "A2 Desi Ghee · up to ₹650 off",
-    validity: "Valid till 25 Oct",
-    iconColour: "yellow",
-    action: "apply",
-  },
-  {
-    code: "FREEDEL",
-    title: "Free delivery",
-    description: "On orders below ₹499",
-    validity: "3 uses left",
-    iconColour: "blue",
-    action: "apply",
-  },
-  {
-    code: "PRIYA100",
-    title: "₹100 credit",
-    description: "For every friend who subscribes",
-    validity: "No expiry",
-    iconColour: "green",
-    action: "share",
-  },
-] as const;
+// Each kind of coupon has its own icon colour
+const ICON_COLOURS: Record<CouponKind, "green" | "yellow" | "blue"> = {
+  flat: "green",
+  percent: "yellow",
+  "free-days": "blue",
+  referral: "green",
+};
 
-const usedAndExpiredCoupons = [
-  { code: "WELCOME50", title: "₹50 off", description: "Your first order", status: "used", statusText: "Used on 02 Oct" },
-  { code: "DIWALI25", title: "25% off", description: "Festive ghee offer", status: "expired", statusText: "Expired 20 Sep" },
-] as const;
+const rupees = (amount: number) => `₹${amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+
+// "₹50 off", "10% off", "3 days of milk free", "₹100 for each friend"
+function couponTitle(coupon: OfferCoupon) {
+  switch (coupon.kind) {
+    case "flat":
+      return `${rupees(coupon.value)} off`;
+    case "percent":
+      return `${coupon.value}% off`;
+    case "free-days":
+      return `${coupon.value} day${coupon.value === 1 ? "" : "s"} of milk free`;
+    case "referral":
+      return `${rupees(coupon.value)} for each friend`;
+    default:
+      return coupon.code;
+  }
+}
+
+// "9 Nov"
+const shortDay = (dayKey: string) => new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+// "Valid till 30 Nov", "No expiry"
+const validityText = (validTill: string | null) => (validTill ? `Valid till ${shortDay(validTill)}` : "No expiry");
 
 function CouponTagIcon() {
   return (
@@ -69,16 +61,29 @@ function CouponTagIcon() {
   );
 }
 
+// Loading, couldn't load, or an empty list: a centred card (light yellow when it couldn't load)
+function OffersMessage({ title, text, isProblem = false }: { title: string; text?: string; isProblem?: boolean }) {
+  return (
+    <div className={`${styles["offers-message"]} ${isProblem ? styles["offers-message-problem"] : ""}`} role={isProblem ? "alert" : "status"}>
+      <span className={styles["offers-message-icon"]}>
+        <CouponTagIcon />
+      </span>
+      <p className={styles["offers-message-title"]}>{title}</p>
+      {text && <p className={styles["offers-message-text"]}>{text}</p>}
+    </div>
+  );
+}
+
 export default function OffersPage() {
+  const offers = useMyOffers();
   const [selectedFilter, setSelectedFilter] = useState<CouponFilter>("all");
-  const [appliedCouponCode, setAppliedCouponCode] = useState<string | null>(null);
-  // The code just copied or shared, for the short "Copied" note on its button.
+  // The code just copied, for the short "Copied" note on it
   const [copiedCouponCode, setCopiedCouponCode] = useState<string | null>(null);
 
   const isAvailableShown = selectedFilter === "all" || selectedFilter === "available";
-  const shownUsedAndExpiredCoupons = usedAndExpiredCoupons.filter(
-    (coupon) => selectedFilter === "all" || coupon.status === selectedFilter,
-  );
+  const isUsedShown = selectedFilter === "all" || selectedFilter === "used";
+  const availableCoupons = offers && offers !== "problem" ? offers.available : [];
+  const usedCoupons = offers && offers !== "problem" ? offers.used : [];
 
   async function copyCouponCode(code: string) {
     try {
@@ -88,20 +93,6 @@ export default function OffersPage() {
     } catch {
       // Copying blocked by the browser: the code is still visible to copy by hand.
     }
-  }
-
-  // Share: the phone's share menu where there is one; otherwise the invite text is copied.
-  async function shareReferralCode(code: string) {
-    const inviteText = `Get fresh A2 milk from Chiranvi Farm. Use my code ${code} when you subscribe.`;
-    if (navigator.share) {
-      try {
-        await navigator.share({ text: inviteText });
-      } catch {
-        // Share menu closed: nothing to do.
-      }
-      return;
-    }
-    await copyCouponCode(code);
   }
 
   return (
@@ -128,28 +119,37 @@ export default function OffersPage() {
         }
       />
 
-      {isAvailableShown && (
+      {offers === null && <OffersMessage title="Loading your offers…" />}
+      {offers === "problem" && (
+        <OffersMessage isProblem title="Couldn't load your offers" text="Check your internet connection and try again." />
+      )}
+
+      {offers && offers !== "problem" && isAvailableShown && (
         <section aria-labelledby="available-coupons-heading">
           <h2 id="available-coupons-heading" className={styles["offers-section-heading"]}>
             Available coupons
           </h2>
-          <ul className={styles["offers-coupon-grid"]}>
-            {availableCoupons.map((coupon) => {
-              const isApplied = appliedCouponCode === coupon.code;
-              return (
+          {availableCoupons.length === 0 ? (
+            <OffersMessage title="No offers right now" text="New coupons will show up here. Check back soon." />
+          ) : (
+            <ul className={styles["offers-coupon-grid"]}>
+              {availableCoupons.map((coupon) => (
                 <li key={coupon.code} className={styles["offers-coupon-ticket"]}>
                   <span
-                    className={`${styles["offers-coupon-icon-box"]} ${styles[`offers-coupon-icon-box-${coupon.iconColour}`]}`}
+                    className={`${styles["offers-coupon-icon-box"]} ${styles[`offers-coupon-icon-box-${coupon.kind ? ICON_COLOURS[coupon.kind] : "green"}`]}`}
                   >
                     <CouponTagIcon />
                   </span>
 
                   <div className={styles["offers-coupon-details"]}>
                     <div className={styles["offers-coupon-title-row"]}>
-                      <h3 className={styles["offers-coupon-title"]}>{coupon.title}</h3>
-                      <p className={styles["offers-coupon-validity"]}>{coupon.validity}</p>
+                      <h3 className={styles["offers-coupon-title"]}>{couponTitle(coupon)}</h3>
+                      <p className={styles["offers-coupon-validity"]}>{validityText(coupon.validTill)}</p>
                     </div>
-                    <p className={styles["offers-coupon-description"]}>{coupon.description}</p>
+                    <p className={styles["offers-coupon-description"]}>
+                      {coupon.description}
+                      {coupon.minOrder ? ` · On orders above ${rupees(coupon.minOrder)}` : ""}
+                    </p>
 
                     <div className={styles["offers-coupon-bottom-row"]}>
                       <button
@@ -164,59 +164,45 @@ export default function OffersPage() {
                           <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" />
                         </svg>
                       </button>
-
-                      {coupon.action === "share" ? (
-                        <button
-                          type="button"
-                          className={styles["offers-coupon-action-button"]}
-                          onClick={() => shareReferralCode(coupon.code)}
-                        >
-                          Share
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          aria-pressed={isApplied}
-                          className={`${styles["offers-coupon-action-button"]} ${
-                            isApplied ? styles["offers-coupon-action-button-applied"] : ""
-                          }`}
-                          onClick={() => setAppliedCouponCode(isApplied ? null : coupon.code)}
-                        >
-                          {isApplied ? "Applied ✓" : "Apply"}
-                        </button>
-                      )}
+                      <p className={styles["offers-coupon-validity"]}>Use this code in your cart.</p>
                     </div>
                   </div>
                 </li>
-              );
-            })}
-          </ul>
+              ))}
+            </ul>
+          )}
         </section>
       )}
 
-      {shownUsedAndExpiredCoupons.length > 0 && (
+      {offers && offers !== "problem" && isUsedShown && (usedCoupons.length > 0 || selectedFilter === "used") && (
         <section aria-labelledby="used-coupons-heading">
           <h2 id="used-coupons-heading" className={styles["offers-section-heading"]}>
-            {selectedFilter === "used" ? "Used" : selectedFilter === "expired" ? "Expired" : "Used and expired"}
+            Used coupons
           </h2>
-          <ul className={styles["offers-coupon-grid"]}>
-            {shownUsedAndExpiredCoupons.map((coupon) => (
-              <li key={coupon.code} className={`${styles["offers-coupon-ticket"]} ${styles["offers-coupon-ticket-faded"]}`}>
-                <span className={`${styles["offers-coupon-icon-box"]} ${styles["offers-coupon-icon-box-grey"]}`}>
-                  <CouponTagIcon />
-                </span>
-                <div className={styles["offers-coupon-details"]}>
-                  <div className={styles["offers-coupon-title-row"]}>
-                    <h3 className={styles["offers-faded-coupon-title"]}>
-                      {coupon.title} · {coupon.code}
-                    </h3>
-                    <span className={styles["offers-coupon-status-badge"]}>{coupon.statusText}</span>
+          {usedCoupons.length === 0 ? (
+            <OffersMessage title="No coupons used yet" text="Coupons you use on your orders will show up here." />
+          ) : (
+            <ul className={styles["offers-coupon-grid"]}>
+              {usedCoupons.map((coupon) => (
+                <li key={`${coupon.code}-${coupon.orderNumber}`} className={`${styles["offers-coupon-ticket"]} ${styles["offers-coupon-ticket-faded"]}`}>
+                  <span className={`${styles["offers-coupon-icon-box"]} ${styles["offers-coupon-icon-box-grey"]}`}>
+                    <CouponTagIcon />
+                  </span>
+                  <div className={styles["offers-coupon-details"]}>
+                    <div className={styles["offers-coupon-title-row"]}>
+                      <h3 className={styles["offers-faded-coupon-title"]}>
+                        {couponTitle(coupon)} · {coupon.code}
+                      </h3>
+                      <span className={styles["offers-coupon-status-badge"]}>Used on {shortDay(coupon.usedOn)}</span>
+                    </div>
+                    <p className={styles["offers-coupon-description"]}>
+                      You saved {rupees(coupon.saving)} on order {coupon.orderNumber}
+                    </p>
                   </div>
-                  <p className={styles["offers-coupon-description"]}>{coupon.description}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       )}
     </>

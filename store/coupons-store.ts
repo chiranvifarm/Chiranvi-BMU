@@ -336,3 +336,67 @@ export function useCartCoupons(cart: CouponCart): CartCouponChoice[] {
 }
 
 const EMPTY_CART_COUPONS: CartCouponChoice[] = [];
+
+// ---------- My Offers (the customer's account page) ----------
+
+export type OfferCoupon = {
+  code: string;
+  description: string;
+  kind: CouponKind | null; // null: the coupon was deleted after it was used
+  value: number;
+  minOrder: number | null; // ₹
+  appliesTo: string;
+  validTill: string | null; // YYYY-MM-DD, null: no expiry
+};
+
+export type UsedCoupon = OfferCoupon & { usedOn: string; saving: number; orderNumber: string };
+
+export type MyOffers = { available: OfferCoupon[]; used: UsedCoupon[] };
+
+/*
+  The running coupons the admin made (not paused, started, not ended, uses left) and the coupons this customer
+  used on their orders (0055_my_offers.sql: the database answers only a logged-in person). Read when the page
+  opens and again when the window comes back into focus. null until the first answer; "problem" if it failed.
+*/
+export function useMyOffers(): MyOffers | null | "problem" {
+  const [offers, setOffers] = useState<MyOffers | null | "problem">(null);
+  useEffect(() => {
+    let isCurrent = true;
+    async function readOffers() {
+      const { data, error } = await createClient().rpc("my_offers");
+      if (!isCurrent) return;
+      if (error || !data) {
+        console.error("Could not read the offers", error);
+        setOffers((shown) => (shown && shown !== "problem" ? shown : "problem"));
+        return;
+      }
+      const answer = data as { available?: Record<string, unknown>[]; used?: Record<string, unknown>[] };
+      const toOffer = (row: Record<string, unknown>): OfferCoupon => ({
+        code: String(row.code ?? ""),
+        description: String(row.description ?? ""),
+        kind: (row.kind as CouponKind | null) ?? null,
+        value: Number(row.value ?? 0),
+        minOrder: row.minOrder === null || row.minOrder === undefined ? null : Number(row.minOrder),
+        appliesTo: String(row.appliesTo ?? ""),
+        validTill: (row.validTill as string | null) ?? null,
+      });
+      setOffers({
+        available: (answer.available ?? []).map(toOffer),
+        used: (answer.used ?? []).map((row) => ({
+          ...toOffer(row),
+          usedOn: String(row.usedOn ?? ""),
+          saving: Number(row.saving ?? 0),
+          orderNumber: String(row.orderNumber ?? ""),
+        })),
+      });
+    }
+    void readOffers();
+    const readAgain = () => void readOffers();
+    window.addEventListener("focus", readAgain);
+    return () => {
+      isCurrent = false;
+      window.removeEventListener("focus", readAgain);
+    };
+  }, []);
+  return offers;
+}

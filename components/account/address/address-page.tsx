@@ -5,8 +5,8 @@ import {
   addAddress,
   formatAddressLine,
   removeAddress,
+  saveAddressEdit,
   setDefaultAddress,
-  updateAddress,
   useAddressBook,
   type AddressDetails,
   type SavedAddress,
@@ -36,7 +36,8 @@ export default function AddressPage() {
   const closeForm = useCallback(() => setOpenForm({ mode: "closed" }), []);
 
   function saveAddress(addressDetails: AddressDetails, shouldBeDefault: boolean) {
-    if (openForm.mode === "edit") updateAddress(openForm.address.id, addressDetails, shouldBeDefault);
+    // The Profile's address stays as it is: a change to it is saved as a new address
+    if (openForm.mode === "edit") saveAddressEdit(openForm.address, addressDetails, shouldBeDefault);
     else addAddress(addressDetails, shouldBeDefault);
     closeForm();
   }

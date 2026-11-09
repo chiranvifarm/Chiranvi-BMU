@@ -302,9 +302,6 @@ export default function AboutUsPage() {
           <Link href="/products" className={styles["about-us-button-filled"]}>
             Shop Products
           </Link>
-          <Link href="/account/subscription" className={styles["about-us-button-outlined"]}>
-            Subscribe to Milk
-          </Link>
         </div>
       </section>
 

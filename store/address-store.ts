@@ -342,6 +342,30 @@ export function updateAddress(addressId: string, details: AddressDetails, should
   );
 }
 
+/*
+  An edit from the cart or My Addresses. The Profile's addresses (Home / Other) change only on the Profile page
+  (the panel shows them; a team member asks first), so editing one here saves a new address and the Profile one
+  stays as it is. Only its map pin can be added here (nothing else changed). Answers the id of the address saved.
+*/
+export function saveAddressEdit(address: SavedAddress, details: AddressDetails, shouldBeDefault: boolean) {
+  const sameText = (first: string, second: string) => first.trim().toLowerCase() === second.trim().toLowerCase();
+  const digitsOf = (number: string) => number.replace(/\D/g, "").slice(-10);
+  const isOnlyPinChange =
+    sameText(details.label, address.label) &&
+    sameText(details.name, address.name) &&
+    digitsOf(details.mobileNumber) === digitsOf(address.mobileNumber) &&
+    sameText(details.houseAndStreet, address.houseAndStreet) &&
+    sameText(details.area, address.area) &&
+    sameText(details.city, address.city) &&
+    sameText(details.pincode, address.pincode);
+  if (address.isProfileAddress && !isOnlyPinChange) {
+    // (a pin left as it was comes along to the new address)
+    return addAddress({ ...details, pin: details.pin === undefined ? address.pin : details.pin }, shouldBeDefault);
+  }
+  updateAddress(address.id, details, shouldBeDefault);
+  return address.id;
+}
+
 // Removing the default address makes the next one the default.
 export function removeAddress(addressId: string) {
   const mobileNumber = readLoggedInMobileNumber();

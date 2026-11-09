@@ -6,7 +6,7 @@ import styles from "./help-page.module.css";
 
 /*
   "Help" dashboard page (design): a search box and topic buttons that narrow the questions,
-  the frequently asked questions (click to open or close an answer; the first starts open)
+  the frequently asked questions (click to open or close an answer; all start closed)
   and the ways to contact us (WhatsApp, call, email).
   Answers other than the first, and the contact number and email, are placeholders until the
   real ones are provided.
@@ -74,9 +74,8 @@ function HelpIcon({ iconPaths }: { iconPaths: readonly string[] }) {
 export default function HelpPage() {
   const [searchText, setSearchText] = useState("");
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
-  const [openQuestions, setOpenQuestions] = useState<Set<string>>(
-    () => new Set([frequentlyAskedQuestions[0].question]),
-  );
+  // Every question starts closed; tapping one opens it
+  const [openQuestions, setOpenQuestions] = useState<Set<string>>(() => new Set());
 
   const searchWords = searchText.trim().toLowerCase();
   const shownQuestions = frequentlyAskedQuestions.filter(

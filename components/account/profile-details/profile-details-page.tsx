@@ -133,6 +133,31 @@ export default function ProfileDetailsPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isNumberOpen, setIsNumberOpen] = useState(false);
   const profileRequest = useMyTeamRecord()?.profileChange;
+  // A customer's Profile is used by the farm for their deliveries: it can change only once every order is
+  // delivered and no milk plan is running (the same check as Delete account). The team asks first instead.
+  const [editLock, setEditLock] = useState<EditLock | null>(null);
+
+  async function openEditDetails() {
+    setEditLock({ step: "checking" });
+    const check = await checkAccountDelete();
+    if (!check) {
+      setEditLock({ step: "could-not-check" });
+      return;
+    }
+    const reasons =
+      check.isOwner || check.teamRole
+        ? []
+        : [
+            ...(check.hasUndeliveredOrder ? ["Wait for your products to be delivered"] : []),
+            ...(check.hasRunningPlan ? ["Wait for your subscription to complete"] : []),
+          ];
+    if (reasons.length > 0) {
+      setEditLock({ step: "wait", reasons });
+      return;
+    }
+    setEditLock(null);
+    setIsEditOpen(true);
+  }
   const [switchedOnNotifications, setSwitchedOnNotifications] = useState(
     () => new Set(notificationSettings.filter((setting) => setting.isOnAtStart).map((setting) => setting.id)),
   );
@@ -204,9 +229,10 @@ export default function ProfileDetailsPage() {
         onEdited={() => setIsSavedMessageShown(false)}
         onOpenEdit={() => {
           setIsSavedMessageShown(false);
-          setIsEditOpen(true);
+          void openEditDetails();
         }}
       />
+      {editLock && <EditLockDialog editLock={editLock} onClose={() => setEditLock(null)} />}
 
       {isEditOpen && savedProfile && (
         <div className={styles["profile-delete-dialog-overlay"]} data-lenis-prevent>
@@ -780,6 +806,69 @@ function DeleteAccountButton({ mobileNumber }: { mobileNumber: string }) {
         />
       )}
     </>
+  );
+}
+
+// Edit details, asked first: checking, couldn't check, or what has to finish before the Profile can change
+type EditLock = { step: "checking" } | { step: "could-not-check" } | { step: "wait"; reasons: string[] };
+
+function EditLockDialog({ editLock, onClose }: { editLock: EditLock; onClose: () => void }) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  // Escape closes the box; OK is focused once it shows
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onCloseRef.current();
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, []);
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, [editLock.step]);
+
+  const words =
+    editLock.step === "checking"
+      ? { heading: "Edit details", text: "Checking your account…" }
+      : editLock.step === "could-not-check"
+        ? { heading: "Edit details", text: "Couldn't check your account. Check your internet and try again." }
+        : { heading: "You can't edit your details yet", text: "Your details are used for your deliveries. You can edit them once these are done:" };
+
+  return (
+    <div className={styles["profile-delete-dialog-overlay"]} data-lenis-prevent>
+      <button type="button" aria-label="Close" className={styles["profile-delete-dialog-dimmed-page"]} onClick={onClose} />
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="profile-edit-lock-heading"
+        aria-describedby="profile-edit-lock-description"
+        className={styles["profile-delete-dialog"]}
+      >
+        <h2 id="profile-edit-lock-heading" className={styles["profile-delete-dialog-heading"]}>
+          {words.heading}
+        </h2>
+        <p id="profile-edit-lock-description" className={styles["profile-delete-dialog-description"]}>
+          {words.text}
+        </p>
+        {editLock.step === "wait" && (
+          <ul className={styles["profile-delete-dialog-reasons"]}>
+            {editLock.reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        )}
+        {editLock.step !== "checking" && (
+          <div className={`${styles["profile-delete-dialog-buttons"]} ${styles["profile-delete-dialog-buttons-single"]}`}>
+            <button ref={closeButtonRef} type="button" className={styles["profile-delete-dialog-cancel-button"]} onClick={onClose}>
+              OK
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

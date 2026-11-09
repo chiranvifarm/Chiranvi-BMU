@@ -23,7 +23,7 @@ import styles from "./all-products-page.module.css";
   - Moringa powder has its own page. If that page is deleted in the panel, its card from the product list
     (store/products-store.ts) shows under "Powders" instead: that card does not open anything; ADD and the
     heart work. (Turmeric and Red Chilli powder are no longer sold; the panel can add them back.)
-  - ADD puts that pack in the cart (then "− 1 +"); not logged in, it goes to the login first.
+  - ADD puts that pack in the cart (then "− 1 +", and View cart under it); not logged in, it goes to the login first.
   - The heart saves the pack to the Wishlist (account → Wishlist); Notify me asks for a stock alert. Not
     logged in, both go to the login first (nothing is added without an account) and come back here.
   "View all products" and "Start Shopping" across the site lead here.
@@ -444,7 +444,15 @@ export function ProductCardTile({ card }: { card: ProductCard }) {
             View product
           </Link>
         ) : (
-          <CardCartControl card={card} quantityInCart={quantityInCart} isLoggedIn={isLoggedIn} />
+          <div className={styles["all-products-cart-actions"]}>
+            <CardCartControl card={card} quantityInCart={quantityInCart} isLoggedIn={isLoggedIn} />
+            {/* In the cart: a way straight to it, beside "− n +" (under it on phones) */}
+            {quantityInCart > 0 && (
+              <Link href="/cart" className={styles["all-products-view-cart-button"]}>
+                View cart
+              </Link>
+            )}
+          </div>
         )}
       </div>
     </li>

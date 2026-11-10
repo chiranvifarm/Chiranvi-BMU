@@ -967,14 +967,13 @@ export default function CartView() {
           {cartLimitMessage}
         </p>
       )}
-      <header className={styles["checkout-top-bar"]}>
-        <Link href="/" className={styles["checkout-logo"]} aria-label="Chiranvi Farm home">
-          <Image src="/images/brand/chiranvi-farm-logo.webp" alt="Chiranvi Farm" width={516} height={240} priority />
-        </Link>
+      {/* The site's navigation bar, as on every page, and the steps centred under it */}
+      <SiteNavigationPlacement />
+      <div className={styles["checkout-steps-row"]}>
         <CheckoutStepBar
           current={placedOrder ? "done" : planBeingExtended || hasPickedAddress ? "payment" : "address"}
         />
-      </header>
+      </div>
 
       <main className={styles["checkout-content"]}>
         {placedOrder ? (

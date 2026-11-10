@@ -23,25 +23,12 @@
   color: #1e2a22;
 }
 
-/* ---------- Top bar: logo and the steps ---------- */
+/* ---------- The steps (1 Cart · 2 Select address · 3 Payment), centred under the site's navigation bar ---------- */
 
-.checkout-top-bar {
-  position: sticky;
-  z-index: 20;
-  top: 0;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  height: calc(60 * var(--checkout-design-pixel));
-  padding: 0 calc(40 * var(--checkout-design-pixel));
-  border-bottom: 1px solid #ecede7;
-  background: #ffffff;
-}
-
-.checkout-logo img {
-  display: block;
-  width: auto;
-  height: calc(36 * var(--checkout-design-pixel));
+.checkout-steps-row {
+  display: flex;
+  justify-content: center;
+  padding: calc(20 * var(--checkout-design-pixel)) calc(40 * var(--checkout-design-pixel)) 0;
 }
 
 .checkout-steps {
@@ -813,9 +800,18 @@
 
 /* ---------- Order summary ---------- */
 
+/* Sticks just under the site's navigation bar (27 above it + 100 tall, in the landing page units) */
 .checkout-summary {
   position: sticky;
-  top: calc(72 * var(--checkout-design-pixel));
+  top: calc(
+    27 *
+      max(
+        100svh / 916,
+        min(var(--landing-viewport-width-at-starting-zoom, 100vw) / 1440, var(--landing-viewport-height-at-starting-zoom, 100svh) / 916)
+      ) +
+      100 * min(var(--landing-viewport-width-at-starting-zoom, 100vw) / 1440, var(--landing-viewport-height-at-starting-zoom, 100svh) / 916) +
+      16 * var(--checkout-design-pixel)
+  );
 }
 
 .checkout-coupon-form {
@@ -1842,18 +1838,8 @@
 /* ---------- Phones ---------- */
 
 @media (max-width: 640px) {
-  .checkout-top-bar {
-    grid-template-columns: auto 1fr;
-    gap: 12px;
-    height: 60px;
-  }
-
-  .checkout-logo img {
-    height: 34px;
-  }
-
-  .checkout-steps {
-    justify-content: flex-end;
+  .checkout-steps-row {
+    padding: 14px 16px 0;
   }
 
   .checkout-step {

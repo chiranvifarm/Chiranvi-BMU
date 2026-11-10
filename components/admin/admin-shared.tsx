@@ -634,7 +634,7 @@ export function useAdminToast() {
 const ROW_MENU_GAP = 8;
 
 /*
-  The "Actions" button with a small menu of actions for one row. The menu floats over the page (a table's
+  The ⋯ button (under the table's "Actions" column) with a small menu of actions for one row. The menu floats over the page (a table's
   scroll box would cut it off): under the button, or above it when the bottom of the screen is too close.
 */
 export function AdminRowMenu({
@@ -690,9 +690,10 @@ export function AdminRowMenu({
         aria-expanded={isOpen}
         onClick={() => setIsOpen((wasOpen) => !wasOpen)}
       >
-        Actions
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 9l6 6 6-6" />
+          <circle cx="5" cy="12" r="1.9" />
+          <circle cx="12" cy="12" r="1.9" />
+          <circle cx="19" cy="12" r="1.9" />
         </svg>
       </button>
       {isOpen && (

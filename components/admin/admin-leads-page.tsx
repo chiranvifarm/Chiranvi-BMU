@@ -1,12 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { getNameInitials } from "@/components/account/account-profile";
 import {
   LEAD_KIND_LABELS,
   LEAD_SOURCES,
   LEAD_STAGES,
-  SOCIAL_SOURCES,
   addLead,
   getLeadKind,
   moveLead,
@@ -24,6 +22,7 @@ import {
   AdminDialogField,
   AdminFilterTabs,
   AdminPageTop,
+  AdminPagination,
   AdminRowMenu,
   AdminStatCards,
   adminInputClassName,
@@ -36,42 +35,67 @@ import dashboardStyles from "./admin-dashboard.module.css";
 import styles from "./admin-leads-page.module.css";
 
 /*
-  Leads (/admin/leads), from the design 06-leads: enquiries from social media, the website, referrals,
-  Google and walk-ins, and people who logged in but haven't bought yet, on a board with five columns: New,
-  Contacted, Free trial, Converted, Lost.
+  Leads (/admin/leads): people who may become customers, in a table like All orders.
     top        search (name or phone), Add lead (pop-up form), Custom range (when the lead came in), Export
-    numbers    new leads, contacted, converted, conversion rate (for the chosen dates)
-    tabs       All, Profile not completed, No order yet, Location request, Bulk order, Social media
-    board      each column shows 6 cards and "+ N more" to open the rest; drag a card to another
-               column to move it, or use its "..." menu (also removes a lead)
-  Source tags use only Chiranvi colours (greens and yellows), each with its name written on it.
-  Leads come from store/admin-leads-store.ts (the database): real leads only, without the samples.
+    numbers    leads, contacted, converted, conversion rate (for the chosen dates)
+    table      NAME (and when they came in) · PHONE · TYPE · DETAILS · STATUS (a drop-down: New, Contacted,
+               Converted, Lost) · ACTIONS (⋯: Call, WhatsApp, Details, Remove). A row opens its details.
+    tabs       All, and one for each type:
+                 New customer         completed their Profile, no order yet
+                 Bulk order           sent the website's bulk order form
+                 Ordered for someone  a customer ordered for them (another name and number)
+                 Location request     asked for delivery to their area
+                 Added by staff       added with Add lead (social media, walk-ins ...)
+  People who logged in but didn't complete their Profile are kept out of sight: once they complete it they come
+  in as New customer by themselves. Leads come from store/admin-leads-store.ts (the database), real leads only.
 */
 
-const CARDS_SHOWN_PER_COLUMN = 6;
+const PAGE_SIZE = 14;
 
-type LeadFilter = "all" | LeadKind | "social";
+type LeadType = "no-order" | "bulk" | "ordered-for" | "location" | "staff";
 
-function isInFilter(lead: AdminLead, filter: LeadFilter) {
-  if (filter === "all") return true;
-  if (filter === "social") return SOCIAL_SOURCES.includes(lead.source);
-  return getLeadKind(lead) === filter;
-}
+const LEAD_TYPE_LABELS: Record<LeadType, string> = {
+  "no-order": "New customer",
+  bulk: "Bulk order",
+  "ordered-for": "Ordered for someone",
+  location: "Location request",
+  staff: "Added by staff",
+};
 
-function cardNote(lead: AdminLead) {
-  if (lead.stage === "new") {
-    const daysAgo = Math.max(1, Math.round((Date.now() - new Date(lead.createdAt).getTime()) / 86400000));
-    // Why they are a lead, while new
-    const kind = getLeadKind(lead);
-    return kind ? `${LEAD_KIND_LABELS[kind]} · ${daysAgo}d ago` : `${daysAgo}d ago`;
-  }
-  if (lead.stage === "trial" && lead.trialEndsAt) {
-    const daysLeft = Math.max(0, Math.ceil((new Date(lead.trialEndsAt).getTime() - Date.now()) / 86400000));
-    return daysLeft === 1 ? "1 day left" : `${daysLeft} days left`;
-  }
+// A lead's type in the table; null: not shown (logged in, Profile not completed yet)
+function leadTypeOf(lead: AdminLead): LeadType | null {
   const kind = getLeadKind(lead);
-  return lead.note ?? (kind ? LEAD_KIND_LABELS[kind] : "");
+  if (kind === "profile-incomplete") return null;
+  if (kind === "no-order" || kind === "bulk" || kind === "ordered-for" || kind === "location") return kind;
+  return "staff";
 }
+
+type LeadFilter = "all" | LeadType;
+
+// The DETAILS column: what the lead is about, in one or two short lines
+function leadDetails(lead: AdminLead) {
+  const type = leadTypeOf(lead);
+  if (type === "bulk" && lead.bulkOrderItems?.length) {
+    return lead.bulkOrderItems.map((item) => `${item.productName} ${item.packLabel} × ${item.quantity}`).join(", ");
+  }
+  if (type === "ordered-for") return lead.note ?? "";
+  if (type === "staff") return [lead.source, lead.note].filter(Boolean).join(" · ");
+  return lead.address ?? lead.note ?? "";
+}
+
+// "10 Nov · 17:12", as the Orders table shows when an order came in
+function cameInText(iso: string) {
+  const date = new Date(iso);
+  return `${date.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · ${date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+// Status colours, as on the Orders table: New yellow edge, Contacted green edge, Converted green, Lost grey
+const STAGE_CLASS_NAMES: Record<LeadStage, string> = {
+  new: dashboardStyles["admin-status-pending"],
+  contacted: dashboardStyles["admin-status-out-for-delivery"],
+  converted: dashboardStyles["admin-status-delivered"],
+  lost: styles["admin-lead-status-lost"],
+};
 
 const EMPTY_NEW_LEAD = { name: "", phone: "", source: "Instagram" as LeadSource };
 
@@ -84,22 +108,24 @@ export default function AdminLeadsPage() {
 }
 
 function LeadsPage() {
-  const leads = useRealAdminLeads();
+  const allLeads = useRealAdminLeads();
   useCustomerLeads(useAdminCan("create"));
+  const canEdit = useAdminCan("edit");
   const [today] = useState(() => new Date());
   const [rangeFrom, setRangeFrom] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [rangeTo, setRangeTo] = useState(today);
   const [searchText, setSearchText] = useState("");
   const [leadFilter, setLeadFilter] = useState<LeadFilter>("all");
-  const [openColumns, setOpenColumns] = useState<Set<LeadStage>>(new Set());
-  const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
-  const [dropColumn, setDropColumn] = useState<LeadStage | null>(null);
+  const [page, setPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newLead, setNewLead] = useState(EMPTY_NEW_LEAD);
-  // Clicking a card opens its details (address, email and the products of a bulk order request)
+  // A row opens its details (address, email and the products of a bulk order request)
   const [openLeadId, setOpenLeadId] = useState<string | null>(null);
-  const openLead = leads.find((lead) => lead.id === openLeadId);
+  const openLead = allLeads.find((lead) => lead.id === openLeadId);
   const { showToast, toast } = useAdminToast();
+
+  // Only the leads the table shows (not "logged in, Profile not completed")
+  const leads = useMemo(() => allLeads.filter((lead) => leadTypeOf(lead) !== null), [allLeads]);
 
   const leadsInRange = useMemo(() => {
     const from = new Date(rangeFrom);
@@ -108,14 +134,18 @@ function LeadsPage() {
     to.setHours(23, 59, 59, 999);
     const words = searchText.trim().toLowerCase();
     const digits = words.replace(/\D/g, "");
-    return leads.filter((lead) => {
-      const createdAt = new Date(lead.createdAt);
-      if (createdAt < from || createdAt > to) return false;
-      if (!words) return true;
-      return lead.name.toLowerCase().includes(words) || (digits.length >= 3 && lead.phone.replace(/\D/g, "").includes(digits));
-    });
+    return leads
+      .filter((lead) => {
+        const createdAt = new Date(lead.createdAt);
+        if (createdAt < from || createdAt > to) return false;
+        if (!words) return true;
+        return lead.name.toLowerCase().includes(words) || (digits.length >= 3 && lead.phone.replace(/\D/g, "").includes(digits));
+      })
+      .sort((first, second) => second.createdAt.localeCompare(first.createdAt));
   }, [leads, rangeFrom, rangeTo, searchText]);
+  const isInFilter = (lead: AdminLead, filter: LeadFilter) => filter === "all" || leadTypeOf(lead) === filter;
   const shownLeads = leadsInRange.filter((lead) => isInFilter(lead, leadFilter));
+  const pageLeads = shownLeads.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const tabLabel = (label: string, filter: LeadFilter) => `${label} ${leadsInRange.filter((lead) => isInFilter(lead, filter)).length}`;
 
   const count = (stage: LeadStage) => shownLeads.filter((lead) => lead.stage === stage).length;
@@ -152,34 +182,38 @@ function LeadsPage() {
     setRangeTo(today);
     setIsAddOpen(false);
     setNewLead(EMPTY_NEW_LEAD);
-    showToast(`${added.name} added to New`);
+    showToast(`${added.name} added`);
   }
 
   function exportLeads() {
     downloadCsv(`chiranvi-leads-${toDateFileName(today)}.csv`, [
-      ["Name", "Phone", "Source", "Reason", "Stage", "Note", "Came in", "Address", "Email", "Bulk order"],
+      ["Name", "Phone", "Type", "Details", "Status", "Came in", "Source", "Address", "Email"],
       ...shownLeads.map((lead) => [
         lead.name,
         lead.phone,
-        lead.source,
-        LEAD_KIND_LABELS[getLeadKind(lead) as LeadKind] ?? "",
+        LEAD_TYPE_LABELS[leadTypeOf(lead) as LeadType],
+        leadDetails(lead),
         LEAD_STAGES.find((stage) => stage.key === lead.stage)?.label ?? lead.stage,
-        cardNote(lead),
         new Date(lead.createdAt).toLocaleDateString("en-GB"),
+        lead.source,
         lead.address ?? "",
         lead.email ?? "",
-        (lead.bulkOrderItems ?? []).map((item) => `${item.productName} ${item.packLabel} × ${item.quantity}`).join("; "),
       ]),
     ]);
   }
+
+  const phoneDigits = (lead: AdminLead) => lead.phone.replace(/\D/g, "").slice(-10);
 
   return (
     <div className={dashboardStyles["admin-dashboard"]}>
       <AdminPageTop
         title="Leads"
-        description="Enquiries from social media, website, referrals and walk-ins, and people who haven't bought yet"
+        description="New customers who haven't ordered yet, bulk orders, people ordered for, and location requests"
         searchText={searchText}
-        onSearchTextChange={setSearchText}
+        onSearchTextChange={(text) => {
+          setSearchText(text);
+          setPage(1);
+        }}
         searchPlaceholder="Search name or phone..."
         actionLabel="Add lead"
         onAction={() => setIsAddOpen(true)}
@@ -189,6 +223,7 @@ function LeadsPage() {
         onRangeChange={(from, to) => {
           setRangeFrom(from);
           setRangeTo(to);
+          setPage(1);
         }}
         onExport={exportLeads}
       />
@@ -196,7 +231,7 @@ function LeadsPage() {
       <AdminStatCards
         stats={[
           {
-            label: "New leads",
+            label: "Leads",
             value: String(shownLeads.length),
             note: leadsChange === 0 ? "Same as the days before" : `${leadsChange > 0 ? "↑" : "↓"} ${Math.abs(leadsChange)} vs the days before`,
             trend: leadsChange > 0 ? "up" : "plain",
@@ -228,82 +263,109 @@ function LeadsPage() {
         ]}
       />
 
-      <AdminFilterTabs
-        label="Show leads"
-        selected={leadFilter}
-        onSelect={setLeadFilter}
-        tabs={[
-          { key: "all", label: tabLabel("All", "all") },
-          { key: "profile-incomplete", label: tabLabel(LEAD_KIND_LABELS["profile-incomplete"], "profile-incomplete") },
-          { key: "no-order", label: tabLabel(LEAD_KIND_LABELS["no-order"], "no-order") },
-          { key: "location", label: tabLabel(LEAD_KIND_LABELS.location, "location") },
-          { key: "bulk", label: tabLabel(LEAD_KIND_LABELS.bulk, "bulk") },
-          { key: "social", label: tabLabel("Social media", "social") },
-        ]}
-      />
+      <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-leads-heading">
+        <div className={dashboardStyles["admin-card-heading-row"]}>
+          <div>
+            <h2 id="admin-leads-heading" className={dashboardStyles["admin-card-title"]}>
+              All leads
+            </h2>
+            <p className={dashboardStyles["admin-card-subtitle"]}>People who may become customers, newest first</p>
+          </div>
+          <AdminFilterTabs
+            label="Show leads"
+            selected={leadFilter}
+            onSelect={(filter) => {
+              setLeadFilter(filter);
+              setPage(1);
+            }}
+            tabs={[
+              { key: "all", label: tabLabel("All", "all") },
+              { key: "no-order", label: tabLabel(LEAD_TYPE_LABELS["no-order"], "no-order") },
+              { key: "bulk", label: tabLabel(LEAD_TYPE_LABELS.bulk, "bulk") },
+              { key: "ordered-for", label: tabLabel(LEAD_TYPE_LABELS["ordered-for"], "ordered-for") },
+              { key: "location", label: tabLabel(LEAD_TYPE_LABELS.location, "location") },
+              { key: "staff", label: tabLabel(LEAD_TYPE_LABELS.staff, "staff") },
+            ]}
+          />
+        </div>
 
-      <div className={styles["admin-leads-board"]}>
-        {LEAD_STAGES.map((stage) => {
-          const columnLeads = shownLeads.filter((lead) => lead.stage === stage.key);
-          const isOpen = openColumns.has(stage.key);
-          const visibleLeads = isOpen ? columnLeads : columnLeads.slice(0, CARDS_SHOWN_PER_COLUMN);
-          const hiddenCount = columnLeads.length - visibleLeads.length;
-          return (
-            <section
-              key={stage.key}
-              aria-label={`${stage.label} leads`}
-              className={`${styles["admin-leads-column"]} ${dropColumn === stage.key ? styles["admin-leads-column-drop"] : ""}`}
-              onDragOver={(dragEvent) => {
-                if (!draggedLeadId) return;
-                dragEvent.preventDefault();
-                setDropColumn(stage.key);
-              }}
-              onDragLeave={() => setDropColumn((current) => (current === stage.key ? null : current))}
-              onDrop={(dropEvent) => {
-                dropEvent.preventDefault();
-                const lead = leads.find((existing) => existing.id === draggedLeadId);
-                if (lead) moveTo(lead, stage.key);
-                setDraggedLeadId(null);
-                setDropColumn(null);
-              }}
-            >
-              <h2 className={styles["admin-leads-column-title"]}>
-                <span className={`${styles["admin-leads-column-dot"]} ${styles[`admin-leads-column-dot-${stage.key}`]}`} />
-                {stage.label}
-                <span className={styles["admin-leads-column-count"]}>{count(stage.key)}</span>
-              </h2>
-
-              <ul className={styles["admin-leads-cards"]}>
-                {visibleLeads.map((lead) => (
-                  <li
+        <div className={dashboardStyles["admin-table-scroll"]}>
+          <table className={dashboardStyles["admin-orders-table"]}>
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Phone</th>
+                <th scope="col">Type</th>
+                <th scope="col">Details</th>
+                <th scope="col">Status</th>
+                <th scope="col" className={dashboardStyles["admin-orders-actions"]}>
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageLeads.map((lead) => {
+                const type = leadTypeOf(lead) as LeadType;
+                return (
+                  <tr
                     key={lead.id}
-                    draggable
-                    className={`${styles["admin-lead-card"]} ${draggedLeadId === lead.id ? styles["admin-lead-card-dragging"] : ""}`}
-                    onDragStart={(dragEvent) => {
-                      dragEvent.dataTransfer.effectAllowed = "move";
-                      setDraggedLeadId(lead.id);
-                    }}
-                    onDragEnd={() => {
-                      setDraggedLeadId(null);
-                      setDropColumn(null);
-                    }}
-                    onClick={(clickEvent) => {
-                      if (!(clickEvent.target as HTMLElement).closest("a, button")) setOpenLeadId(lead.id);
+                    className={dashboardStyles["admin-orders-row-clickable"]}
+                    tabIndex={0}
+                    aria-label={`${lead.name}: open details`}
+                    onClick={() => setOpenLeadId(lead.id)}
+                    onKeyDown={(keyEvent) => {
+                      if (keyEvent.key === "Enter" && keyEvent.target === keyEvent.currentTarget) setOpenLeadId(lead.id);
                     }}
                   >
-                    <div className={styles["admin-lead-card-top"]}>
-                      <span className={styles["admin-lead-initials"]} aria-hidden="true">
-                        {getNameInitials(lead.name)}
-                      </span>
-                      <span className={styles["admin-lead-name"]}>{lead.name}</span>
+                    <td>
+                      <span className={dashboardStyles["admin-orders-customer"]}>{lead.name}</span>
+                      <span className={dashboardStyles["admin-orders-area"]}>{cameInText(lead.createdAt)}</span>
+                    </td>
+                    <td className={styles["admin-lead-phone-cell"]}>{lead.phone}</td>
+                    <td>
+                      <span className={`${styles["admin-lead-type"]} ${styles[`admin-lead-type-${type}`]}`}>{LEAD_TYPE_LABELS[type]}</span>
+                    </td>
+                    <td className={`${dashboardStyles["admin-orders-muted"]} ${styles["admin-lead-details-cell"]}`}>
+                      {leadDetails(lead) || "—"}
+                    </td>
+                    {/* The status and actions cells don't open the details */}
+                    <td onClick={(clickEvent) => clickEvent.stopPropagation()} onKeyDown={(keyEvent) => keyEvent.stopPropagation()}>
+                      {canEdit ? (
+                        <span className={`${dashboardStyles["admin-status"]} ${STAGE_CLASS_NAMES[lead.stage]} ${dashboardStyles["admin-status-select-pill"]}`}>
+                          <select
+                            className={dashboardStyles["admin-status-select"]}
+                            value={lead.stage}
+                            aria-label={`Status of ${lead.name}`}
+                            onChange={(changeEvent) => moveTo(lead, changeEvent.target.value as LeadStage)}
+                          >
+                            {LEAD_STAGES.map((stage) => (
+                              <option key={stage.key} value={stage.key}>
+                                {stage.label}
+                              </option>
+                            ))}
+                          </select>
+                          <svg className={dashboardStyles["admin-status-select-arrow"]} viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M7 10l5 5 5-5" />
+                          </svg>
+                        </span>
+                      ) : (
+                        <span className={`${dashboardStyles["admin-status"]} ${STAGE_CLASS_NAMES[lead.stage]}`}>
+                          {LEAD_STAGES.find((stage) => stage.key === lead.stage)?.label}
+                        </span>
+                      )}
+                    </td>
+                    <td
+                      className={dashboardStyles["admin-orders-actions"]}
+                      onClick={(clickEvent) => clickEvent.stopPropagation()}
+                      onKeyDown={(keyEvent) => keyEvent.stopPropagation()}
+                    >
                       <AdminRowMenu
-                        label={`Move ${lead.name}`}
-                        title="Move to"
+                        label={`Actions for ${lead.name}`}
+                        title={lead.name}
                         options={[
-                          ...LEAD_STAGES.filter((option) => option.key !== lead.stage).map((option) => ({
-                            label: option.label,
-                            onSelect: () => moveTo(lead, option.key),
-                          })),
+                          { label: "Call", permission: "view", onSelect: () => window.open(`tel:+91${phoneDigits(lead)}`, "_self") },
+                          { label: "WhatsApp", permission: "view", onSelect: () => window.open(`https://wa.me/91${phoneDigits(lead)}`, "_blank", "noopener") },
+                          { label: "View details", permission: "view", onSelect: () => setOpenLeadId(lead.id) },
                           {
                             label: "Remove lead",
                             isDanger: true,
@@ -315,44 +377,22 @@ function LeadsPage() {
                           },
                         ]}
                       />
-                    </div>
-                    <a href={`tel:+91${lead.phone.replace(/\D/g, "")}`} className={styles["admin-lead-phone"]}>
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z" />
-                      </svg>
-                      {lead.phone}
-                    </a>
-                    <div className={styles["admin-lead-card-bottom"]}>
-                      <span className={`${styles["admin-lead-source"]} ${styles[`admin-lead-source-${lead.source.toLowerCase().replace(/\W/g, "")}`]}`}>
-                        {lead.source}
-                      </span>
-                      <span className={styles["admin-lead-note"]}>{cardNote(lead)}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-
-              {(hiddenCount > 0 || isOpen) && columnLeads.length > CARDS_SHOWN_PER_COLUMN && (
-                <button
-                  type="button"
-                  className={styles["admin-leads-more"]}
-                  onClick={() =>
-                    setOpenColumns((current) => {
-                      const next = new Set(current);
-                      if (next.has(stage.key)) next.delete(stage.key);
-                      else next.add(stage.key);
-                      return next;
-                    })
-                  }
-                >
-                  {isOpen ? "Show less" : `+ ${hiddenCount} more`}
-                </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {pageLeads.length === 0 && (
+                <tr>
+                  <td colSpan={6} className={dashboardStyles["admin-orders-empty"]}>
+                    No leads match these filters.
+                  </td>
+                </tr>
               )}
-              {columnLeads.length === 0 && <p className={styles["admin-leads-empty"]}>Drop a lead here</p>}
-            </section>
-          );
-        })}
-      </div>
+            </tbody>
+          </table>
+        </div>
+        <AdminPagination page={page} pageSize={PAGE_SIZE} total={shownLeads.length} onPageChange={setPage} itemName="leads" />
+      </section>
 
       {isAddOpen && (
         <AdminDialog title="Add lead" submitLabel="Add lead" onClose={() => setIsAddOpen(false)} onSubmit={saveNewLead}>
@@ -393,26 +433,24 @@ function LeadsPage() {
             <div>
               <dt>Phone</dt>
               <dd>
-                <a href={`tel:+91${openLead.phone.replace(/\D/g, "")}`}>{openLead.phone}</a>
+                <a href={`tel:+91${phoneDigits(openLead)}`}>{openLead.phone}</a>
               </dd>
             </div>
             <div>
-              <dt>Source</dt>
-              <dd>{openLead.source}</dd>
+              <dt>Type</dt>
+              <dd>{leadTypeOf(openLead) ? LEAD_TYPE_LABELS[leadTypeOf(openLead) as LeadType] : LEAD_KIND_LABELS[getLeadKind(openLead) as LeadKind]}</dd>
             </div>
-            {getLeadKind(openLead) && (
-              <div>
-                <dt>Reason</dt>
-                <dd>{LEAD_KIND_LABELS[getLeadKind(openLead) as LeadKind]}</dd>
-              </div>
-            )}
             <div>
-              <dt>Stage</dt>
+              <dt>Status</dt>
               <dd>{LEAD_STAGES.find((stage) => stage.key === openLead.stage)?.label}</dd>
             </div>
             <div>
               <dt>Came in</dt>
               <dd>{new Date(openLead.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd>{openLead.source}</dd>
             </div>
             {openLead.note && (
               <div>

@@ -23,55 +23,85 @@
   color: #1e2a22;
 }
 
-/* ---------- The steps (1 Cart · 2 Select address · 3 Payment), centred under the site's navigation bar ---------- */
+/*
+  The steps (1 Cart · 2 Select address · 3 Payment), centred under the site's navigation bar: three numbered
+  circles in a row joined by lines, each step's name under its circle. Done: solid green with a tick; the step
+  now: a green ring on light green with a soft glow, its name bold; next: grey. The line before a step is green
+  once that step is reached.
+*/
 
 .checkout-steps-row {
+  --checkout-step-circle-size: calc(30 * var(--checkout-design-pixel));
+  --checkout-step-width: calc(150 * var(--checkout-design-pixel));
+
+  /* Stays just under the site's navigation bar while the page scrolls; the cards slide under it */
+  position: sticky;
+  z-index: 30;
+  top: calc(
+    27 *
+      max(
+        100svh / 916,
+        min(var(--landing-viewport-width-at-starting-zoom, 100vw) / 1440, var(--landing-viewport-height-at-starting-zoom, 100svh) / 916)
+      ) +
+      100 * min(var(--landing-viewport-width-at-starting-zoom, 100vw) / 1440, var(--landing-viewport-height-at-starting-zoom, 100svh) / 916)
+  );
   display: flex;
   justify-content: center;
-  padding: calc(20 * var(--checkout-design-pixel)) calc(40 * var(--checkout-design-pixel)) 0;
+  padding: calc(18 * var(--checkout-design-pixel)) calc(40 * var(--checkout-design-pixel)) calc(10 * var(--checkout-design-pixel));
+  background: #f0f4ec;
 }
 
 .checkout-steps {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(3, var(--checkout-step-width));
+  list-style: none;
 }
 
 .checkout-step {
+  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: calc(8 * var(--checkout-design-pixel));
-  font-size: calc(13 * var(--checkout-design-pixel));
+  gap: calc(7 * var(--checkout-design-pixel));
+  font-size: calc(12.5 * var(--checkout-design-pixel));
   font-weight: 500;
+  text-align: center;
   color: #9aa29c;
 }
 
+/* From the circle before to this one, at the circles' middle, with a little room on each side */
 .checkout-step-line {
-  width: calc(100 * var(--checkout-design-pixel));
+  position: absolute;
+  top: calc(var(--checkout-step-circle-size) / 2 - 1px);
+  left: calc(-50% + var(--checkout-step-circle-size) / 2 + 8px);
+  right: calc(50% + var(--checkout-step-circle-size) / 2 + 8px);
   height: 2px;
-  margin: 0 calc(12 * var(--checkout-design-pixel));
   border-radius: 2px;
   background: #e2e4dd;
 }
 
 .checkout-step-done .checkout-step-line,
 .checkout-step-current .checkout-step-line {
-  background: #1f4d2e;
+  background: #2f6b3a;
 }
 
 .checkout-step-circle {
+  position: relative;
   display: grid;
   place-items: center;
-  width: calc(24 * var(--checkout-design-pixel));
-  height: calc(24 * var(--checkout-design-pixel));
+  width: var(--checkout-step-circle-size);
+  height: var(--checkout-step-circle-size);
   border: 1.5px solid #d4d7cf;
   border-radius: 50%;
-  font-size: calc(11.5 * var(--checkout-design-pixel));
-  font-weight: 600;
+  background: #ffffff;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(13 * var(--checkout-design-pixel));
+  font-weight: 700;
 }
 
 .checkout-step-circle svg {
-  width: calc(14 * var(--checkout-design-pixel));
-  height: calc(14 * var(--checkout-design-pixel));
+  width: 55%;
+  height: 55%;
   fill: none;
   stroke: #ffffff;
   stroke-width: 3;
@@ -79,8 +109,12 @@
   stroke-linejoin: round;
 }
 
+.checkout-step-label {
+  white-space: nowrap;
+}
+
 .checkout-step-done {
-  color: #1e2a22;
+  color: #2f6b3a;
 }
 
 .checkout-step-done .checkout-step-circle {
@@ -89,13 +123,15 @@
 }
 
 .checkout-step-current {
-  font-weight: 600;
-  color: #1e2a22;
+  font-weight: 700;
+  color: #1f4d2e;
 }
 
 .checkout-step-current .checkout-step-circle {
-  border-color: #1f4d2e;
+  border: 2px solid #1f4d2e;
+  background: #e6f0e1;
   color: #1f4d2e;
+  box-shadow: 0 0 0 calc(4 * var(--checkout-design-pixel)) rgba(47, 107, 58, 0.14);
 }
 
 /* ---------- Page ---------- */
@@ -182,8 +218,15 @@
   color: #ffffff;
 }
 
+/* "Cart" and its line under it, beside the back arrow */
+.checkout-title-block {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .checkout-subtitle {
-  margin-top: calc(6 * var(--checkout-design-pixel));
+  margin-top: calc(2 * var(--checkout-design-pixel));
   font-size: calc(13 * var(--checkout-design-pixel));
   color: #6e7a72;
 }
@@ -800,7 +843,7 @@
 
 /* ---------- Order summary ---------- */
 
-/* Sticks just under the site's navigation bar (27 above it + 100 tall, in the landing page units) */
+/* Sticks just under the site's navigation bar (27 above it + 100 tall, in the landing page units) and the steps */
 .checkout-summary {
   position: sticky;
   top: calc(
@@ -810,7 +853,7 @@
         min(var(--landing-viewport-width-at-starting-zoom, 100vw) / 1440, var(--landing-viewport-height-at-starting-zoom, 100svh) / 916)
       ) +
       100 * min(var(--landing-viewport-width-at-starting-zoom, 100vw) / 1440, var(--landing-viewport-height-at-starting-zoom, 100svh) / 916) +
-      16 * var(--checkout-design-pixel)
+      96 * var(--checkout-design-pixel)
   );
 }
 
@@ -1199,17 +1242,47 @@
   color: #8a6a1c;
 }
 
-.checkout-service-contact-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: calc(14 * var(--checkout-design-pixel));
-  margin-top: calc(6 * var(--checkout-design-pixel));
+/* "Request this location": an outlined green button inside the light yellow notice */
+.checkout-request-location-button {
+  display: inline-flex;
+  align-items: center;
+  margin-top: calc(8 * var(--checkout-design-pixel));
+  padding: calc(7 * var(--checkout-design-pixel)) calc(16 * var(--checkout-design-pixel));
+  border: 1.5px solid #1f4d2e;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(13 * var(--checkout-design-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+  cursor: pointer;
+  transition: background-color 150ms ease;
 }
 
-.checkout-service-contact-row a {
+.checkout-request-location-button:hover,
+.checkout-request-location-button:focus-visible {
+  background: #e6f0e1;
+}
+
+/* After the request: a green tick and a thank-you line */
+.checkout-location-requested {
+  display: flex;
+  align-items: center;
+  gap: calc(6 * var(--checkout-design-pixel));
+  margin-top: calc(6 * var(--checkout-design-pixel));
   font-weight: 600;
   color: #1f4d2e;
-  text-decoration: underline;
+}
+
+.checkout-location-requested svg {
+  flex-shrink: 0;
+  width: calc(16 * var(--checkout-design-pixel));
+  height: calc(16 * var(--checkout-design-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .checkout-place-order-error {
@@ -1838,34 +1911,30 @@
 /* ---------- Phones ---------- */
 
 @media (max-width: 640px) {
+  /* The steps: a little smaller, all three names still under their circles */
   .checkout-steps-row {
-    padding: 14px 16px 0;
+    --checkout-step-circle-size: 28px;
+    --checkout-step-width: min(108px, calc((100vw - 32px) / 3));
+
+    top: 64px;
+    padding: 12px 16px 8px;
   }
 
   .checkout-step {
-    gap: 5px;
-    font-size: 12px;
-  }
-
-  /* The current step's name stays on one line (small phones) */
-  .checkout-step-label {
-    white-space: nowrap;
-  }
-
-  .checkout-step-line {
-    width: 14px;
-    margin: 0 5px;
+    gap: 6px;
+    font-size: 11.5px;
   }
 
   .checkout-step-circle {
-    width: 22px;
-    height: 22px;
-    font-size: 11px;
+    font-size: 12.5px;
   }
 
-  /* Only the current step's name shows; the others are their circles */
-  .checkout-step-done .checkout-step-label,
-  .checkout-step-next .checkout-step-label {
+  .checkout-step-current .checkout-step-circle {
+    box-shadow: 0 0 0 3px rgba(47, 107, 58, 0.14);
+  }
+
+  /* Phones: no "Missed something? Add products" beside the title (the navigation bar's menu has Products) */
+  .checkout-add-more {
     display: none;
   }
 
@@ -1890,8 +1959,8 @@
   }
 
   .checkout-subtitle {
-    margin-top: calc(4 * var(--checkout-title-row-pixel));
-    font-size: calc(10.5 * var(--checkout-title-row-pixel));
+    margin-top: calc(1 * var(--checkout-title-row-pixel));
+    font-size: calc(11.5 * var(--checkout-title-row-pixel));
   }
 
   .checkout-back-button {
@@ -2445,4 +2514,11 @@
   text-align: center;
   color: #ffffff;
   transform: translateX(-50%);
+}
+
+/* Phone-style layout (phones and upright tablets): the navigation bar is 12 from the top and 52 tall */
+:global(html:has(style[data-landing-layout="mobile"])) {
+  .checkout-steps-row {
+    top: 64px;
+  }
 }

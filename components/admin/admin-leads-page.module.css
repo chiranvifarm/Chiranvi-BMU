@@ -55,7 +55,7 @@
   background: #c99a1e;
 }
 
-.admin-leads-column-dot-trial {
+.admin-leads-column-dot-ordered-for {
   background: #8fb98a;
 }
 
@@ -157,9 +157,11 @@
 
 .admin-lead-card-bottom {
   display: flex;
+  /* A long note goes to its own line under the source tag */
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: calc(8 * var(--admin-pixel));
+  gap: calc(6 * var(--admin-pixel)) calc(8 * var(--admin-pixel));
   margin-top: calc(10 * var(--admin-pixel));
 }
 
@@ -207,8 +209,10 @@
 }
 
 .admin-lead-note {
+  min-width: 0;
   font-size: calc(11.5 * var(--admin-pixel));
-  white-space: nowrap;
+  /* A longer note ("Ordered by … (CF-60264)") wraps inside the card, between words */
+  overflow-wrap: break-word;
   color: #6b736c;
 }
 
@@ -306,4 +310,8 @@
 
 .admin-lead-bulk-order small {
   color: #6e7a72;
+}
+/* "(CF-60264)" in a card note: never split at its dash */
+.admin-lead-note-order {
+  white-space: nowrap;
 }

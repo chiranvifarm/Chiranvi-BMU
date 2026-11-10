@@ -253,8 +253,11 @@
   border-top: 1px solid #eef0ea;
 }
 
+/* As wide as its longest option (never cut off), at least 170, never wider than the screen */
 .admin-order-menu {
-  width: calc(170 * var(--admin-pixel));
+  width: max-content;
+  min-width: calc(170 * var(--admin-pixel));
+  max-width: calc(100vw - 16px);
 }
 
 .admin-order-menu button {
@@ -267,6 +270,7 @@
   font-family: inherit;
   font-size: calc(13 * var(--admin-pixel));
   text-align: left;
+  white-space: nowrap;
   color: #1b2a20;
   cursor: pointer;
 }
@@ -836,9 +840,10 @@
 }
 
 /* The Actions column: its heading and button on the right */
+/* The "Actions" column: its name and each row's ⋯ button, centred under each other */
 .admin-orders-actions {
-  width: calc(110 * var(--admin-pixel));
-  text-align: right;
+  width: calc(90 * var(--admin-pixel));
+  text-align: center;
   white-space: nowrap;
 }
 
@@ -1448,30 +1453,26 @@
 }
 
 /* A row's "Actions" button (opens its menu): small outlined pill with a down arrow */
+/* A row's ⋯ button (its "Actions" menu): a small round button with three dots */
 .admin-more-button {
-  display: inline-flex;
-  align-items: center;
-  gap: calc(4 * var(--admin-pixel));
-  padding: calc(7 * var(--admin-pixel)) calc(11 * var(--admin-pixel)) calc(7 * var(--admin-pixel)) calc(14 * var(--admin-pixel));
+  display: inline-grid;
+  place-items: center;
+  width: calc(34 * var(--admin-pixel));
+  height: calc(34 * var(--admin-pixel));
+  padding: 0;
   border: 1px solid #d9e2d8;
-  border-radius: 9999px;
+  border-radius: 50%;
   background: #ffffff;
-  font-family: inherit;
-  font-size: calc(13 * var(--admin-pixel));
-  font-weight: 600;
-  white-space: nowrap;
   color: #1f4d2e;
   cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
 }
 
 .admin-more-button svg {
-  width: calc(14 * var(--admin-pixel));
-  height: calc(14 * var(--admin-pixel));
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: calc(18 * var(--admin-pixel));
+  height: calc(18 * var(--admin-pixel));
+  fill: currentColor;
+  stroke: none;
 }
 
 .admin-more-button:hover,

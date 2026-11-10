@@ -62,7 +62,7 @@ export const REPORTS: { key: ReportKey; title: string; description: string; icon
   { key: "customers", title: "Customers", description: "New, active, lifetime value", icon: ["M12 11.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M4.5 20.5a7.5 7.5 0 0 1 15 0"] },
   { key: "payments", title: "Payments", description: "Collections, refunds, failures", icon: ["M3 6h18v12H3z", "M3 10h18", "M7 14.5h4"] },
   { key: "products", title: "Products", description: "Best sellers, prices, stock", icon: ["M3 12V4h8l10 10-8 8L3 12Z", "M7.5 7.5h.01"] },
-  { key: "leads", title: "Leads & conversion", description: "New leads, trials, converted", icon: ["M10 11.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M3 20.5a7 7 0 0 1 14 0", "M19 8v6", "M16 11h6"] },
+  { key: "leads", title: "Leads & conversion", description: "New leads, ordered for someone, converted", icon: ["M10 11.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M3 20.5a7 7 0 0 1 14 0", "M19 8v6", "M16 11h6"] },
   { key: "profit", title: "Profit & loss", description: "Revenue and recorded expenses", icon: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M9 8h6M9 11h6M13 8c2 0 2 6-4 6l5 3"] },
   {
     key: "attendance",
@@ -314,7 +314,7 @@ export function buildReport(key: ReportKey, data: ReportData): BuiltReport {
       return {
         headline: [
           { label: "New leads", value: String(leads.length) },
-          { label: "On free trial", value: String(leads.filter((lead) => lead.stage === "trial").length) },
+          { label: "Ordered for someone", value: String(leads.filter((lead) => lead.kind === "ordered-for").length) },
           { label: "Converted", value: String(converted) },
           { label: "Conversion", value: percent(converted, leads.length) },
         ],

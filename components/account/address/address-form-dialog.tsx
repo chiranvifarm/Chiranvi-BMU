@@ -10,6 +10,7 @@ import BengaluruAreaPicker, {
   pincodeForArea,
 } from "@/components/area-picker/bengaluru-area-picker";
 import { useLoggedInMobileNumber } from "@/components/login/login-status";
+import MapPinPicker from "@/components/map-pin-picker/map-pin-picker";
 import type { SavedAddress } from "@/store/address-store";
 import { useCustomerProfile } from "@/store/customer-profiles-store";
 import styles from "./address-form-dialog.module.css";
@@ -42,6 +43,9 @@ import styles from "./address-form-dialog.module.css";
   then looked up on OpenStreetMap (free, no key, anywhere in India) to fill in the street (only when that box is
   empty), area, city and pincode; the customer checks them and adds the house / flat number. A Bengaluru area
   on our list is chosen in the area box; any other place goes in as "Others" with its name.
+  The map under it (components/map-pin-picker): the customer moves the map so its pin is on the gate, or
+  searches a place (an empty search uses the area, city and pincode typed). That works from anywhere, so an
+  address for someone else, far away, gets its exact pin too. The GPS spot shows on the map, to fine-tune.
 */
 
 export type { SavedAddress };
@@ -54,12 +58,13 @@ type TextFieldName = Exclude<keyof FormValues, "pin" | "pinSavedBy">;
 // The Profile's details asked with the address (asksProfileDetails)
 type ProfileValues = { firstName: string; lastName: string; email: string };
 // "Use my current location": idle, asking the phone, done (how exact, in metres, and whether the address boxes
-// were filled from it), or why it didn't work
+// were filled from it), or why it didn't work; or placed by the customer on the map
 type PinState =
   | { step: "idle" }
   | { step: "finding" }
   | { step: "saved"; accuracyMetres: number; isAddressFilled: boolean }
-  | { step: "failed"; message: string };
+  | { step: "failed"; message: string }
+  | { step: "placed-on-map"; lookUp: "finding" | "filled" | "not-found" };
 // Further than this from the gate: saved, but the customer is told it isn't very exact
 const ROUGH_PIN_METRES = 100;
 
@@ -227,6 +232,33 @@ export default function AddressFormDialog({
     if (isFormOpen && startsWithQuestion.current) firstFieldRef.current?.focus();
   }, [isFormOpen]);
 
+  // Each address lookup is numbered: an answer for a spot the pin has since left is ignored
+  const lookUpCountRef = useRef(0);
+  // The street the last lookup filled in: replaced by the next one; anything the customer typed is kept
+  const filledStreetRef = useRef<string | null>(null);
+  const mapLookUpTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(mapLookUpTimerRef.current), []);
+
+  // The address boxes from a spot (GPS or the map): area, city and pincode; the street only when it is empty or
+  // was filled by an earlier lookup (it may have a flat number typed)
+  function fillAddressFrom(found: AddressFromLocation) {
+    setAreaChoice((previousChoice) => found.listedArea ?? (found.area ? OTHER_AREA : previousChoice));
+    setFormValues((previousValues) => {
+      const street = previousValues.houseAndStreet.trim();
+      const canFillStreet = !street || street === filledStreetRef.current;
+      const houseAndStreet = canFillStreet && found.houseAndStreet ? found.houseAndStreet : previousValues.houseAndStreet;
+      if (canFillStreet && found.houseAndStreet) filledStreetRef.current = found.houseAndStreet;
+      return {
+        ...previousValues,
+        houseAndStreet,
+        area: found.listedArea ?? (found.area || previousValues.area),
+        city: found.city || previousValues.city,
+        pincode: found.pincode || (found.listedArea ? pincodeForArea(found.listedArea) : "") || previousValues.pincode,
+      };
+    });
+    setFieldErrors((previousErrors) => ({ ...previousErrors, houseAndStreet: undefined, area: undefined, city: undefined, pincode: undefined }));
+  }
+
   // The phone's GPS, once, when the customer taps the button (the phone asks them first)
   function addCurrentLocation() {
     if (!("geolocation" in navigator)) {
@@ -242,19 +274,10 @@ export default function AddressFormDialog({
           return;
         }
         setFormValues((previousValues) => ({ ...previousValues, pin: { latitude, longitude } }));
-        // The address boxes from the spot: the street only when it is still empty (it may have a flat number typed)
+        const lookUpNumber = ++lookUpCountRef.current;
         const found = await lookUpAddress(latitude, longitude);
-        if (found) {
-          setAreaChoice(found.listedArea ?? (found.area ? OTHER_AREA : areaChoice));
-          setFormValues((previousValues) => ({
-            ...previousValues,
-            houseAndStreet: previousValues.houseAndStreet.trim() ? previousValues.houseAndStreet : found.houseAndStreet,
-            area: found.listedArea ?? (found.area || previousValues.area),
-            city: found.city || previousValues.city,
-            pincode: found.pincode || (found.listedArea ? pincodeForArea(found.listedArea) : "") || previousValues.pincode,
-          }));
-          setFieldErrors((previousErrors) => ({ ...previousErrors, houseAndStreet: undefined, area: undefined, city: undefined, pincode: undefined }));
-        }
+        if (lookUpNumber !== lookUpCountRef.current) return; // the pin has moved since
+        if (found) fillAddressFrom(found);
         setPinState({ step: "saved", accuracyMetres: Math.round(accuracy), isAddressFilled: Boolean(found) });
       },
       (problem) => {
@@ -270,10 +293,34 @@ export default function AddressFormDialog({
     );
   }
 
+  /*
+    The map moved under its pin, or a place searched: that spot is the address's pin, and the address boxes are
+    filled from it once the map has been still for a moment (OpenStreetMap allows one lookup a second).
+  */
+  function placePinOnMap(spot: { latitude: number; longitude: number }) {
+    if (!isInIndia(spot.latitude, spot.longitude)) return;
+    setFormValues((previousValues) => ({ ...previousValues, pin: spot }));
+    setPinState({ step: "placed-on-map", lookUp: "finding" });
+    window.clearTimeout(mapLookUpTimerRef.current);
+    const lookUpNumber = ++lookUpCountRef.current;
+    mapLookUpTimerRef.current = window.setTimeout(async () => {
+      const found = await lookUpAddress(spot.latitude, spot.longitude);
+      if (lookUpNumber !== lookUpCountRef.current) return; // the pin has moved since
+      if (found) fillAddressFrom(found);
+      setPinState({ step: "placed-on-map", lookUp: found ? "filled" : "not-found" });
+    }, 1100);
+  }
+
   // The line under the location button
   function pinNote() {
     if (pinState.step === "finding") return "Finding your location and address…";
     if (pinState.step === "failed") return pinState.message;
+    if (pinState.step === "placed-on-map") {
+      if (pinState.lookUp === "finding") return "Pin placed on the map. Filling in the address from it…";
+      return pinState.lookUp === "filled"
+        ? "Pin placed and the address filled in from it. Check it, add the house / flat number, then save."
+        : "Pin placed, but we couldn't fill in the address from it. Please type it, then save.";
+    }
     if (pinState.step === "saved") {
       const filledLine = pinState.isAddressFilled
         ? "Location added and the address filled in from it. Check it, add your house / flat number, then save."
@@ -285,7 +332,7 @@ export default function AddressFormDialog({
     if (formValues.pin) {
       return formValues.pinSavedBy === "agent" ? "Location saved by our delivery partner at your door." : "Location saved.";
     }
-    return "Needed to place an order. Tap this while you're at this address, so we can check we deliver there and our delivery partner reaches your gate.";
+    return "Needed to place an order. Tap this while you're at this address, or search the place and move the map so the pin is on the gate.";
   }
 
   function updateField(field: TextFieldName | keyof ProfileValues, value: string) {
@@ -332,7 +379,7 @@ export default function AddressFormDialog({
         area: formValues.area.trim(),
         pincode: formValues.pincode.trim(),
         // A pin added just now is the customer's (the database notes it too)
-        pinSavedBy: pinState.step === "saved" ? "customer" : formValues.pinSavedBy,
+        pinSavedBy: pinState.step === "saved" || pinState.step === "placed-on-map" ? "customer" : formValues.pinSavedBy,
       },
       shouldBeDefault,
       asksProfileDetails
@@ -493,6 +540,14 @@ export default function AddressFormDialog({
             >
               {pinNote()}
             </span>
+            {/* Shown once the form is open (not behind "Who is this address for?") */}
+            {isFormOpen && (
+              <MapPinPicker
+                pin={formValues.pin ?? null}
+                onPinChange={placePinOnMap}
+                searchFallback={[formValues.area, formValues.city, formValues.pincode].map((part) => part.trim()).filter(Boolean).join(", ")}
+              />
+            )}
           </div>
 
           <label className={styles["address-form-default-option"]}>

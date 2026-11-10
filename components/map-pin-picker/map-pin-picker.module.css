@@ -1,0 +1,116 @@
+/* The map to place an address's pin (map-pin-picker.tsx). Sizes follow the account pages' unit. */
+
+.map-pin-picker {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--account-design-pixel, 1px));
+  width: 100%;
+}
+
+.map-pin-picker-search-row {
+  display: flex;
+  gap: calc(8 * var(--account-design-pixel, 1px));
+}
+
+.map-pin-picker-search-input {
+  flex: 1;
+  min-width: 0;
+  height: calc(42 * var(--account-design-pixel, 1px));
+  padding: 0 calc(14 * var(--account-design-pixel, 1px));
+  border: 1px solid #d9e2d8;
+  border-radius: calc(10 * var(--account-design-pixel, 1px));
+  background: #ffffff;
+  font-family: var(--font-poppins), sans-serif;
+  font-size: calc(14 * var(--account-design-pixel, 1px));
+  color: #1e2a22;
+  transition: border-color 150ms ease;
+}
+
+.map-pin-picker-search-input:focus {
+  border-color: #2f6b3a;
+  outline: none;
+}
+
+.map-pin-picker-search-button {
+  flex-shrink: 0;
+  height: calc(42 * var(--account-design-pixel, 1px));
+  padding: 0 calc(18 * var(--account-design-pixel, 1px));
+  border: none;
+  border-radius: calc(10 * var(--account-design-pixel, 1px));
+  background: #1f4d2e;
+  font-family: var(--font-poppins), sans-serif;
+  font-size: calc(14 * var(--account-design-pixel, 1px));
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.map-pin-picker-search-button:hover:not(:disabled) {
+  background: #285c3a;
+}
+
+.map-pin-picker-search-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.map-pin-picker-search-problem {
+  font-family: var(--font-poppins), sans-serif;
+  font-size: calc(12 * var(--account-design-pixel, 1px));
+  color: #c99a1e;
+}
+
+.map-pin-picker-map-frame {
+  position: relative;
+  width: 100%;
+  height: calc(230 * var(--account-design-pixel, 1px));
+  min-height: 200px;
+  overflow: hidden;
+  border: 1px solid #d9e2d8;
+  border-radius: calc(12 * var(--account-design-pixel, 1px));
+  background: #e6f0e1;
+}
+
+.map-pin-picker-map {
+  position: absolute;
+  inset: 0;
+}
+
+/* The pin's tip sits exactly on the middle of the map */
+.map-pin-picker-pin {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  z-index: 500;
+  width: 30px;
+  height: 40px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(22, 26, 23, 0.35));
+}
+
+.map-pin-picker-pin path {
+  fill: #1f4d2e;
+  stroke: #ffffff;
+  stroke-width: 1.4;
+}
+
+.map-pin-picker-pin circle {
+  fill: #f5bf2c;
+}
+
+.map-pin-picker-map-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: #e6f0e1;
+  font-family: var(--font-poppins), sans-serif;
+  font-size: calc(13 * var(--account-design-pixel, 1px));
+  color: #285c3a;
+  text-align: center;
+}

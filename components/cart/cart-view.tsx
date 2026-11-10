@@ -98,6 +98,7 @@ type RazorpaySuccessResponse = { razorpay_payment_id: string; razorpay_order_id:
 type RazorpayFailureResponse = { error: { description?: string; metadata?: { payment_id?: string; order_id?: string } } };
 type RazorpayPopup = {
   open: () => void;
+  close: () => void; // closes the pop-up (a failed payment goes to My Orders)
   on: (event: "payment.failed", onFailed: (response: RazorpayFailureResponse) => void) => void;
 };
 declare global {
@@ -361,7 +362,7 @@ export default function CartView() {
   const cartSubscription = useCartSubscription();
   // The one-time items: while a plan waits, its milk from Add Quantity (the plan's bottles a day) is left out
   const oneTimeItems = cartSubscription ? cartItems.filter((item) => item.productId !== cartSubscription.product.productId) : cartItems;
-  const [placedItemsOrder, setPlacedItemsOrder] = useState<Order | null>(null);
+  const [placedItemsOrder] = useState<Order | null>(null);
   const deliverySettings = useDeliverySettings();
   const productPages = useProductPages();
   const isLoggedIn = useIsLoggedIn();
@@ -403,7 +404,7 @@ export default function CartView() {
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [isCouponListOpen]);
-  const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
+  const [placedOrder] = useState<Order | null>(null);
   // Pay now is waiting for the database, and what to say if it didn't take the order
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [placeOrderError, setPlaceOrderError] = useState("");
@@ -451,8 +452,9 @@ export default function CartView() {
     addresses.find((address) => address.id === (chosenAddressId ?? defaultAddressId)) ?? addresses[0] ?? null;
   /*
     Can the picked address take a new order? A milk plan: only the service areas (and near enough to the hub).
-    One-time products only: also anywhere in Bengaluru (the address's city). Otherwise: contact the farm, and a
-    lead is saved so the team sees where people are asking from. No map pin: it has to be added.
+    One-time products only: also anywhere in Bengaluru (the address's city). Otherwise "We don't deliver to … yet"
+    with "Request this location": tapping it makes the saved address a lead (name, number, address) on the
+    panel's Leads page, once per address. No map pin: it has to be added.
     The database checks the same at Pay now. Extending a plan keeps its address, so it isn't asked.
   */
   const deliveryService = useDeliveryService();
@@ -461,10 +463,12 @@ export default function CartView() {
       ? serviceProblemOf(chosenAddress, deliveryService, Boolean(cartSubscription))
       : null;
   const isOutsideService = serviceProblem === "area" || serviceProblem === "city" || serviceProblem === "far";
-  const leadSentForAddressRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!isOutsideService || !chosenAddress || leadSentForAddressRef.current === chosenAddress.id) return;
-    leadSentForAddressRef.current = chosenAddress.id;
+  // The addresses whose location the customer has requested (one lead each)
+  const [requestedAddressIds, setRequestedAddressIds] = useState<string[]>([]);
+  const isLocationRequested = Boolean(chosenAddress && requestedAddressIds.includes(chosenAddress.id));
+  function requestThisLocation() {
+    if (!chosenAddress || isLocationRequested) return;
+    setRequestedAddressIds((ids) => [...ids, chosenAddress.id]);
     addLead({
       name: chosenAddress.name,
       phone: chosenAddress.mobileNumber,
@@ -472,7 +476,7 @@ export default function CartView() {
       note: `Outside the delivery area: ${chosenAddress.area}`,
       address: formatAddressLine(chosenAddress),
     });
-  }, [isOutsideService, chosenAddress]);
+  }
   // The milk bought one-time (the cart then offers "Switch to subscription")
   const milkInCart = oneTimeItems.some((item) => item.productId === MILK_PRODUCT_ID);
   // Products in the cart (as in the design: "4 items" and the count next to "Your items")
@@ -700,9 +704,9 @@ export default function CartView() {
     Pay now (Razorpay, test mode): the server has the database price the plan and / or the items and save
     them as orders awaiting payment (one payment for both), then the Razorpay pop-up takes exactly that
     amount (the customer picks UPI, card or net banking there). Only once the server has checked Razorpay's
-    signature are the orders paid; then the cart is emptied and "Your order has been placed" shows. If the
-    database's total isn't the one shown (prices changed), nothing is charged and the cart takes today's
-    prices. Cancelling or a failed payment keeps the cart for another try (a failed one gets a receipt).
+    signature are the orders paid; then the cart is emptied and My Orders opens. If the database's total isn't
+    the one shown (prices changed), nothing is charged and the cart takes today's prices. A failed payment gets a
+    "Payment failed" receipt and opens My Orders too; cancelling stays here. Both keep the cart for another try.
   */
   // planToExtend: the running plan this plan extends ("Extend Plan", or the same-address pop-up's Extend)
   async function placeTheOrder(planToExtend: RunningPlan | null = planBeingExtended) {
@@ -739,6 +743,8 @@ export default function CartView() {
 
     // Set when Razorpay reports a failed attempt, so closing the pop-up afterwards keeps that message
     let lastFailureMessage = "";
+    // A failed attempt goes to My Orders (the closing pop-up then says nothing more here)
+    let hasPaymentFailed = false;
     const razorpayPopup = new window.Razorpay({
       key: started.keyId,
       order_id: started.razorpayOrderId,
@@ -760,10 +766,11 @@ export default function CartView() {
           setPlaceOrderError(result.error);
           return;
         }
-        finishPaidOrder(result.planOrder, result.itemsOrder);
+        finishPaidOrder();
       },
       modal: {
         ondismiss: () => {
+          if (hasPaymentFailed) return;
           setIsPlacingOrder(false);
           setPlaceOrderError(lastFailureMessage || "Payment cancelled. No money was taken. You can try again whenever you're ready.");
         },
@@ -776,20 +783,26 @@ export default function CartView() {
       // Kept as a "Payment failed" receipt in My Orders (the server checks with Razorpay that it really failed)
       const failedPaymentId = failure.error.metadata?.payment_id;
       if (failedPaymentId) reportFailedPayment(started.razorpayOrderId, failedPaymentId);
+      // Failed: the pop-up closes and My Orders opens with that receipt; the cart stays as it is for another try.
+      // Razorpay steps back in the browser's history as its pop-up closes, so My Orders opens just after that
+      // (opened first, that step back would bring the Cart again)
+      hasPaymentFailed = true;
+      setIsPlacingOrder(false);
+      razorpayPopup.close();
+      window.setTimeout(() => router.push("/account/orders"), 600);
     });
     razorpayPopup.open();
   }
 
-  // Paid: the cart empties (with the milk's quantity from Add Quantity: the plan pays for those bottles now)
-  function finishPaidOrder(planOrder: Order | null, itemsOrder: Order | null) {
+  // Paid: the cart empties (with the milk's quantity from Add Quantity: the plan pays for those bottles now) and
+  // My Orders opens, where the new order is at the top (no "order placed" page in between)
+  function finishPaidOrder() {
     emptyTheCart();
     refreshProducts();
     setPlanAtPickedAddress(null);
     setIsAddressPickerOpen(false);
     setHasPickedAddress(false);
-    setPlacedOrder(planOrder ?? itemsOrder);
-    setPlacedItemsOrder(planOrder ? itemsOrder : null);
-    window.scrollTo({ top: 0 });
+    router.push("/account/orders");
   }
 
   /*
@@ -1046,7 +1059,17 @@ export default function CartView() {
                   <path d="M19 12H5M11 6l-6 6 6 6" />
                 </svg>
               </button>
-              <h1 className={styles["checkout-title"]}>Cart</h1>
+              {/* "Cart" with its line (items and delivery day) right under it */}
+              <div className={styles["checkout-title-block"]}>
+                <h1 className={styles["checkout-title"]}>Cart</h1>
+                <p className={styles["checkout-subtitle"]}>
+                  {planBeingExtended
+                    ? `Extending your ${planBeingExtended.planName} plan (currently ends on ${formatPlanDate(planBeingExtended.endsOn)})`
+                    : cartSubscription
+                    ? `${cartSubscription.planName} subscription${itemCount > 0 ? ` + ${itemCount} ${itemCount === 1 ? "item" : "items"}` : ""} · First delivery ${deliveryDay}`
+                    : `${itemCount} ${itemCount === 1 ? "item" : "items"} · ${deliveryLine}`}
+                </p>
+              </div>
               {/* Right end of the row: back to the products to add more (phones show only the button) */}
               <div className={styles["checkout-add-more"]}>
                 <span className={styles["checkout-add-more-question"]}>Missed something?</span>
@@ -1055,13 +1078,6 @@ export default function CartView() {
                 </Link>
               </div>
             </div>
-            <p className={styles["checkout-subtitle"]}>
-              {planBeingExtended
-                ? `Extending your ${planBeingExtended.planName} plan (currently ends on ${formatPlanDate(planBeingExtended.endsOn)})`
-                : cartSubscription
-                ? `${cartSubscription.planName} subscription${itemCount > 0 ? ` + ${itemCount} ${itemCount === 1 ? "item" : "items"}` : ""} · First delivery ${deliveryDay}`
-                : `${itemCount} ${itemCount === 1 ? "item" : "items"} · ${deliveryLine}`}
-            </p>
 
             <div className={styles["checkout-columns"]}>
               {/* Step 1: the plan (highlighted), then the one-time items, then the delivery address */}
@@ -1422,15 +1438,21 @@ export default function CartView() {
                         : serviceProblem === "city" && chosenAddress?.city.trim()
                           ? chosenAddress.city.trim()
                           : "this address"}{" "}
-                      yet. Please contact the farm and we&apos;ll
-                      help you.
+                      yet.
                     </p>
-                    <div className={styles["checkout-service-contact-row"]}>
-                      <a href={`tel:+91${deliveryService.contactPhone}`}>Call +91 {deliveryService.contactPhone}</a>
-                      <a href={`https://wa.me/91${deliveryService.contactPhone}`} target="_blank" rel="noreferrer">
-                        WhatsApp
-                      </a>
-                    </div>
+                    {/* The customer asks for their area: the saved address becomes a lead (once per address) */}
+                    {isLocationRequested ? (
+                      <p className={styles["checkout-location-requested"]}>
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M6 12.5l4 4 8-9" />
+                        </svg>
+                        Request sent. We&apos;ll let you know when we start delivering there.
+                      </p>
+                    ) : (
+                      <button type="button" className={styles["checkout-request-location-button"]} onClick={requestThisLocation}>
+                        Request this location
+                      </button>
+                    )}
                   </div>
                 )}
                 {placeOrderError && (

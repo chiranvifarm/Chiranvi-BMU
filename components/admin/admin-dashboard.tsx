@@ -403,9 +403,10 @@ export default function AdminDashboard() {
                           )
                         }
                       >
-                        Actions
                         <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M6 9l6 6 6-6" />
+                          <circle cx="5" cy="12" r="1.9" />
+                          <circle cx="12" cy="12" r="1.9" />
+                          <circle cx="19" cy="12" r="1.9" />
                         </svg>
                       </button>
                       {openOrderMenu === order.orderNumber && (

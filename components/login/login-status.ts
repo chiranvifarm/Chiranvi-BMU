@@ -73,11 +73,13 @@ export function rememberLogin(mobileNumber: string) {
   setLoggedInMobileNumber(mobileNumber);
 }
 
-// Log out of Supabase (in every tab of this browser) and forget the number and the noted page
-export function logOut() {
+// Log out of Supabase (in every tab of this browser) and forget the number and the noted page.
+// where: "this-device" (the usual) - only this browser; the same number stays logged in on the customer's other
+// devices (phone, laptop). "everywhere" - every login of the number ends, on every device (a lost phone, say).
+export function logOut(where: "this-device" | "everywhere" = "this-device") {
   pageAfterLogin = null;
   setLoggedInMobileNumber(null);
-  void createClient().auth.signOut();
+  void createClient().auth.signOut({ scope: where === "everywhere" ? "global" : "local" });
 }
 
 // Where to go once the login finishes (for example "/account" when the profile icon was clicked).

@@ -16,6 +16,7 @@ import {
   routeLink,
   rupees,
   shownPlaceOf,
+  useStopOrder,
   type AgentStop,
 } from "@/store/delivery-agent-store";
 import {
@@ -39,8 +40,8 @@ import styles from "./delivery-up-next-page.module.css";
     Load check and the list follow the day.
   - Route map: the same map as Routes & agents on the panel, with only this agent's routes. A route changed on
     the panel changes here. Under it, the farm hub (the pick-up point) with Navigate to hub, once its spot is saved.
-  - Load check: the products needed for the stops still to go (the ongoing ones too), bottles to collect and
-    cash to collect.
+  - Load check: the products needed for the stops still to go (the ongoing ones too) and bottles to collect.
+    No cash: every order is paid online.
   - Each stop: number, time slot, distance from the stop before, customer, address, items, and tags for a
     customer note, a change from dispatch and bottles to collect. Up / Down move a stop in the order.
 */
@@ -58,6 +59,8 @@ export default function DeliveryUpNextPage() {
   // The day on the calendar: today (the stops to work on) or another day, view only
   const todayKey = toDateKey(new Date());
   const [pickedDay, setPickedDay] = useState<string | null>(null);
+  // The stop whose details pop-up is open
+  const [detailStop, setDetailStop] = useState<AgentStop | null>(null);
   const shownDay = pickedDay ?? todayKey;
   const isToday = shownDay === todayKey;
   const isEarlierDay = shownDay < todayKey;
@@ -93,7 +96,6 @@ export default function DeliveryUpNextPage() {
     return {
       products: [...products.values()].sort((first, second) => second.quantity - first.quantity),
       bottles: shownStops.reduce((sum, stop) => sum + stop.bottlesToCollect, 0),
-      cash: shownStops.reduce((sum, stop) => sum + stop.cashToCollect, 0),
     };
   }, [shownStops]);
 
@@ -208,12 +210,6 @@ export default function DeliveryUpNextPage() {
                 <span>Empty bottles to collect</span>
                 <strong>{load.bottles}</strong>
               </div>
-              {load.cash > 0 && (
-                <div className={styles["up-next-load-extra"]}>
-                  <span>Cash to collect</span>
-                  <strong>{rupees(load.cash)}</strong>
-                </div>
-              )}
             </section>
           </div>
         </>
@@ -251,14 +247,199 @@ export default function DeliveryUpNextPage() {
                 canMoveUp={index > ongoing.length}
                 canMoveDown={index >= ongoing.length && index < stopsLeft.length - 1}
                 onMove={(direction) => moveStop(login.mobileNumber, unfinishedIds, ongoing.length, stop.id, direction)}
+                onOpen={() => setDetailStop(stop)}
               />
             ) : (
-              <StopRow key={stop.id} stop={stop} number={index + 1} isOngoing={false} isOnDuty={stops.isOnDuty} distanceFromBefore={legs[index]} isViewOnly />
+              <StopRow
+                key={stop.id}
+                stop={stop}
+                number={index + 1}
+                isOngoing={false}
+                isOnDuty={stops.isOnDuty}
+                distanceFromBefore={legs[index]}
+                isViewOnly
+                onOpen={() => setDetailStop(stop)}
+              />
             ),
           )}
         </ol>
       )}
+
+      {detailStop && (
+        <StopDetailsDialog stop={detailStop} deliveryDay={shownDay} isOnDuty={stops.isOnDuty} onClose={() => setDetailStop(null)} />
+      )}
     </>
+  );
+}
+
+/*
+  A stop's details, opened by tapping it: order number, kind and status; when it was ordered; the delivery day and
+  slot; the customer (phone and full address only on duty, as everywhere in the panel); the items with prices; the
+  order total and how it was paid; for a milk plan its length, bottles a day and first / last
+  day; and the stop's notes. The order's time, total and plan come from the database (useStopOrder).
+  Close, Escape or the dimmed page close it.
+*/
+function StopDetailsDialog({
+  stop,
+  deliveryDay,
+  isOnDuty,
+  onClose,
+}: {
+  stop: AgentStop;
+  deliveryDay: string;
+  isOnDuty: boolean;
+  onClose: () => void;
+}) {
+  const order = useStopOrder(stop.orderNumber || null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onCloseRef.current();
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  const itemsTotal = stop.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const orderedOn =
+    order === null
+      ? "Loading…"
+      : order === "none"
+        ? "—"
+        : new Date(order.placedAt).toLocaleString("en-IN", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          }).replace(/\b(am|pm)\b/, (text) => text.toUpperCase());
+  const paidBy =
+    order && order !== "none"
+      ? `${order.paymentMethod || "—"}${order.paymentStatus === "paid" ? " · Paid" : order.paymentStatus === "not_charged" ? " · Pay on delivery" : ""}`
+      : null;
+  const planDays = order && order !== "none" && order.plan ? order.plan : null;
+
+  return (
+    <div className={styles["stop-details-overlay"]} data-lenis-prevent>
+      <button type="button" aria-label="Close" className={styles["stop-details-dimmed-page"]} onClick={onClose} />
+      <div role="dialog" aria-modal="true" aria-labelledby="stop-details-heading" className={styles["stop-details-dialog"]}>
+        <div className={styles["stop-details-top-row"]}>
+          <div>
+            <h2 id="stop-details-heading" className={styles["stop-details-heading"]}>
+              {stop.orderNumber ? `Order ${stop.orderNumber}` : "Daily milk round"}
+            </h2>
+            <p className={styles["stop-details-tags"]}>
+              <span className={styles["up-next-stop-kind"]}>{stop.isSubscription ? "Subscription" : "One-time"}</span>
+              <span className={styles["stop-details-status"]}>{stop.outcome ? STOP_OUTCOME_LABELS[stop.outcome] : stop.status}</span>
+            </p>
+          </div>
+          <button ref={closeButtonRef} type="button" aria-label="Close" className={styles["stop-details-close"]} onClick={onClose}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <dl className={styles["stop-details-rows"]}>
+          <div className={styles["stop-details-row"]}>
+            <dt>Ordered on</dt>
+            <dd>{orderedOn}</dd>
+          </div>
+          <div className={styles["stop-details-row"]}>
+            <dt>Delivery</dt>
+            <dd>
+              {new Date(`${deliveryDay}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} · {stop.slot}
+            </dd>
+          </div>
+          <div className={styles["stop-details-row"]}>
+            <dt>Customer</dt>
+            <dd>
+              <strong>{stop.customerName}</strong>
+              <span>{isOnDuty ? `+91 ${stop.phone.slice(0, 5)} ${stop.phone.slice(5)}` : "Phone shown when you go on duty"}</span>
+              <span>
+                {shownPlaceOf(stop, isOnDuty)}
+                {isOnDuty && stop.landmark ? ` · ${stop.landmark}` : ""}
+              </span>
+            </dd>
+          </div>
+          {planDays && (
+            <div className={styles["stop-details-row"]}>
+              <dt>Plan</dt>
+              <dd>
+                <strong>{planDays.name || `${planDays.days} days`}</strong>
+                <span>
+                  {planDays.bottlesPerDay} bottle{planDays.bottlesPerDay === 1 ? "" : "s"} a day ·{" "}
+                  {new Date(`${planDays.firstDay}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} to{" "}
+                  {new Date(`${planDays.lastDay}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                </span>
+              </dd>
+            </div>
+          )}
+        </dl>
+
+        {/* The items on this stop */}
+        <ul className={styles["stop-details-items"]}>
+          {stop.items.map((item) => (
+            <li key={`${item.name}-${item.packSize}`} className={styles["stop-details-item"]}>
+              <span>
+                <span className={styles["stop-details-item-name"]}>{item.name}</span>
+                <span className={styles["stop-details-item-pack"]}>
+                  {item.packSize} × {item.quantity}
+                </span>
+              </span>
+              <span className={styles["stop-details-item-price"]}>{rupees(item.price * item.quantity)}</span>
+            </li>
+          ))}
+        </ul>
+
+        <div className={styles["stop-details-money"]}>
+          <p>
+            <span>Items</span>
+            <strong>{rupees(itemsTotal)}</strong>
+          </p>
+          {order && order !== "none" && (
+            <p>
+              <span>Order total</span>
+              <strong>{rupees(order.totalRupees)}</strong>
+            </p>
+          )}
+          {paidBy && (
+            <p>
+              <span>Paid by</span>
+              <strong>{paidBy}</strong>
+            </p>
+          )}
+        </div>
+
+        {/* Notes, dispatch changes and bottles, when there are any */}
+        {(stop.note || stop.changedByDispatch || stop.bottlesToCollect > 0) && (
+          <div className={styles["up-next-stop-tags"]}>
+            {stop.note && <span className={styles["up-next-tag-note"]}>Note: {stop.note}</span>}
+            {stop.changedByDispatch && <span className={styles["up-next-tag-dispatch"]}>Changed by dispatch</span>}
+            {stop.bottlesToCollect > 0 && (
+              <span className={styles["up-next-tag-bottles"]}>
+                Collect {stop.bottlesToCollect} bottle{stop.bottlesToCollect === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+        )}
+
+        <button type="button" className={`${deliveryButtonStyles.outlined} ${styles["stop-details-close-button"]}`} onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -414,6 +595,7 @@ function StopRow({
   canMoveDown = false,
   onMove,
   isViewOnly = false,
+  onOpen,
 }: {
   stop: AgentStop;
   number: number;
@@ -424,6 +606,7 @@ function StopRow({
   canMoveDown?: boolean;
   onMove?: (direction: -1 | 1) => void;
   isViewOnly?: boolean; // another day on the calendar: no moving
+  onOpen: () => void; // tapping the stop opens its details
 }) {
   const hasHighlight = Boolean(stop.note) || stop.changedByDispatch || stop.bottlesToCollect > 0;
   return (
@@ -431,7 +614,8 @@ function StopRow({
       <span className={styles["up-next-stop-number"]} aria-hidden="true">
         {number}
       </span>
-      <div className={styles["up-next-stop-body"]}>
+      {/* Tapping the stop opens its details (order number, when it was ordered, items, money) */}
+      <button type="button" className={styles["up-next-stop-body"]} onClick={onOpen} aria-label={`Details of ${stop.customerName}${stop.orderNumber ? `, order ${stop.orderNumber}` : ""}`}>
         <div className={styles["up-next-stop-top-row"]}>
           <span className={styles["up-next-stop-slot"]}>{stop.slot}</span>
           <span className={styles["up-next-stop-kind"]}>{stop.isSubscription ? "Subscription" : "One-time"}</span>
@@ -468,10 +652,9 @@ function StopRow({
                 Collect {stop.bottlesToCollect} bottle{stop.bottlesToCollect === 1 ? "" : "s"}
               </span>
             )}
-            {stop.cashToCollect > 0 && <span className={styles["up-next-tag-bottles"]}>Cash {rupees(stop.cashToCollect)}</span>}
           </div>
         )}
-      </div>
+      </button>
       {!isOngoing && !isViewOnly && onMove && (
         <div className={styles["up-next-stop-move"]}>
           <button type="button" className={styles["up-next-move-button"]} aria-label={`Move ${stop.customerName} up`} disabled={!canMoveUp} onClick={() => onMove(-1)}>

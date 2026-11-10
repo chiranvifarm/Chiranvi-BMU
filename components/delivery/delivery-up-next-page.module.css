@@ -410,9 +410,30 @@
   background: #f5bf2c;
 }
 
+/* The stop's words: one button, tapping it opens the details */
 .up-next-stop-body {
   flex: 1;
   min-width: 0;
+  display: block;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.up-next-stop-body:focus-visible {
+  outline: 2px solid #2f6b3a;
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+/* A stop card lifts a little under the pointer, so it reads as something to tap */
+.up-next-stop:has(.up-next-stop-body:hover) {
+  border-color: #cfe1c8;
+  box-shadow: 0 6px 18px rgba(31, 77, 46, 0.08);
 }
 
 .up-next-stop-top-row {
@@ -577,5 +598,198 @@
     flex-grow: 0;
     height: auto;
     max-height: 260px;
+  }
+}
+
+/* ---------- A stop's details pop-up (tap a stop) ---------- */
+
+.stop-details-overlay {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.stop-details-dimmed-page {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(19, 37, 27, 0.4);
+  cursor: pointer;
+}
+
+.stop-details-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: calc(14 * var(--delivery-pixel));
+  width: min(calc(480 * var(--delivery-pixel)), 100%);
+  max-height: calc(100svh - 32px);
+  overflow-y: auto;
+  padding: calc(22 * var(--delivery-pixel));
+  border-radius: calc(18 * var(--delivery-pixel));
+  background: #ffffff;
+  box-shadow: 0 20px 50px rgba(19, 37, 27, 0.25);
+  animation: stop-details-open 160ms ease-out;
+}
+
+.stop-details-top-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: calc(12 * var(--delivery-pixel));
+}
+
+.stop-details-heading {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(19 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+.stop-details-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(6 * var(--delivery-pixel));
+  margin-top: calc(6 * var(--delivery-pixel));
+}
+
+.stop-details-status {
+  padding: calc(2 * var(--delivery-pixel)) calc(9 * var(--delivery-pixel));
+  border-radius: 9999px;
+  background: #e6f0e1;
+  font-size: calc(11 * var(--delivery-pixel));
+  font-weight: 600;
+  color: #1f4d2e;
+}
+
+.stop-details-close {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: calc(36 * var(--delivery-pixel));
+  height: calc(36 * var(--delivery-pixel));
+  border: 1px solid #e7e8e2;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.stop-details-close svg {
+  width: 45%;
+  height: 45%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* Ordered on / Delivery / Customer / Plan: label on the left, value on the right */
+.stop-details-rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #ecede7;
+  border-radius: calc(12 * var(--delivery-pixel));
+}
+
+.stop-details-row {
+  display: grid;
+  grid-template-columns: calc(96 * var(--delivery-pixel)) 1fr;
+  gap: calc(10 * var(--delivery-pixel));
+  padding: calc(10 * var(--delivery-pixel)) calc(14 * var(--delivery-pixel));
+  font-size: calc(13 * var(--delivery-pixel));
+}
+
+.stop-details-row + .stop-details-row {
+  border-top: 1px solid #f0f1ec;
+}
+
+.stop-details-row dt {
+  color: #6b736c;
+}
+
+.stop-details-row dd {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--delivery-pixel));
+  min-width: 0;
+  color: #1b2a20;
+}
+
+.stop-details-row dd strong {
+  font-weight: 600;
+}
+
+.stop-details-items {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+}
+
+.stop-details-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(10 * var(--delivery-pixel));
+  padding: calc(8 * var(--delivery-pixel)) 0;
+  border-bottom: 1px solid #f0f1ec;
+}
+
+.stop-details-item-name {
+  display: block;
+  font-size: calc(13.5 * var(--delivery-pixel));
+  font-weight: 600;
+}
+
+.stop-details-item-pack {
+  display: block;
+  font-size: calc(11.5 * var(--delivery-pixel));
+  color: #6b736c;
+}
+
+.stop-details-item-price {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14 * var(--delivery-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+/* Items, order total and how it was paid */
+.stop-details-money {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--delivery-pixel));
+  font-size: calc(13 * var(--delivery-pixel));
+}
+
+.stop-details-money p {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(10 * var(--delivery-pixel));
+  color: #4d5a50;
+}
+
+.stop-details-money strong {
+  color: #1b2a20;
+}
+
+.stop-details-close-button {
+  width: 100%;
+}
+
+@keyframes stop-details-open {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stop-details-dialog {
+    animation: none;
   }
 }

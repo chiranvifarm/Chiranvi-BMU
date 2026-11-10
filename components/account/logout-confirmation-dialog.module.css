@@ -71,6 +71,72 @@
   color: #6e7a72;
 }
 
+/* "This device" / "All devices": two cards, the chosen one in light green with a filled green dot */
+.logout-dialog-choices {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--account-design-pixel));
+  width: 100%;
+  margin-top: calc(18 * var(--account-design-pixel));
+}
+
+.logout-dialog-choice {
+  display: flex;
+  align-items: center;
+  gap: calc(12 * var(--account-design-pixel));
+  width: 100%;
+  padding: calc(11 * var(--account-design-pixel)) calc(14 * var(--account-design-pixel));
+  border: 1px solid #d9e2d8;
+  border-radius: calc(14 * var(--account-design-pixel));
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.logout-dialog-choice:hover,
+.logout-dialog-choice:focus-visible {
+  border-color: #2f6b3a;
+}
+
+.logout-dialog-choice-chosen {
+  border-color: #2f6b3a;
+  background: #e6f0e1;
+}
+
+.logout-dialog-choice-dot {
+  flex-shrink: 0;
+  width: calc(18 * var(--account-design-pixel));
+  height: calc(18 * var(--account-design-pixel));
+  border: 2px solid #b8c6b8;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.logout-dialog-choice-chosen .logout-dialog-choice-dot {
+  border: calc(5 * var(--account-design-pixel)) solid #2f6b3a;
+}
+
+.logout-dialog-choice-words {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--account-design-pixel));
+  min-width: 0;
+}
+
+.logout-dialog-choice-title {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(14 * var(--account-design-pixel));
+  font-weight: 700;
+  color: #1f4d2e;
+}
+
+.logout-dialog-choice-text {
+  font-size: calc(12 * var(--account-design-pixel));
+  line-height: 1.4;
+  color: #6e7a72;
+}
+
 .logout-dialog-buttons {
   display: grid;
   grid-template-columns: 1fr 1fr;

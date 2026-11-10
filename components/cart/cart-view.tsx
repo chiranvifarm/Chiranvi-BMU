@@ -1511,21 +1511,33 @@ export default function CartView() {
                     >
                       <div className={styles["address-pick-card-heading-row"]}>
                         <h3 className={styles["address-pick-label"]}>{address.label}</h3>
-                        {isDefault ? (
-                          <span className={styles["address-pick-default-badge"]}>Default</span>
-                        ) : (
-                          <button
-                            type="button"
-                            aria-label={`Make ${address.label} the default address`}
-                            className={styles["address-pick-switch-button"]}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setDefaultAddress(address.id);
-                            }}
-                          >
-                            Set as Default
-                          </button>
-                        )}
+                        <div className={styles["address-pick-badges"]}>
+                          {/* The address on their Profile (changed only on the Profile page), as on My Addresses */}
+                          {address.isProfileAddress && (
+                            <span className={styles["address-pick-profile-badge"]} title="This is the address on your Profile. Change it on your Profile page.">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <circle cx="12" cy="8" r="4" />
+                                <path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6" />
+                              </svg>
+                              Profile address
+                            </span>
+                          )}
+                          {isDefault ? (
+                            <span className={styles["address-pick-default-badge"]}>Default</span>
+                          ) : (
+                            <button
+                              type="button"
+                              aria-label={`Make ${address.label} the default address`}
+                              className={styles["address-pick-switch-button"]}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setDefaultAddress(address.id);
+                              }}
+                            >
+                              Set as Default
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <p className={styles["address-pick-name"]}>{address.name}</p>
                       <p className={styles["address-pick-line"]}>{formatAddressLine(address)}</p>

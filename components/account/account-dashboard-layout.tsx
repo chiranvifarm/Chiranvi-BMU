@@ -10,7 +10,7 @@ import { useCurrentStaffAccess } from "@/store/staff-access-store";
 import { useIsDeliveryAgent } from "@/store/delivery-agent-store";
 import { countActiveOrders, forgetAllOrders, markOrderUpdatesSeen, useOrderUpdates, useOrders } from "@/store/orders-store";
 import { getNameInitials, useAccountProfile } from "./account-profile";
-import LogoutConfirmationDialog from "./logout-confirmation-dialog";
+import LogoutConfirmationDialog, { type LogoutChoice } from "./logout-confirmation-dialog";
 import styles from "./account-dashboard-layout.module.css";
 
 /*
@@ -116,11 +116,12 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
   }, [isMenuOpen]);
   const currentPage = accountPages.find((accountPage) => accountPage.href === pathname);
 
-  function logOutAndGoHome() {
+  // choice: this device only, or every device logged in with this number
+  function logOutAndGoHome(choice: LogoutChoice) {
     isLoggingOutRef.current = true;
     setIsLogoutDialogOpen(false);
     // The cart stays saved with the account (store/account-state.ts); this browser forgets it at logout
-    logOut();
+    logOut(choice);
     forgetAllOrders();
     router.push("/");
   }

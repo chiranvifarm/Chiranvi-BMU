@@ -643,6 +643,42 @@
   color: #2f6b3f;
 }
 
+/* "Profile address" tag and Default / Set as Default, side by side at the right (as on My Addresses) */
+.address-pick-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: calc(8 * var(--checkout-design-pixel));
+}
+
+/* The address on the customer's Profile: light yellow, so it is not mistaken for Default */
+.address-pick-profile-badge {
+  display: flex;
+  align-items: center;
+  gap: calc(6 * var(--checkout-design-pixel));
+  height: calc(32 * var(--checkout-design-pixel));
+  padding: 0 calc(14 * var(--checkout-design-pixel));
+  border: 1px solid #f0e2bd;
+  border-radius: 9999px;
+  background: #fbf3e1;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(12.5 * var(--checkout-design-pixel));
+  font-weight: 700;
+  white-space: nowrap;
+  color: #8a6a12;
+}
+
+.address-pick-profile-badge svg {
+  width: calc(14 * var(--checkout-design-pixel));
+  height: calc(14 * var(--checkout-design-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .address-pick-switch-button {
   border: 1px solid #d9e2d8;
   background: #ffffff;

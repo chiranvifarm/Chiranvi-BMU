@@ -105,6 +105,7 @@ export type AgentStop = {
   changedByDispatch: boolean; // the panel added this stop today or moved it to this agent
   isSubscription: boolean; // a daily milk delivery (else a one-time order)
   isOutsideRoutes: boolean; // one-time products outside the 8 areas, given to this route as the nearest (0054_…sql)
+  orderNumber: string; // "CF-60257" (empty for a route's own stop with no website order)
   routeRank: number; // its area's place in the route order
   latitude: number;
   longitude: number;
@@ -452,11 +453,47 @@ function agentStopOf(delivery: Delivery, routes: DeliveryRoute[], day: AgentDay)
     // The route's own stops, with no order behind them, are the daily milk round
     isSubscription: delivery.orderNumber ? Boolean(delivery.isSubscription) : true,
     isOutsideRoutes: Boolean(delivery.isOutsideRoutes),
+    orderNumber: (delivery.orderNumber ?? "").replace(/^#/, ""),
     routeRank: route ? routes.indexOf(route) : routes.length,
     ...details,
     ...progress,
     requests: day.requests.filter((request) => request.deliveryId === delivery.id),
   };
+}
+
+// ---------- A stop's order, for its details pop-up (0056_agent_stop_order_details.sql) ----------
+
+export type StopOrder = {
+  orderNumber: string;
+  placedAt: string; // ISO
+  totalRupees: number;
+  paymentMethod: string; // "UPI", "Cash", ...
+  paymentStatus: string; // "paid", "not_charged", ...
+  plan: { name: string; days: number; bottlesPerDay: number; firstDay: string; lastDay: string } | null;
+};
+
+/*
+  When the order was placed, its total, how it was paid and its plan: read from the database for one of this
+  agent's stops (agents can't read the orders themselves). null while reading; "none" when there is no order
+  (a route's own stop) or it can't be read.
+*/
+export function useStopOrder(orderNumber: string | null): StopOrder | null | "none" {
+  const [answer, setAnswer] = useState<{ orderNumber: string; order: StopOrder | "none" } | null>(null);
+  useEffect(() => {
+    if (!orderNumber) return;
+    let isCurrent = true;
+    void createClient()
+      .rpc("my_stop_order", { p_order_number: orderNumber })
+      .then(({ data, error }) => {
+        if (error) console.error("Could not read the stop's order", error);
+        if (isCurrent) setAnswer({ orderNumber, order: !error && data ? (data as StopOrder) : "none" });
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [orderNumber]);
+  if (!orderNumber) return "none";
+  return answer && answer.orderNumber === orderNumber ? answer.order : null;
 }
 
 /*

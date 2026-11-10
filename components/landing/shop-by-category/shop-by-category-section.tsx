@@ -15,7 +15,12 @@ import styles from "./shop-by-category-section.module.css";
   comes back to that category.
   Scroll reveal: when the section scrolls into view, the heading and the seven
   categories fade and slide up together.
+  Phones and tablets (3 a row): only the first two rows show, with "View more" under them for the rest
+  ("View less" closes them again). Wide screens show them all, with no button.
 */
+
+// Phones and tablets: two rows of three before "View more"
+const CATEGORIES_SHOWN_FIRST = 6;
 
 // Transparent product cut-outs; the circle's light gradient shows behind them.
 // Milk and ghee reuse the hero's product images.
@@ -36,6 +41,8 @@ export default function ShopByCategorySection() {
   // "visible": shown normally (also the server-rendered state, so nothing is hidden without JavaScript).
   // "waiting": hidden, ready to animate. "revealed": animated into view.
   const [revealState, setRevealState] = useState<"visible" | "waiting" | "revealed">("visible");
+  // Phones and tablets: the categories after the first two rows are shown
+  const [isEveryCategoryShown, setIsEveryCategoryShown] = useState(false);
 
   useEffect(() => {
     const section = sectionRef.current;
@@ -76,8 +83,11 @@ export default function ShopByCategorySection() {
         />
       </h2>
 
-      <ul className={styles["shop-by-category-list"]}>
-        {productCategories.map((productCategory) => {
+      <ul
+        id="shop-by-category-list"
+        className={`${styles["shop-by-category-list"]} ${isEveryCategoryShown ? styles["shop-by-category-list-everything-shown"] : ""}`}
+      >
+        {productCategories.map((productCategory, categoryIndex) => {
           const categoryPictureAndName = (
             <>
               <span className={styles["shop-by-category-image-circle"]}>
@@ -96,7 +106,10 @@ export default function ShopByCategorySection() {
           // The category's name is the same as its filter on All products
           const categoryPagePath = `/products?category=${encodeURIComponent(productCategory.name)}`;
           return (
-            <li key={productCategory.name}>
+            <li
+              key={productCategory.name}
+              className={categoryIndex >= CATEGORIES_SHOWN_FIRST ? styles["shop-by-category-item-after-two-rows"] : undefined}
+            >
               {isLoggedIn ? (
                 <Link href={categoryPagePath} className={styles["shop-by-category-link"]}>
                   {categoryPictureAndName}
@@ -110,6 +123,22 @@ export default function ShopByCategorySection() {
           );
         })}
       </ul>
+
+      {/* Phones and tablets only: the rest of the categories */}
+      {productCategories.length > CATEGORIES_SHOWN_FIRST && (
+        <button
+          type="button"
+          aria-expanded={isEveryCategoryShown}
+          aria-controls="shop-by-category-list"
+          className={styles["shop-by-category-view-more-button"]}
+          onClick={() => setIsEveryCategoryShown(!isEveryCategoryShown)}
+        >
+          {isEveryCategoryShown ? "View less" : "View more"}
+          <svg viewBox="0 0 24 24" aria-hidden="true" className={isEveryCategoryShown ? styles["shop-by-category-view-more-arrow-up"] : undefined}>
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+      )}
     </section>
   );
 }

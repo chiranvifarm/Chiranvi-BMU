@@ -49,6 +49,18 @@
   display: none;
 }
 
+/* The site navigation bar: laid out as if this holder were not there (phones hide it, below) */
+.account-site-navigation {
+  display: contents;
+}
+
+/* Phones only (below): the logo, cart bag and menu strip in the My account bar */
+.account-mobile-bar-logo,
+.account-mobile-bar-cart,
+.account-mobile-bar-menu-row {
+  display: none;
+}
+
 .account-sidebar {
   position: sticky;
   top: calc(27 * var(--landing-page-vertical-design-pixel) + 100 * var(--landing-page-design-pixel) + 24 * var(--account-design-pixel));
@@ -506,5 +518,177 @@
 
   .account-page-description {
     font-size: 13px;
+  }
+}
+
+/*
+  Phones (600 wide or less): no site navigation bar on the account pages; the My account bar takes its place at
+  the top (it stays there while the page scrolls), in two rows:
+    1. the Chiranvi logo (home) on the left, the cart bag with its count on the right, like the site bar;
+    2. a light green strip "☰ My account › Profile", all of it one button that opens the menu.
+  Tablets keep the navigation bar and the one-row bar.
+*/
+@media (max-width: 600px) {
+  :global(html:has(style[data-landing-layout="mobile"])) {
+    .account-site-navigation {
+      display: none;
+    }
+
+    .account-page-body {
+      margin-top: 12px;
+    }
+
+    .account-mobile-bar {
+      position: sticky;
+      z-index: 40;
+      top: 10px;
+      flex-wrap: wrap;
+      gap: 0;
+      padding: 0;
+      overflow: hidden;
+      border-radius: 16px;
+      box-shadow: 0 6px 18px rgba(19, 37, 27, 0.08);
+    }
+
+    /* The tablet row's parts give way to the two rows */
+    .account-mobile-menu-button,
+    .account-mobile-bar-page,
+    .account-mobile-bar-initials {
+      display: none;
+    }
+
+    /* Row 1 */
+    .account-mobile-bar-logo {
+      display: flex;
+      flex: 1;
+      align-items: center;
+      padding: 10px 14px;
+    }
+
+    .account-mobile-bar-logo img {
+      display: block;
+      width: auto;
+      height: 34px;
+    }
+
+    .account-mobile-bar-cart {
+      position: relative;
+      display: grid;
+      flex-shrink: 0;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      margin: 8px 12px 8px 0;
+      border: 1px solid #e7e8e2;
+      border-radius: 12px;
+      background: #ffffff;
+      color: #1f4d2e;
+    }
+
+    .account-mobile-bar-cart svg {
+      width: 21px;
+      height: 21px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* The count, as on the navigation bar bag: yellow, top right */
+    .account-mobile-bar-cart-count {
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      display: grid;
+      place-items: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      border-radius: 9999px;
+      background: #f5bf2c;
+      font-size: 10px;
+      font-weight: 700;
+      color: #1b2a20;
+    }
+
+    /* Row 2: ☰ My account › Profile */
+    .account-mobile-bar-menu-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 9px 14px;
+      border: none;
+      border-top: 1px solid #dbe8d5;
+      background: #e6f0e1;
+      font-family: var(--font-poppins), sans-serif;
+      text-align: left;
+      color: #1f4d2e;
+      cursor: pointer;
+      transition: background-color 150ms ease;
+    }
+
+    .account-mobile-bar-menu-row:hover,
+    .account-mobile-bar-menu-row:focus-visible {
+      background: #dcebd5;
+    }
+
+    .account-mobile-bar-menu-row-icon {
+      position: relative;
+      display: grid;
+      flex-shrink: 0;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      background: #ffffff;
+    }
+
+    .account-mobile-bar-menu-row-icon svg {
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+    }
+
+    .account-mobile-bar-menu-row-icon .account-mobile-menu-dot {
+      top: 3px;
+      right: 3px;
+    }
+
+    .account-mobile-bar-menu-row-words {
+      display: flex;
+      flex: 1;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      color: #2f6b3a;
+    }
+
+    .account-mobile-bar-menu-row-words strong {
+      overflow: hidden;
+      font-family: var(--font-ubuntu), sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      color: #1f4d2e;
+    }
+
+    .account-mobile-bar-menu-row-separator {
+      flex-shrink: 0;
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: #8fae8f;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
   }
 }

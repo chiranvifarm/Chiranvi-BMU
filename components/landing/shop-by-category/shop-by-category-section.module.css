@@ -144,6 +144,11 @@
 /*
   Mobile layout (chosen by the script in app/page.tsx): three categories per row; the seventh sits in the middle of its own row.
 */
+/* Wide screens: every category shows, so no "View more" */
+.shop-by-category-view-more-button {
+  display: none;
+}
+
 :global(html:has(style[data-landing-layout="mobile"])) {
   .shop-by-category-section {
     padding: 28px 16px 36px;
@@ -188,6 +193,55 @@
     grid-column: 2;
   }
 
+  /* Only two rows until "View more" */
+  .shop-by-category-item-after-two-rows {
+    display: none;
+  }
+
+  .shop-by-category-list-everything-shown .shop-by-category-item-after-two-rows {
+    display: list-item;
+    animation: shop-by-category-more-in 0.3s ease-out;
+  }
+
+  /* "View more" / "View less": a small outlined green pill in the middle, under the circles */
+  .shop-by-category-view-more-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 22px auto 0;
+    height: 40px;
+    padding: 0 20px;
+    border: 1.5px solid #1f4d2e;
+    border-radius: 9999px;
+    background: #ffffff;
+    font-family: var(--font-ubuntu), sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f4d2e;
+    cursor: pointer;
+    transition: background-color 150ms ease;
+  }
+
+  .shop-by-category-view-more-button:hover,
+  .shop-by-category-view-more-button:focus-visible {
+    background: #e6f0e1;
+  }
+
+  .shop-by-category-view-more-button svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.2s ease;
+  }
+
+  .shop-by-category-view-more-arrow-up {
+    transform: rotate(180deg);
+  }
+
   .shop-by-category-link {
     gap: 6px;
   }
@@ -200,5 +254,18 @@
   .shop-by-category-name {
     font-size: 15px;
     line-height: 20px;
+  }
+}
+
+@keyframes shop-by-category-more-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shop-by-category-item-after-two-rows {
+    animation: none !important;
   }
 }

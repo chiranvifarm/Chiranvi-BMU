@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import LandingZoomAndLayoutRunner from "@/components/landing/landing-zoom-and-layout-runner";
@@ -8,6 +9,7 @@ import SiteNavigationPlacement from "@/components/navigation/site-navigation-pla
 import { logOut, rememberPageAfterLogin, useIsLoggedIn, useIsLoginStatusKnown } from "@/components/login/login-status";
 import { useCurrentStaffAccess } from "@/store/staff-access-store";
 import { useIsDeliveryAgent } from "@/store/delivery-agent-store";
+import { countCartPacks, useCartItems } from "@/store/cart-store";
 import { countActiveOrders, forgetAllOrders, markOrderUpdatesSeen, useOrderUpdates, useOrders } from "@/store/orders-store";
 import { getNameInitials, useAccountProfile } from "./account-profile";
 import LogoutConfirmationDialog, { type LogoutChoice } from "./logout-confirmation-dialog";
@@ -74,6 +76,8 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
   const activeOrderCount = countActiveOrders(useOrders());
   // Status changes since My Orders was last opened: "New" next to "Orders"; opening My Orders clears it
   const orderUpdateCount = useOrderUpdates().length;
+  // Phones: the cart bag in the My account bar (the navigation bar is not shown there)
+  const cartItemCount = countCartPacks(useCartItems());
   const pathname = usePathname();
   useEffect(() => {
     if (pathname === "/account/orders" && orderUpdateCount > 0) markOrderUpdatesSeen();
@@ -130,12 +134,18 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
     <div className={styles["account-page"]}>
       <LandingZoomAndLayoutRunner />
 
-      {/* Navigation bar, placed exactly like on the landing page */}
-      <SiteNavigationPlacement />
+      {/* Navigation bar, placed exactly like on the landing page (not on phones: the My account bar has its logo and cart) */}
+      <div className={styles["account-site-navigation"]}>
+        <SiteNavigationPlacement />
+      </div>
 
       {isLoggedIn && (
         <div className={styles["account-page-body"]}>
-          {/* Phones and tablets only: ☰, the open page, and the customer's initials */}
+          {/*
+            Tablets: one row, ☰, the open page, and the customer's initials (the navigation bar is above it).
+            Phones (no navigation bar): two rows instead, the Chiranvi logo (home) and the cart bag, then a light green
+            strip "☰ My account › Profile" that opens the menu.
+          */}
           <div className={styles["account-mobile-bar"]}>
             <button
               type="button"
@@ -149,13 +159,45 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
               </svg>
               {orderUpdateCount > 0 && <span className={styles["account-mobile-menu-dot"]} aria-hidden="true" />}
             </button>
+            <Link href="/" className={styles["account-mobile-bar-logo"]} aria-label="Chiranvi Farm home">
+              <Image src="/images/brand/chiranvi-farm-logo.webp" alt="" width={516} height={240} />
+            </Link>
             <p className={styles["account-mobile-bar-page"]}>
               <span className={styles["account-mobile-bar-label"]}>My account</span>
               <span className={styles["account-mobile-bar-current"]}>{currentPage?.label ?? "Profile"}</span>
             </p>
-            <span className={styles["account-sidebar-avatar"]} aria-hidden="true">
+            <span className={`${styles["account-sidebar-avatar"]} ${styles["account-mobile-bar-initials"]}`} aria-hidden="true">
               {getNameInitials(accountProfile.fullName)}
             </span>
+            <Link href="/cart" className={styles["account-mobile-bar-cart"]} aria-label={`Cart, ${cartItemCount} items`}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 8h14l-1 13H6L5 8Z" />
+                <path d="M9 8V6a3 3 0 0 1 6 0v2" />
+              </svg>
+              <span className={styles["account-mobile-bar-cart-count"]}>{cartItemCount}</span>
+            </Link>
+            {/* Phones: the second row, all of it one button for the menu */}
+            <button
+              type="button"
+              className={styles["account-mobile-bar-menu-row"]}
+              aria-label={`Open the account menu, now on ${currentPage?.label ?? "Profile"}`}
+              aria-expanded={isMenuOpen}
+              onClick={() => setIsMenuOpen(true)}
+            >
+              <span className={styles["account-mobile-bar-menu-row-icon"]}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16M4 12h16M4 17h16" />
+                </svg>
+                {orderUpdateCount > 0 && <span className={styles["account-mobile-menu-dot"]} aria-hidden="true" />}
+              </span>
+              <span className={styles["account-mobile-bar-menu-row-words"]}>
+                My account
+                <svg viewBox="0 0 24 24" aria-hidden="true" className={styles["account-mobile-bar-menu-row-separator"]}>
+                  <path d="M9 6l6 6-6 6" />
+                </svg>
+                <strong>{currentPage?.label ?? "Profile"}</strong>
+              </span>
+            </button>
           </div>
 
           {isMenuOpen && <div className={styles["account-sidebar-backdrop"]} onClick={() => setIsMenuOpen(false)} aria-hidden="true" />}

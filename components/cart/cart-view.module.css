@@ -1880,8 +1880,13 @@
     padding: 20px 14px 120px;
   }
 
+  /*
+    Phones with a bigger text size (Android's text scaling): "Missed something? Add products" moves to its own line,
+    on the right, instead of pushing the page wider than the screen
+  */
   .checkout-title-row {
-    gap: calc(10 * var(--checkout-title-row-pixel));
+    flex-wrap: wrap;
+    gap: calc(8 * var(--checkout-title-row-pixel)) calc(10 * var(--checkout-title-row-pixel));
   }
 
   .checkout-subtitle {
@@ -1904,6 +1909,8 @@
   }
 
   .checkout-add-more {
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: calc(7 * var(--checkout-title-row-pixel));
   }
 

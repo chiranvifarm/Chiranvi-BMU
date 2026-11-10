@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { useIsLoginStatusKnown, useLoggedInMobileNumber } from "@/components/login/login-status";
+import { useCustomerProfile, useIsCustomerProfileKnown } from "@/store/customer-profiles-store";
 import styles from "./refer-a-friend-section.module.css";
 
 /*
@@ -19,6 +21,14 @@ import styles from "./refer-a-friend-section.module.css";
 
 export default function ReferAFriendSection() {
   const sectionRef = useRef<HTMLElement>(null);
+  // The phone picture greets the logged-in customer by their first name. While their name is still being read it
+  // stays empty (never a wrong "Friend" first); "Friend" only for visitors not logged in, or with no name saved yet.
+  const loggedInMobileNumber = useLoggedInMobileNumber();
+  const isLoginStatusKnown = useIsLoginStatusKnown();
+  const savedProfile = useCustomerProfile(loggedInMobileNumber);
+  const isProfileKnown = useIsCustomerProfileKnown(loggedInMobileNumber);
+  const isNameLoading = !isLoginStatusKnown || (Boolean(loggedInMobileNumber) && !isProfileKnown);
+  const greetedName = isNameLoading ? "" : savedProfile?.firstName.trim() || "Friend";
   // "visible": shown normally (also the server-rendered state, so nothing is hidden without JavaScript).
   // "waiting": hidden, ready to animate. "revealed": animated into view.
   const [revealState, setRevealState] = useState<"visible" | "waiting" | "revealed">("visible");
@@ -187,12 +197,52 @@ export default function ReferAFriendSection() {
             className={styles["refer-a-friend-screen-image"]}
           />
           {/* Text written over the picture (the picture has these areas left blank, so they can be edited) */}
-          <span className={styles["refer-a-friend-rewards-screen-user-name"]}>Harish</span>
+          <span className={styles["refer-a-friend-rewards-screen-user-name"]}>{greetedName}</span>
           <span className={styles["refer-a-friend-rewards-screen-jersey-milk-label"]}>Jersey Milk</span>
-          {/* "Refer Table / TOP-17" over the picture's "Worth rupees / 12,800/-" (white patch hides the old text) */}
-          <span className={styles["refer-a-friend-rewards-screen-refer-table"]}>
-            <span className={styles["refer-a-friend-rewards-screen-refer-table-label"]}>Refer Table</span>
-            <span className={styles["refer-a-friend-rewards-screen-refer-table-value"]}>TOP-17</span>
+          {/* A white patch hides the picture's "Total Refer 240" and "Worth rupees 12,800/-" (no made-up numbers) */}
+          <span className={styles["refer-a-friend-rewards-screen-totals-cover"]} aria-hidden="true">
+            {/*
+              Around the invite card (in the white above and below it, never on it), like the banner's line art: thin
+              circles, a wave and two small yellow flowers. The lines draw themselves with the banner's white lines,
+              then the flowers open. The card sits on top, so nothing crosses it.
+            */}
+            <svg viewBox="0 0 100 52" className={styles["refer-a-friend-invite-decoration"]}>
+              <circle cx="93" cy="3" r="7" pathLength={1} className={styles["refer-a-friend-invite-decoration-line"]} />
+              <circle cx="80" cy="6.5" r="2.4" pathLength={1} className={styles["refer-a-friend-invite-decoration-line"]} />
+              <path d="M0 47C14 41 26 51 42 46S70 40 84 45 96 49 100 44" pathLength={1} className={styles["refer-a-friend-invite-decoration-line"]} />
+              <circle cx="6" cy="44.5" r="2.6" pathLength={1} className={styles["refer-a-friend-invite-decoration-line"]} />
+              <g className={styles["refer-a-friend-invite-flower"]}>
+                <ellipse cx="72" cy="5.8" rx="1.3" ry="2.2" />
+                <ellipse cx="72" cy="5.8" rx="1.3" ry="2.2" transform="rotate(72 72 8)" />
+                <ellipse cx="72" cy="5.8" rx="1.3" ry="2.2" transform="rotate(144 72 8)" />
+                <ellipse cx="72" cy="5.8" rx="1.3" ry="2.2" transform="rotate(216 72 8)" />
+                <ellipse cx="72" cy="5.8" rx="1.3" ry="2.2" transform="rotate(288 72 8)" />
+                <circle cx="72" cy="8" r="1" className={styles["refer-a-friend-invite-flower-centre"]} />
+              </g>
+              <g className={styles["refer-a-friend-invite-flower"]}>
+                <ellipse cx="90" cy="43.6" rx="1.6" ry="2.7" />
+                <ellipse cx="90" cy="43.6" rx="1.6" ry="2.7" transform="rotate(72 90 46.3)" />
+                <ellipse cx="90" cy="43.6" rx="1.6" ry="2.7" transform="rotate(144 90 46.3)" />
+                <ellipse cx="90" cy="43.6" rx="1.6" ry="2.7" transform="rotate(216 90 46.3)" />
+                <ellipse cx="90" cy="43.6" rx="1.6" ry="2.7" transform="rotate(288 90 46.3)" />
+                <circle cx="90" cy="46.3" r="1.2" className={styles["refer-a-friend-invite-flower-centre"]} />
+              </g>
+            </svg>
+            {/* In its place: a small invite card (gift icon, two lines), in the picture's greens */}
+            <span className={styles["refer-a-friend-rewards-screen-invite-card"]}>
+              <span className={styles["refer-a-friend-rewards-screen-invite-icon"]}>
+                <svg viewBox="0 0 24 24">
+                  <path d="M4 11h16v9H4z" />
+                  <path d="M3 7h18v4H3z" />
+                  <path d="M12 7v13" />
+                  <path d="M12 7c-1.5-3-5-3.5-5.5-1.5S9 7 12 7c3 0 6-.5 5.5-1.5S13.5 4 12 7Z" />
+                </svg>
+              </span>
+              <span className={styles["refer-a-friend-rewards-screen-invite-words"]}>
+                <span className={styles["refer-a-friend-rewards-screen-invite-title"]}>Invite friends</span>
+                <span className={styles["refer-a-friend-rewards-screen-invite-text"]}>Share the goodness of A2 milk</span>
+              </span>
+            </span>
           </span>
           <svg viewBox="0 0 24 24" className={styles["refer-a-friend-rewards-screen-menu-icon"]}>
             <path d="M4 7h16M4 12h16M4 17h16" />

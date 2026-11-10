@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import LandingZoomAndLayoutRunner from "@/components/landing/landing-zoom-and-layout-runner";
@@ -90,13 +90,31 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
     router.replace("/login");
   }, [isLoginStatusKnown, isLoggedIn, pathname, router]);
 
-  // Phone layout: the sidebar is a row that scrolls sideways; bring the open page's button into view.
-  const sidebarRef = useRef<HTMLElement>(null);
+  /*
+    Phones and tablets: like the Chiranvi Panel, a bar with ☰ and the open page; ☰ slides the sidebar in from the
+    left as a menu (closes on a page link, the dimmed page, ✕ or Escape; the page behind does not scroll meanwhile).
+  */
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [menuPathname, setMenuPathname] = useState(pathname);
+  // Opening another page closes the menu
+  if (menuPathname !== pathname) {
+    setMenuPathname(pathname);
+    setIsMenuOpen(false);
+  }
   useEffect(() => {
-    sidebarRef.current
-      ?.querySelector("[aria-current=page]")
-      ?.scrollIntoView({ block: "nearest", inline: "center" });
-  }, [pathname, isLoggedIn]);
+    if (!isMenuOpen) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsMenuOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMenuOpen]);
+  const currentPage = accountPages.find((accountPage) => accountPage.href === pathname);
 
   function logOutAndGoHome() {
     isLoggingOutRef.current = true;
@@ -116,7 +134,32 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
 
       {isLoggedIn && (
         <div className={styles["account-page-body"]}>
-          <aside ref={sidebarRef} className={styles["account-sidebar"]}>
+          {/* Phones and tablets only: ☰, the open page, and the customer's initials */}
+          <div className={styles["account-mobile-bar"]}>
+            <button
+              type="button"
+              className={styles["account-mobile-menu-button"]}
+              aria-label="Open the account menu"
+              aria-expanded={isMenuOpen}
+              onClick={() => setIsMenuOpen(true)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+              {orderUpdateCount > 0 && <span className={styles["account-mobile-menu-dot"]} aria-hidden="true" />}
+            </button>
+            <p className={styles["account-mobile-bar-page"]}>
+              <span className={styles["account-mobile-bar-label"]}>My account</span>
+              <span className={styles["account-mobile-bar-current"]}>{currentPage?.label ?? "Profile"}</span>
+            </p>
+            <span className={styles["account-sidebar-avatar"]} aria-hidden="true">
+              {getNameInitials(accountProfile.fullName)}
+            </span>
+          </div>
+
+          {isMenuOpen && <div className={styles["account-sidebar-backdrop"]} onClick={() => setIsMenuOpen(false)} aria-hidden="true" />}
+
+          <aside className={`${styles["account-sidebar"]} ${isMenuOpen ? styles["account-sidebar-open"] : ""}`}>
             <div className={styles["account-sidebar-greeting"]}>
               <span className={styles["account-sidebar-avatar"]} aria-hidden="true">
                 {getNameInitials(accountProfile.fullName)}
@@ -125,14 +168,23 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
                 <span className={styles["account-sidebar-greeting-text"]}>{getGreeting()}</span>
                 <span className={styles["account-sidebar-name"]}>{accountProfile.fullName.split(" ")[0]}</span>
               </p>
+              {/* Menu only: closes it */}
+              <button type="button" className={styles["account-sidebar-close"]} aria-label="Close the menu" onClick={() => setIsMenuOpen(false)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
             </div>
 
             <nav aria-label="My account" className={styles["account-sidebar-links"]}>
-              {accountPages.map((accountPage) => {
+              {accountPages.map((accountPage, pageIndex) => {
                 const isCurrentPage = pathname === accountPage.href;
                 return (
+                  <Fragment key={accountPage.href}>
+                  {/* Menu only: the group names, as in the Chiranvi Panel */}
+                  {pageIndex === 0 && <p className={styles["account-sidebar-group-title"]}>My account</p>}
+                  {accountPage.href === "/account/wishlist" && <p className={styles["account-sidebar-group-title"]}>More</p>}
                   <Link
-                    key={accountPage.href}
                     href={accountPage.href}
                     aria-current={isCurrentPage ? "page" : undefined}
                     className={`${styles["account-sidebar-link"]} ${
@@ -156,9 +208,13 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
                       </span>
                     )}
                   </Link>
+                  </Fragment>
                 );
               })}
             </nav>
+
+            {/* Menu only: the group name over the panel buttons */}
+            {(staffAccess || isDeliveryAgent) && <p className={styles["account-sidebar-group-title"]}>Work</p>}
 
             {/* Owner, admins and managers: open the admin panel */}
             {staffAccess && (

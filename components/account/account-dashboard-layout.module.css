@@ -41,6 +41,14 @@
 /* Sidebar card: 260 x 520, white. It stays exactly where it starts while the page on the right scrolls: its "top"
    is the room for the navigation bar (27 above it + 100 tall) + the 24 above this card, so it never shifts */
 
+/* Wide screens: the phone menu's bar, dimmed page, ✕ and group names are not there (the sidebar is as before) */
+.account-mobile-bar,
+.account-sidebar-backdrop,
+.account-sidebar-close,
+.account-sidebar-group-title {
+  display: none;
+}
+
 .account-sidebar {
   position: sticky;
   top: calc(27 * var(--landing-page-vertical-design-pixel) + 100 * var(--landing-page-design-pixel) + 24 * var(--account-design-pixel));
@@ -261,26 +269,184 @@
     padding: 0 16px;
   }
 
-  .account-sidebar {
-    position: static;
-    flex-direction: row;
+  /* The bar above the page: ☰, "My account" over the open page's name, the customer's initials */
+  .account-mobile-bar {
+    display: flex;
     align-items: center;
-    gap: 6px;
-    width: auto;
-    min-height: 0;
-    max-height: none;
-    padding: 8px;
+    gap: 12px;
+    padding: 8px 12px 8px 8px;
     border-radius: 14px;
-    overflow-x: auto;
-    scrollbar-width: none;
+    background: #ffffff;
   }
 
+  .account-mobile-menu-button {
+    position: relative;
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border: 1px solid #e7e8e2;
+    border-radius: 11px;
+    background: #ffffff;
+    color: #1f4d2e;
+    cursor: pointer;
+    transition: background-color 150ms ease;
+  }
+
+  .account-mobile-menu-button:hover,
+  .account-mobile-menu-button:focus-visible {
+    background: #e6f0e1;
+  }
+
+  .account-mobile-menu-button svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+
+  /* New order updates: a small yellow dot on ☰ */
+  .account-mobile-menu-dot {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 9px;
+    height: 9px;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    background: #f5bf2c;
+  }
+
+  .account-mobile-bar-page {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.2;
+  }
+
+  .account-mobile-bar-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #c99a1e;
+  }
+
+  .account-mobile-bar-current {
+    overflow: hidden;
+    font-family: var(--font-ubuntu), sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #1f4d2e;
+  }
+
+  .account-mobile-bar .account-sidebar-avatar {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    font-size: 13px;
+  }
+
+  /* The dimmed page behind the open menu */
+  /* Above the site navigation bar (z-index 50), so it is dimmed too */
+  .account-sidebar-backdrop {
+    position: fixed;
+    z-index: 60;
+    inset: 0;
+    display: block;
+    background: rgba(19, 37, 27, 0.35);
+    animation: account-sidebar-backdrop-fade 0.2s ease;
+  }
+
+  @keyframes account-sidebar-backdrop-fade {
+    from {
+      opacity: 0;
+    }
+  }
+
+  /* The menu: slides in from the left over the page, as in the Chiranvi Panel */
+  .account-sidebar {
+    position: fixed;
+    z-index: 61;
+    top: 0;
+    left: 0;
+    width: min(300px, 86vw);
+    height: 100svh;
+    min-height: 0;
+    max-height: none;
+    padding: 18px 14px 20px;
+    overflow-y: auto;
+    border-radius: 0 18px 18px 0;
+    background: #ffffff;
+    box-shadow: 8px 0 30px rgba(19, 37, 27, 0.18);
+    visibility: hidden;
+    transform: translateX(-102%);
+    transition:
+      transform 0.25s ease,
+      visibility 0s linear 0.25s;
+  }
+
+  .account-sidebar-open {
+    visibility: visible;
+    transform: translateX(0);
+    transition: transform 0.25s ease;
+  }
+
+  /* Its top: the customer's greeting and ✕ */
   .account-sidebar-greeting {
-    display: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 6px;
+    padding: 0 4px 16px;
+    border-bottom: 1px solid #ecede7;
+  }
+
+  .account-sidebar-greeting p {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .account-sidebar-close {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid #e7e8e2;
+    border-radius: 50%;
+    background: #ffffff;
+    color: #1f4d2e;
+    cursor: pointer;
+  }
+
+  .account-sidebar-close svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+
+  /* MY ACCOUNT / MORE / WORK, as the panel's group names */
+  .account-sidebar-group-title {
+    display: block;
+    margin: 16px 0 6px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #1b2a20;
   }
 
   .account-sidebar-links {
-    flex-direction: row;
     padding: 0;
     border-bottom: none;
   }
@@ -288,22 +454,45 @@
   .account-sidebar-link,
   .account-sidebar-panel-link,
   .account-sidebar-logout-button {
-    flex-shrink: 0;
-    gap: 7px;
-    height: 36px;
-    padding: 0 11px;
-    font-size: 13px;
+    gap: 12px;
+    height: 44px;
+    margin-top: 0;
+    padding: 0 12px;
+    font-size: 14px;
   }
 
   .account-sidebar-link-icon {
-    width: 16px;
-    height: 16px;
+    width: 19px;
+    height: 19px;
   }
 
-  .account-sidebar-logout-button,
-  .account-sidebar-panel-link {
-    margin-top: 0;
+  /* The open page: light yellow, bold dark green, gold icon (as in the Chiranvi Panel) */
+  .account-sidebar-link-current,
+  .account-sidebar-link-current:hover,
+  .account-sidebar-link-current:focus-visible {
+    background: #fbf3e1;
+    color: #1f4d2e;
   }
+
+  .account-sidebar-link-current .account-sidebar-link-icon {
+    stroke: #c99a1e;
+  }
+
+  /* Logout at the bottom, apart from the pages */
+  .account-sidebar-logout-button {
+    margin-top: 18px;
+    border-top: 1px solid #ecede7;
+    border-radius: 0;
+    padding-top: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .account-sidebar,
+    .account-sidebar-open {
+      transition: none;
+    }
+  }
+
 
   /* Buttons next to the title (Offers filters, Add new address) move under it when there is no room */
   .account-page-heading-row {

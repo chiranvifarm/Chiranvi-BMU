@@ -22,6 +22,8 @@ import styles from "./address-page.module.css";
     "Set as Default" button that makes it the default.
   - "Add new address" opens a pop-up form; the saved address appears as a new card.
   - "Edit" opens the same form filled in; "Remove" deletes the address (the next one becomes default).
+  - An address without a map pin (saved before pins, or made from the Profile) shows "Pin needed", which opens
+    its form to place the pin (an address can only be saved with one).
   The addresses are shared with the cart checkout (store/address-store.ts); changes last until the
   page is refreshed.
 */
@@ -71,6 +73,17 @@ export default function AddressPage() {
                 <div className={styles["address-card-heading-row"]}>
                   <h2 className={styles["address-label"]}>{address.label}</h2>
                   <div className={styles["address-card-badges"]}>
+                    {/* Saved before addresses had a map pin: opens its form to place the pin */}
+                    {!address.pin && (
+                      <button
+                        type="button"
+                        className={styles["address-pin-needed-button"]}
+                        title="Place this address's pin on the map to deliver here."
+                        onClick={() => setOpenForm({ mode: "edit", address })}
+                      >
+                        Pin needed
+                      </button>
+                    )}
                     {/* The address on their Profile (changed only on the Profile page) */}
                     {address.isProfileAddress && (
                       <span className={styles["address-profile-badge"]} title="This is the address on your Profile. Change it on your Profile page.">

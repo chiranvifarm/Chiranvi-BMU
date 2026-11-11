@@ -1426,7 +1426,7 @@ export default function CartView() {
                 </div>
                 {serviceProblem === "pin" && (
                   <p className={styles["checkout-service-notice"]} role="status">
-                    Add your location to this address so we can check we deliver there. Tap Use my current location while you&apos;re at the address.
+                    Add the pin for this address so we can check we deliver there: use your location, or search the place and move the map.
                   </p>
                 )}
                 {isOutsideService && deliveryService && (

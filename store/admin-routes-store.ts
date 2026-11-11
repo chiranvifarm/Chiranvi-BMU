@@ -214,21 +214,27 @@ export function isBengaluruCity(city: string) {
   return /^(bengaluru|bangalore)(urban|city)?$/.test(city.toLowerCase().replace(/[^a-z]/g, ""));
 }
 
+// An address in Bengaluru: its city says so, or its pincode is a Bengaluru one (560…), as the database's
+// private.is_bengaluru_address (0062_bengaluru_by_pincode.sql)
+export function isBengaluruAddress(address: { city: string; pincode: string }) {
+  return isBengaluruCity(address.city) || /^560\d{3}$/.test(address.pincode.trim());
+}
+
 /*
   The same check as the database's private.check_delivery_address (it has the last word at Pay now,
   0054_one_time_orders_anywhere_in_bengaluru.sql, 0060_hubs.sql). With a milk plan: the service areas only, and
   the distance limit of its route's hub (the hub nearest the route's centre; no route here: nearest the address).
-  One-time products only: a service area or any address in Bengaluru (its city).
+  One-time products only: a service area or any address in Bengaluru (its city, or a 560… pincode).
 */
 export function serviceProblemOf(
-  address: { area: string; city: string; pin?: { latitude: number; longitude: number } | null },
+  address: { area: string; city: string; pincode: string; pin?: { latitude: number; longitude: number } | null },
   service: DeliveryService,
   hasPlan: boolean,
 ): ServiceProblem | null {
   const area = address.area.trim().toLowerCase();
   const isServiceArea = service.areas.some((served) => served.trim().toLowerCase() === area);
   if (hasPlan && !isServiceArea) return "area";
-  if (!hasPlan && !isServiceArea && !isBengaluruCity(address.city)) return "city";
+  if (!hasPlan && !isServiceArea && !isBengaluruAddress(address)) return "city";
   if (!address.pin) return "pin";
   if (hasPlan) {
     const route = routeStore.getRecords().find((existing) => existing.area.trim().toLowerCase() === area && typeof existing.latitude === "number");

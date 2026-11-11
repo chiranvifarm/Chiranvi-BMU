@@ -682,6 +682,22 @@
   gap: calc(8 * var(--checkout-design-pixel));
 }
 
+/* An address without a map pin: picking it opens its form to place the pin (gold on light yellow) */
+.address-pick-pin-needed-badge {
+  display: flex;
+  align-items: center;
+  height: calc(32 * var(--checkout-design-pixel));
+  padding: 0 calc(14 * var(--checkout-design-pixel));
+  border: 1px solid #f0e2bd;
+  border-radius: 9999px;
+  background: #fbf3e1;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(12.5 * var(--checkout-design-pixel));
+  font-weight: 700;
+  color: #c99a1e;
+  white-space: nowrap;
+}
+
 /* The address on the customer's Profile: light yellow, so it is not mistaken for Default */
 .address-pick-profile-badge {
   display: flex;

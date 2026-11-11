@@ -1511,7 +1511,12 @@ export default function CartView() {
                 {addresses.map((address) => {
                   const isPicked = hasPickedAddress && address.id === chosenAddress?.id;
                   const isDefault = address.id === defaultAddressId;
+                  // No map pin yet: its form opens to place the pin first; saving it picks the address
                   function pickThisAddress() {
+                    if (!address.pin) {
+                      openAddressForm(address);
+                      return;
+                    }
                     pickAddress(address.id, address);
                   }
                   return (
@@ -1533,6 +1538,12 @@ export default function CartView() {
                       <div className={styles["address-pick-card-heading-row"]}>
                         <h3 className={styles["address-pick-label"]}>{address.label}</h3>
                         <div className={styles["address-pick-badges"]}>
+                          {/* Saved before addresses had a map pin: picking it asks for the pin first */}
+                          {!address.pin && (
+                            <span className={styles["address-pick-pin-needed-badge"]} title="Place this address's pin on the map to deliver here.">
+                              Pin needed
+                            </span>
+                          )}
                           {/* The address on their Profile (changed only on the Profile page), as on My Addresses */}
                           {address.isProfileAddress && (
                             <span className={styles["address-pick-profile-badge"]} title="This is the address on your Profile. Change it on your Profile page.">

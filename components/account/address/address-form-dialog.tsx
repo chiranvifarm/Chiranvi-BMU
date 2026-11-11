@@ -38,7 +38,8 @@ import styles from "./address-form-dialog.module.css";
   asksProfileDetails (the cart, for a logged-in customer without a Profile): "Full name" becomes First name and
   Last name, and Email is asked too, so the address gives every detail the Profile needs; they go to onSave
   as profileDetails.
-  "Use my current location" (needed to order): the phone's GPS gives the address's map pin, so the delivery agent's
+  The map pin is needed to save the address (Save address asks for it). "Use my current location": the phone's GPS
+  gives the address's map pin, so the delivery agent's
   Google Maps goes to the gate. The phone asks the customer first; nothing is read without the tap. The spot is
   then looked up on OpenStreetMap (free, no key, anywhere in India) to fill in the street (only when that box is
   empty), area, city and pincode; the customer checks them and adds the house / flat number. A Bengaluru area
@@ -337,7 +338,7 @@ export default function AddressFormDialog({
     if (formValues.pin) {
       return formValues.pinSavedBy === "agent" ? "Location saved by our delivery partner at your door." : "Location saved.";
     }
-    return "Needed to place an order. Tap this while you're at this address, or search the place and move the map so the pin is on the gate.";
+    return "Needed to save this address. Tap this while you're at the address, or search the place and move the map so the pin is on the gate.";
   }
 
   function updateField(field: TextFieldName | keyof ProfileValues, value: string) {
@@ -375,6 +376,11 @@ export default function AddressFormDialog({
     }
     setFieldErrors(newFieldErrors);
     if (Object.keys(newFieldErrors).length > 0) return;
+    // Every saved address has its map pin (the agent's Maps and our delivery check need it)
+    if (!formValues.pin) {
+      setPinState({ step: "failed", message: "Place this address's pin to save it: use your location, the round button on the map, or search the place and move the map." });
+      return;
+    }
     const fullName = asksProfileDetails ? `${profileValues.firstName.trim()} ${profileValues.lastName.trim()}` : formValues.name.trim();
     onSave(
       {

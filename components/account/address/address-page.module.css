@@ -89,6 +89,28 @@
   gap: calc(8 * var(--account-design-pixel));
 }
 
+/* An address without a map pin: tapping it opens the form to place the pin (gold on light yellow) */
+.address-pin-needed-button {
+  display: flex;
+  align-items: center;
+  height: calc(32 * var(--account-design-pixel));
+  padding: 0 calc(14 * var(--account-design-pixel));
+  border: 1px solid #f0e2bd;
+  border-radius: 9999px;
+  background: #fbf3e1;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(12.5 * var(--account-design-pixel));
+  font-weight: 700;
+  white-space: nowrap;
+  color: #c99a1e;
+  cursor: pointer;
+}
+
+.address-pin-needed-button:hover,
+.address-pin-needed-button:focus-visible {
+  text-decoration: underline;
+}
+
 /* The address on the customer's Profile: light yellow, so it is not mistaken for Default */
 .address-profile-badge {
   display: flex;

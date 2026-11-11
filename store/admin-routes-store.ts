@@ -27,14 +27,69 @@ export type DeliveryRoute = {
   longitude?: number;
 };
 
-export type DeliveryHub = { name: string; latitude: number; longitude: number };
+/*
+  A pick-up point (0060_hubs.sql). The first is the primary hub ("primary", Chiranvi Farm); the admin can add
+  more on Routes & agents. Each route uses the hub nearest its area's centre.
+*/
+export type DeliveryHub = {
+  id: string; // "primary", or "hub-1a2b3c4d" for one added later
+  name: string;
+  latitude?: number; // no spot yet: left out
+  longitude?: number;
+  limitKm?: number; // milk plans: how far from this hub Chiranvi delivers (left out: no limit)
+};
 
 export type DeliveryService = {
   areas: string[];
-  hub: DeliveryHub | null; // null: its exact spot hasn't been saved yet
-  limitKm: number | null; // how far from the hub Chiranvi delivers (null: not set yet)
+  hubs: DeliveryHub[]; // the primary first
   contactPhone: string; // 10 digits
 };
+
+type Spot = { latitude: number; longitude: number };
+
+// A hub whose exact spot has been saved
+export function hasHubSpot(hub: DeliveryHub): hub is DeliveryHub & Spot {
+  return typeof hub.latitude === "number" && typeof hub.longitude === "number";
+}
+
+// The hub with a saved spot nearest a place (null: no hub has its spot yet)
+export function hubNearest(spot: Spot, hubs: DeliveryHub[]) {
+  return hubs.filter(hasHubSpot).sort((first, second) => kmBetween(first, spot) - kmBetween(second, spot))[0] ?? null;
+}
+
+// The hub a route uses: the one nearest its area's centre (null: no centre, or no hub with a spot)
+export function hubOfRoute(route: DeliveryRoute, hubs: DeliveryHub[]) {
+  return typeof route.latitude === "number" && typeof route.longitude === "number"
+    ? hubNearest({ latitude: route.latitude, longitude: route.longitude }, hubs)
+    : null;
+}
+
+// An agent's hub (where their day starts): the hub of their first route with one, else the primary hub
+export function hubOfAgent(agentName: string | null, routes: DeliveryRoute[], hubs: DeliveryHub[]) {
+  const ownRoutes = routes.filter((route) => agentName && route.agent === agentName);
+  for (const route of ownRoutes) {
+    const hub = hubOfRoute(route, hubs);
+    if (hub) return hub;
+  }
+  return hubs.filter(hasHubSpot).find((hub) => hub.id === "primary") ?? hubs.find(hasHubSpot) ?? null;
+}
+
+// The saved settings, also as an older database keeps them (one "hub" and "limitKm", before 0060_hubs.sql)
+function deliveryServiceFrom(value: Record<string, unknown> | undefined): DeliveryService | null {
+  if (!value) return null;
+  const oldHub = value.hub as Spot | null | undefined;
+  const hubs = Array.isArray(value.hubs)
+    ? (value.hubs as DeliveryHub[])
+    : [
+        {
+          id: "primary",
+          name: "Chiranvi Farm",
+          ...(oldHub ? { latitude: oldHub.latitude, longitude: oldHub.longitude } : {}),
+          ...(typeof value.limitKm === "number" ? { limitKm: value.limitKm } : {}),
+        },
+      ];
+  return { areas: (value.areas as string[]) ?? [], hubs, contactPhone: String(value.contactPhone ?? "") };
+}
 
 // Why an address can't take a new order: not a service area (milk plan), not in Bengaluru (one-time products),
 // no map pin, or too far from the hub (milk plan)
@@ -125,7 +180,7 @@ async function loadDeliveryService() {
     console.error("Could not read where Chiranvi delivers", error);
     return;
   }
-  deliveryService = (data?.value as DeliveryService | undefined) ?? null;
+  deliveryService = deliveryServiceFrom(data?.value as Record<string, unknown> | undefined);
   serviceListeners.forEach((onChange) => onChange());
 }
 
@@ -161,8 +216,9 @@ export function isBengaluruCity(city: string) {
 
 /*
   The same check as the database's private.check_delivery_address (it has the last word at Pay now,
-  0054_one_time_orders_anywhere_in_bengaluru.sql). With a milk plan: the service areas only, and the hub's
-  distance limit. One-time products only: a service area or any address in Bengaluru (its city).
+  0054_one_time_orders_anywhere_in_bengaluru.sql, 0060_hubs.sql). With a milk plan: the service areas only, and
+  the distance limit of its route's hub (the hub nearest the route's centre; no route here: nearest the address).
+  One-time products only: a service area or any address in Bengaluru (its city).
 */
 export function serviceProblemOf(
   address: { area: string; city: string; pin?: { latitude: number; longitude: number } | null },
@@ -174,16 +230,23 @@ export function serviceProblemOf(
   if (hasPlan && !isServiceArea) return "area";
   if (!hasPlan && !isServiceArea && !isBengaluruCity(address.city)) return "city";
   if (!address.pin) return "pin";
-  if (hasPlan && service.hub && service.limitKm !== null && kmBetween(service.hub, address.pin) > service.limitKm) return "far";
+  if (hasPlan) {
+    const route = routeStore.getRecords().find((existing) => existing.area.trim().toLowerCase() === area && typeof existing.latitude === "number");
+    const hub = (route && hubOfRoute(route, service.hubs)) ?? hubNearest(address.pin, service.hubs);
+    if (hub && typeof hub.limitKm === "number" && kmBetween(hub, address.pin) > hub.limitKm) return "far";
+  }
   return null;
 }
 
 /*
-  Saves the hub's exact spot (or null to keep the saved one) and the distance limit. The database checks who
-  is asking. Answers a problem to show, or null.
+  Adds a hub (hubId null) or changes one: its name (null keeps it), exact spot (null keeps the saved one) and
+  distance limit (null: no limit). The database checks who is asking (0060_hubs.sql). Answers a problem to show,
+  or null.
 */
-export async function saveDeliveryHub(spot: { latitude: number; longitude: number } | null, limitKm: number | null) {
-  const { error } = await createClient().rpc("set_delivery_hub", {
+export async function saveDeliveryHub(hubId: string | null, name: string | null, spot: Spot | null, limitKm: number | null) {
+  const { error } = await createClient().rpc("save_delivery_hub", {
+    p_hub_id: hubId,
+    p_name: name,
     p_latitude: spot?.latitude ?? null,
     p_longitude: spot?.longitude ?? null,
     p_limit_km: limitKm,
@@ -192,6 +255,17 @@ export async function saveDeliveryHub(spot: { latitude: number; longitude: numbe
   if (error) {
     console.error("The database did not accept the hub", error);
     return error.message || "Couldn't save the hub. Please try again.";
+  }
+  return null;
+}
+
+// Removes a hub that was added (not the primary). Answers a problem to show, or null.
+export async function removeDeliveryHub(hubId: string) {
+  const { error } = await createClient().rpc("remove_delivery_hub", { p_hub_id: hubId });
+  await loadDeliveryService();
+  if (error) {
+    console.error("The database did not remove the hub", error);
+    return error.message || "Couldn't remove the hub. Please try again.";
   }
   return null;
 }

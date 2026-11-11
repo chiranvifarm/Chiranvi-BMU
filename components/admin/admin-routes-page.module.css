@@ -36,22 +36,94 @@
   text-decoration: underline;
 }
 
-/* ---------- Primary hub ---------- */
-.admin-hub-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: calc(14 * var(--admin-pixel));
-  margin-top: calc(10 * var(--admin-pixel));
-}
-
-.admin-hub-limit {
+/* ---------- Hubs ---------- */
+.admin-hub-list {
   display: flex;
   flex-direction: column;
-  gap: calc(4 * var(--admin-pixel));
-  width: calc(130 * var(--admin-pixel));
+  margin-top: calc(8 * var(--admin-pixel));
+}
+
+.admin-hub-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(12 * var(--admin-pixel));
+  padding: calc(10 * var(--admin-pixel)) 0;
+  border-bottom: 1px solid #e6f0e1;
+}
+
+.admin-hub-row:last-child {
+  border-bottom: 0;
+}
+
+.admin-hub-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--admin-pixel));
+  min-width: 0;
+}
+
+.admin-hub-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8 * var(--admin-pixel));
+  font-size: calc(13.5 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1b2a20;
+}
+
+.admin-hub-primary-tag {
+  padding: calc(2 * var(--admin-pixel)) calc(8 * var(--admin-pixel));
+  border-radius: 9999px;
+  background: #e6f0e1;
+  font-size: calc(11 * var(--admin-pixel));
+  font-weight: 600;
+  color: #285c3a;
+}
+
+.admin-hub-row-details {
   font-size: calc(12 * var(--admin-pixel));
   color: #5c655e;
+}
+
+/* The hub pop-up's map: the full width of the pop-up */
+.admin-hub-map-field {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--admin-pixel));
+}
+
+.admin-hub-map-label {
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1b2a20;
+}
+
+.admin-hub-map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8 * var(--admin-pixel));
+}
+
+.admin-hub-remove-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: calc(4 * var(--admin-pixel)) 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 700;
+  color: #c0392b;
+  cursor: pointer;
+}
+
+.admin-hub-remove-button:hover,
+.admin-hub-remove-button:focus-visible {
+  text-decoration: underline;
 }
 
 .admin-hub-note {
@@ -61,6 +133,7 @@
 }
 
 .admin-hub-problem {
+  grid-column: 1 / -1;
   margin-top: calc(6 * var(--admin-pixel));
   font-size: calc(12 * var(--admin-pixel));
   color: #c0392b;

@@ -14,6 +14,9 @@ import {
 } from "@/store/admin-deliveries-store";
 import {
   addRoute,
+  hasHubSpot,
+  hubOfRoute,
+  removeDeliveryHub,
   saveDeliveryHub,
   updateRoutes,
   reloadDeliveryAgents,
@@ -21,11 +24,13 @@ import {
   useDeliveryRoutes,
   useDeliveryService,
   type DeliveryAgent,
+  type DeliveryHub,
   type DeliveryRoute,
 } from "@/store/admin-routes-store";
 import { useStaffList } from "@/store/admin-staff-store";
 import { giveTeamRole, useCurrentStaffAccess } from "@/store/staff-access-store";
 import BengaluruAreaPicker, { OTHER_AREA } from "@/components/area-picker/bengaluru-area-picker";
+import MapPinPicker from "@/components/map-pin-picker/map-pin-picker";
 import { AdminFeatureGate } from "./admin-panel-layout";
 import {
   AdminDialog,
@@ -51,6 +56,7 @@ import styles from "./admin-routes-page.module.css";
                "Edit routes" changes each route's area and agent (stops not yet delivered move with it);
                clicking a route (its row, or its line on the map) opens its overview: the agent, the counts
                and every order on it, for the dates chosen at the top
+    hubs       the pick-up points (0060_hubs.sql): the primary and any added with "+ Add hub", each set on a map
     right      delivery agents: route and bike, status, call button, stops done; "Add agent"
   Routes and agents come from store/admin-routes-store.ts and deliveries from
   store/admin-deliveries-store.ts, so the Deliveries page shows the same routes, colours and agents.
@@ -204,27 +210,41 @@ function RouteOverview({
 // Further than this from the spot (the phone's own estimate): not saved, so the hub is always exact
 const ROUGH_HUB_METRES = 50;
 
-/*
-  The primary hub (the pick-up point): its exact spot, from the phone of someone standing there, and how far
-  from it Chiranvi delivers. Customers further than that are told to contact the farm.
-*/
-function PrimaryHubCard({ canEdit, showToast }: { canEdit: boolean; showToast: (message: string) => void }) {
-  const service = useDeliveryService();
-  const [limitText, setLimitText] = useState<string | null>(null);
-  const [isFinding, setIsFinding] = useState(false);
-  const [problem, setProblem] = useState("");
-  const shownLimit = limitText ?? (service?.limitKm ? String(service.limitKm) : "");
-  const limitKm = shownLimit ? Number(shownLimit) : null;
+// The hub pop-up: a new hub (hubId null) or one being changed
+type HubDraft = { hubId: string | null; name: string; spot: { latitude: number; longitude: number } | null; limitText: string };
 
-  async function save(spot: { latitude: number; longitude: number } | null) {
-    const saveProblem = await saveDeliveryHub(spot, limitKm);
-    setProblem(saveProblem ?? "");
-    if (saveProblem) return;
-    setLimitText(null);
-    showToast(spot ? "Hub location saved" : "Distance limit saved");
+/*
+  Hubs (pick-up points), 0060_hubs.sql: the primary hub (Chiranvi Farm) and any added with "+ Add hub". Each row:
+  its name, whether its spot is saved, its "Deliver within (km)" for milk plans, and the routes using it (each
+  route uses the hub nearest its area's centre). "Edit" / "+ Add hub" open a pop-up: the name, the spot on a map
+  (move the map so the pin is on the hub, search a place, or use the location of a phone standing there) and the
+  distance limit. A hub added later can be removed; the primary can't. Only staff who may edit Routes & agents.
+*/
+function HubsCard({ canEdit, routes, showToast }: { canEdit: boolean; routes: DeliveryRoute[]; showToast: (message: string) => void }) {
+  const service = useDeliveryService();
+  const hubs = service?.hubs ?? [];
+  const [draft, setDraft] = useState<HubDraft | null>(null);
+  const [isFinding, setIsFinding] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [problem, setProblem] = useState("");
+  const routesOfHub = (hubId: string) => routes.filter((route) => hubOfRoute(route, hubs)?.id === hubId).map((route) => route.id);
+
+  function openHub(hub: DeliveryHub | null) {
+    setProblem("");
+    setDraft(
+      hub
+        ? {
+            hubId: hub.id,
+            name: hub.name,
+            spot: hasHubSpot(hub) ? { latitude: hub.latitude, longitude: hub.longitude } : null,
+            limitText: typeof hub.limitKm === "number" ? String(hub.limitKm) : "",
+          }
+        : { hubId: null, name: "", spot: null, limitText: "" },
+    );
   }
 
-  function saveThisSpot() {
+  // The phone's location, for someone standing at the hub (must be exact to about 50 m)
+  function takePhoneLocation() {
     if (!("geolocation" in navigator)) {
       setProblem("This device can't share its location.");
       return;
@@ -235,58 +255,146 @@ function PrimaryHubCard({ canEdit, showToast }: { canEdit: boolean; showToast: (
       (position) => {
         setIsFinding(false);
         if (position.coords.accuracy > ROUGH_HUB_METRES) {
-          setProblem(`Not exact enough (about ${Math.round(position.coords.accuracy)} m). Use a phone at the hub, in the open, and try again.`);
+          setProblem(`Not exact enough (about ${Math.round(position.coords.accuracy)} m). Move the map pin onto the hub instead, or try again in the open.`);
           return;
         }
-        void save({ latitude: position.coords.latitude, longitude: position.coords.longitude });
+        const spot = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+        setDraft((current) => (current ? { ...current, spot } : current));
       },
       (failure) => {
         setIsFinding(false);
         setProblem(
           failure.code === failure.PERMISSION_DENIED
-            ? "Location is blocked. Allow location for this website in your settings."
-            : "Couldn't find your location. Try again in the open.",
+            ? "Location is blocked. Allow location for this website in your settings, or move the map pin onto the hub."
+            : "Couldn't find your location. Move the map pin onto the hub instead.",
         );
       },
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
     );
   }
 
+  async function saveHub() {
+    if (!draft || isSaving) return;
+    if (!draft.name.trim()) {
+      setProblem("Give the hub a name.");
+      return;
+    }
+    setIsSaving(true);
+    const saveProblem = await saveDeliveryHub(draft.hubId, draft.name.trim(), draft.spot, draft.limitText ? Number(draft.limitText) : null);
+    setIsSaving(false);
+    setProblem(saveProblem ?? "");
+    if (saveProblem) return;
+    showToast(draft.hubId ? `${draft.name.trim()} saved` : `${draft.name.trim()} added`);
+    setDraft(null);
+  }
+
+  async function removeHub() {
+    if (!draft?.hubId || draft.hubId === "primary" || isSaving) return;
+    if (!window.confirm(`Remove ${draft.name}? Its routes will use the nearest other hub.`)) return;
+    setIsSaving(true);
+    const removeProblem = await removeDeliveryHub(draft.hubId);
+    setIsSaving(false);
+    setProblem(removeProblem ?? "");
+    if (removeProblem) return;
+    showToast(`${draft.name} removed`);
+    setDraft(null);
+  }
+
   return (
-    <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-primary-hub-heading">
-      <h2 id="admin-primary-hub-heading" className={dashboardStyles["admin-card-title"]}>
-        Primary hub
-      </h2>
-      <p className={dashboardStyles["admin-card-subtitle"]}>
-        {service?.hub ? `${service.hub.name} · location saved` : "Chiranvi Farm · location not saved yet"}
-      </p>
-      {canEdit && (
-        <div className={styles["admin-hub-controls"]}>
-          <button type="button" className={styles["admin-routes-text-button"]} disabled={isFinding} onClick={saveThisSpot}>
-            {isFinding ? "Finding your location…" : service?.hub ? "Update to my current location" : "Use my current location"}
+    <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-hubs-heading">
+      <div className={dashboardStyles["admin-card-heading-row"]}>
+        <div>
+          <h2 id="admin-hubs-heading" className={dashboardStyles["admin-card-title"]}>
+            Hubs
+          </h2>
+          <p className={dashboardStyles["admin-card-subtitle"]}>Pick-up points · each route uses the hub nearest its area</p>
+        </div>
+        {canEdit && (
+          <button type="button" className={styles["admin-routes-text-button"]} onClick={() => openHub(null)}>
+            + Add hub
           </button>
-          <label className={styles["admin-hub-limit"]}>
-            Deliver within (km)
+        )}
+      </div>
+
+      <ul className={styles["admin-hub-list"]}>
+        {hubs.map((hub) => {
+          const hubRoutes = routesOfHub(hub.id);
+          return (
+            <li key={hub.id} className={styles["admin-hub-row"]}>
+              <div className={styles["admin-hub-row-text"]}>
+                <span className={styles["admin-hub-row-name"]}>
+                  {hub.name}
+                  {hub.id === "primary" && <span className={styles["admin-hub-primary-tag"]}>Primary</span>}
+                </span>
+                <span className={styles["admin-hub-row-details"]}>
+                  {hasHubSpot(hub) ? "Location saved" : "Location not saved yet"} ·{" "}
+                  {typeof hub.limitKm === "number" ? `Deliver within ${hub.limitKm} km` : "No distance limit"}
+                  {hubRoutes.length > 0 && ` · ${hubRoutes.join(", ")}`}
+                </span>
+              </div>
+              {canEdit && (
+                <button type="button" className={styles["admin-routes-text-button"]} onClick={() => openHub(hub)}>
+                  Edit
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <p className={styles["admin-hub-note"]}>
+        A milk plan&apos;s address must be within its route&apos;s hub&apos;s distance limit. A hub without a saved location isn&apos;t used yet.
+      </p>
+
+      {draft && (
+        <AdminDialog
+          title={draft.hubId ? `Edit ${draft.name || "hub"}` : "Add hub"}
+          submitLabel={isSaving ? "Saving…" : draft.hubId ? "Save hub" : "Add hub"}
+          onClose={() => setDraft(null)}
+          onSubmit={() => void saveHub()}
+        >
+          <AdminDialogField label="Hub name">
+            <input
+              className={adminInputClassName}
+              value={draft.name}
+              maxLength={40}
+              placeholder="Whitefield hub"
+              onChange={(changeEvent) => setDraft({ ...draft, name: changeEvent.target.value })}
+            />
+          </AdminDialogField>
+          <AdminDialogField label="Deliver within (km)">
             <input
               className={adminInputClassName}
               inputMode="numeric"
-              placeholder="Not set"
-              value={shownLimit}
-              onChange={(changeEvent) => setLimitText(changeEvent.target.value.replace(/\D/g, "").slice(0, 3))}
+              placeholder="No limit"
+              value={draft.limitText}
+              onChange={(changeEvent) => setDraft({ ...draft, limitText: changeEvent.target.value.replace(/\D/g, "").slice(0, 3) })}
             />
-          </label>
-          <button type="button" className={styles["admin-routes-text-button"]} onClick={() => void save(null)}>
-            Save limit
-          </button>
-        </div>
-      )}
-      <p className={styles["admin-hub-note"]}>
-        Stand at the hub with a phone and tap the button. The distance limit only works once the location is saved.
-      </p>
-      {problem && (
-        <p className={styles["admin-hub-problem"]} role="alert">
-          {problem}
-        </p>
+          </AdminDialogField>
+          <div className={styles["admin-hub-map-field"]}>
+            <span className={styles["admin-hub-map-label"]}>Location: move the map so the pin is on the hub</span>
+            <MapPinPicker
+              pin={draft.spot}
+              onPinChange={(spot) => setDraft((current) => (current ? { ...current, spot } : current))}
+              searchFallback={draft.name}
+            />
+            <div className={styles["admin-hub-map-actions"]}>
+              <button type="button" className={styles["admin-routes-text-button"]} disabled={isFinding} onClick={takePhoneLocation}>
+                {isFinding ? "Finding your location…" : "Use my current location (at the hub)"}
+              </button>
+              <span className={styles["admin-hub-row-details"]}>{draft.spot ? "Location set" : "No location yet: it can be set later"}</span>
+            </div>
+          </div>
+          {draft.hubId && draft.hubId !== "primary" && (
+            <button type="button" className={styles["admin-hub-remove-button"]} onClick={() => void removeHub()}>
+              Remove this hub
+            </button>
+          )}
+          {problem && (
+            <p className={styles["admin-hub-problem"]} role="alert">
+              {problem}
+            </p>
+          )}
+        </AdminDialog>
       )}
     </section>
   );
@@ -522,7 +630,7 @@ function RoutesPage() {
 
       <div className={styles["admin-routes-columns"]}>
         <div className={styles["admin-routes-left-column"]}>
-          <PrimaryHubCard canEdit={Boolean(access?.can("routes", "edit"))} showToast={showToast} />
+          <HubsCard canEdit={Boolean(access?.can("routes", "edit"))} routes={routes} showToast={showToast} />
           <section className={dashboardStyles["admin-card"]} aria-labelledby="admin-route-map-heading">
             <h2 id="admin-route-map-heading" className={dashboardStyles["admin-card-title"]}>
               Route map

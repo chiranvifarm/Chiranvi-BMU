@@ -12,7 +12,7 @@ import {
   type DeliveryStatus,
   createTodaysPlanStops,
 } from "./admin-deliveries-store";
-import { useDeliveryAgents, useDeliveryRoutes, useDeliveryService, type DeliveryAgent, type DeliveryRoute } from "./admin-routes-store";
+import { hubOfAgent, useDeliveryAgents, useDeliveryRoutes, useDeliveryService, type DeliveryAgent, type DeliveryRoute } from "./admin-routes-store";
 import { createPanelRecordStore } from "./panel-records";
 import { createClient } from "@/lib/supabase/client";
 
@@ -507,7 +507,8 @@ export function useAgentStopsForDay(login: DeliveryAgentLogin, dateKey: string |
   const mobileNumber = login.state === "agent" ? login.mobileNumber : null;
   const agentName = login.state === "agent" && login.agent ? login.agent.name : null;
   const routes = useDeliveryRoutes();
-  const hub = useDeliveryService()?.hub ?? null;
+  // Where this agent's day starts: their route's hub (0060_hubs.sql)
+  const hub = hubOfAgent(agentName, routes, useDeliveryService()?.hubs ?? []);
   const dayRecords = dayStore.useRecords();
   // The day read last, kept with its date so a new date shows "loading" until its own answer is back
   const [answer, setAnswer] = useState<{ dateKey: string; deliveries: Delivery[]; hasProblem: boolean } | null>(null);
@@ -560,7 +561,8 @@ export function useAgentStops(login: DeliveryAgentLogin): AgentStops {
   const agentName = login.state === "agent" && login.agent ? login.agent.name : null;
   const deliveries = useTodayDeliveries();
   const routes = useDeliveryRoutes();
-  const hub = useDeliveryService()?.hub ?? null;
+  // Where this agent's day starts: their route's hub (0060_hubs.sql)
+  const hub = hubOfAgent(agentName, routes, useDeliveryService()?.hubs ?? []);
   const day = useAgentDay(mobileNumber);
   const areDeliveriesLoaded = useAreTodayDeliveriesLoaded();
   // Each plan's stop for today

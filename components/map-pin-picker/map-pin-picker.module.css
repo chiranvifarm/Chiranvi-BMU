@@ -100,6 +100,71 @@
   fill: #f5bf2c;
 }
 
+/* Detect my location: a round white button in the map's top-right corner */
+.map-pin-picker-locate-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid #d9e2d8;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(22, 26, 23, 0.2);
+  color: #1f4d2e;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.map-pin-picker-locate-button:hover:not(:disabled),
+.map-pin-picker-locate-button:focus-visible {
+  background: #e6f0e1;
+  outline: none;
+}
+
+.map-pin-picker-locate-button:disabled {
+  cursor: default;
+}
+
+.map-pin-picker-locate-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.map-pin-picker-locate-button svg circle:last-of-type {
+  fill: currentColor;
+}
+
+.map-pin-picker-locate-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e6f0e1;
+  border-top-color: #1f4d2e;
+  border-radius: 50%;
+  animation: map-pin-picker-locate-spin 800ms linear infinite;
+}
+
+@keyframes map-pin-picker-locate-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.map-pin-picker-locate-note {
+  font-family: var(--font-poppins), sans-serif;
+  font-size: calc(12 * var(--account-design-pixel, 1px));
+  color: #285c3a;
+}
+
 .map-pin-picker-map-loading {
   position: absolute;
   inset: 0;

@@ -13,9 +13,12 @@ import styles from "./map-pin-picker.module.css";
     searched, so opening it never gives an address a made-up pin).
   - Search: OpenStreetMap's free place search, once per tap (its limit is one a second). An empty box searches
     what was typed in the address (searchFallback). The map goes there and that spot becomes the pin.
-  - A pin set from outside (the phone's GPS) moves the map there.
-  Used by the address form (My Addresses, the cart, Profile). Leaflet is loaded only in the browser, when the map
-  is shown, so it adds nothing to pages without it.
+  - The round button on the map (Detect my location): the device's location, asked when tapped (the browser asks
+    first). The map goes there and that spot becomes the pin; if it is rough, the note says so, to move the map.
+  - A pin set from outside (the form's "Use my current location") moves the map there.
+  Any of these can be used, and the map can still be moved afterwards.
+  Used by the address form (My Addresses, the cart, Profile) and the Hubs pop-up (Routes & agents). Leaflet is
+  loaded only in the browser, when the map is shown, so it adds nothing to pages without it.
 */
 
 type Pin = { latitude: number; longitude: number };
@@ -34,6 +37,14 @@ const OPENSTREETMAP_CREDIT = '&copy; <a href="https://www.openstreetmap.org/copy
 const OPENSTREETMAP_SEARCH_URL = "https://nominatim.openstreetmap.org/search";
 
 type SearchState = { step: "idle" } | { step: "searching" } | { step: "not-found" } | { step: "failed" };
+// Detect my location: idle, asking the device, found but rough (about how many metres), or why it didn't work
+type LocateState = { step: "idle" } | { step: "finding" } | { step: "rough"; metres: number } | { step: "failed"; message: string };
+// Rougher than this: the pin is placed, and the customer is asked to move the map to the exact spot
+const ROUGH_LOCATION_METRES = 100;
+
+function isInIndia(spot: Pin) {
+  return spot.latitude >= INDIA_BOUNDS[0][0] && spot.latitude <= INDIA_BOUNDS[1][0] && spot.longitude >= INDIA_BOUNDS[0][1] && spot.longitude <= INDIA_BOUNDS[1][1];
+}
 
 // The first place in India OpenStreetMap finds for the words, or null (nothing found), or "failed" (offline, slow)
 async function searchPlace(words: string): Promise<Pin | null | "failed"> {
@@ -77,6 +88,7 @@ export default function MapPinPicker({
   const [mapProblem, setMapProblem] = useState(false);
   const [searchWords, setSearchWords] = useState("");
   const [searchState, setSearchState] = useState<SearchState>({ step: "idle" });
+  const [locateState, setLocateState] = useState<LocateState>({ step: "idle" });
 
   // The map, made once in the browser
   useEffect(() => {
@@ -103,6 +115,8 @@ export default function MapPinPicker({
         let isMovedByCustomer = false;
         map.on("dragstart", () => {
           isMovedByCustomer = true;
+          // Moving the map corrects a rough detected location: its note goes
+          setLocateState((current) => (current.step === "rough" || current.step === "failed" ? { step: "idle" } : current));
         });
         map.on("moveend", () => {
           if (!isMovedByCustomer) return;
@@ -152,9 +166,44 @@ export default function MapPinPicker({
       return;
     }
     setSearchState({ step: "idle" });
+    setLocateState((current) => (current.step === "finding" ? current : { step: "idle" }));
     shownPinRef.current = found;
     mapRef.current?.setView([found.latitude, found.longitude], ZOOM_ON_PIN);
     onPinChangeRef.current(found);
+  }
+
+  // Detect my location (the round button on the map): the map goes to the device's spot, which becomes the pin
+  function detectMyLocation() {
+    if (locateState.step === "finding") return;
+    if (!("geolocation" in navigator)) {
+      setLocateState({ step: "failed", message: "This device or browser can't share its location. Search the place or move the map instead." });
+      return;
+    }
+    setLocateState({ step: "finding" });
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const found = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+        if (!isInIndia(found)) {
+          setLocateState({ step: "failed", message: "This location is outside India. Search the place or move the map instead." });
+          return;
+        }
+        const metres = Math.round(position.coords.accuracy);
+        setLocateState(metres > ROUGH_LOCATION_METRES ? { step: "rough", metres } : { step: "idle" });
+        shownPinRef.current = found;
+        mapRef.current?.setView([found.latitude, found.longitude], ZOOM_ON_PIN);
+        onPinChangeRef.current(found);
+      },
+      (problem) => {
+        setLocateState({
+          step: "failed",
+          message:
+            problem.code === problem.PERMISSION_DENIED
+              ? "Location is blocked. Allow location for this website in the browser's settings, or search the place and move the map."
+              : "Couldn't find the location. Try again near a window or outdoors, or move the map.",
+        });
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
   }
 
   // Enter in the search box searches (and doesn't send the address form)
@@ -203,10 +252,46 @@ export default function MapPinPicker({
           <path d="M12 31s-10-9.2-10-17.5a10 10 0 0 1 20 0C22 21.8 12 31 12 31Z" />
           <circle cx="12" cy="13" r="3.6" />
         </svg>
+        {/* Detect my location */}
+        {isMapReady && (
+          <button
+            type="button"
+            className={styles["map-pin-picker-locate-button"]}
+            aria-label="Detect my location"
+            title="Detect my location"
+            disabled={locateState.step === "finding"}
+            onClick={detectMyLocation}
+          >
+            {locateState.step === "finding" ? (
+              <span className={styles["map-pin-picker-locate-spinner"]} aria-hidden="true" />
+            ) : (
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="6.5" />
+                <circle cx="12" cy="12" r="2.2" />
+                <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+              </svg>
+            )}
+          </button>
+        )}
         {!isMapReady && (
           <div className={styles["map-pin-picker-map-loading"]}>{mapProblem ? "The map couldn't load. You can still use your current location." : "Loading the map…"}</div>
         )}
       </div>
+      {locateState.step === "finding" && (
+        <span role="status" className={styles["map-pin-picker-locate-note"]}>
+          Finding your location…
+        </span>
+      )}
+      {locateState.step === "rough" && (
+        <span role="status" className={styles["map-pin-picker-search-problem"]}>
+          Location found, but only to about {locateState.metres} m. Move the map so the pin is on the exact spot.
+        </span>
+      )}
+      {locateState.step === "failed" && (
+        <span role="status" className={styles["map-pin-picker-search-problem"]}>
+          {locateState.message}
+        </span>
+      )}
     </div>
   );
 }

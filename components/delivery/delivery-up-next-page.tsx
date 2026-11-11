@@ -12,6 +12,7 @@ import {
   hubNavigationLink,
   minutesFor,
   moveStop,
+  navigationLink,
   optimiseRoute,
   routeLink,
   rupees,
@@ -434,6 +435,36 @@ function StopDetailsDialog({
               </span>
             )}
           </div>
+        )}
+
+        {/* Open the customer's location in Google Maps, like on Order to be delivered: only on duty,
+            because the full address is hidden until then */}
+        {isOnDuty ? (
+          <a
+            href={navigationLink(stop)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${deliveryButtonStyles.filled} ${styles["stop-details-navigate-button"]}`}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" className={styles["stop-details-navigate-icon"]}>
+              <path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z" />
+              <path d="M12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
+            </svg>
+            Navigate in Google Maps
+          </a>
+        ) : (
+          <button
+            type="button"
+            disabled
+            title="Go on duty to open the location"
+            className={`${deliveryButtonStyles.filled} ${styles["stop-details-navigate-button"]}`}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" className={styles["stop-details-navigate-icon"]}>
+              <path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z" />
+              <path d="M12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
+            </svg>
+            Navigate in Google Maps
+          </button>
         )}
 
         <button type="button" className={`${deliveryButtonStyles.outlined} ${styles["stop-details-close-button"]}`} onClick={onClose}>

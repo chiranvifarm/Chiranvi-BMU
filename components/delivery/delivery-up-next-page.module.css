@@ -781,6 +781,22 @@
   width: 100%;
 }
 
+/* "Navigate in Google Maps" above Close, the same button as on Order to be delivered */
+.stop-details-navigate-button {
+  width: 100%;
+  text-decoration: none;
+}
+
+.stop-details-navigate-icon {
+  width: calc(16 * var(--delivery-pixel));
+  height: calc(16 * var(--delivery-pixel));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 @keyframes stop-details-open {
   from {
     opacity: 0;

@@ -789,10 +789,11 @@
     display: none;
   }
 
-  /* Numbers: two by two */
+  /* Numbers: two by two, each lined up at its top so a two-line label doesn't push its icon down */
   .about-us-farm-numbers {
     grid-template-columns: 1fr 1fr;
-    gap: 18px 10px;
+    align-items: start;
+    gap: 22px 28px;
     height: auto;
     margin-top: 26px;
     padding: 18px 14px;
@@ -800,6 +801,7 @@
   }
 
   .about-us-farm-number {
+    align-items: flex-start;
     gap: 10px;
     height: auto;
     padding-left: 0;
@@ -953,8 +955,10 @@
     line-height: 23px;
   }
 
+  /* Two cards a row, both as tall as the taller one */
   .about-us-traditional-cards {
     grid-template-columns: 1fr 1fr;
+    align-items: stretch;
     gap: 12px;
     margin-top: 22px;
   }
@@ -1066,5 +1070,53 @@
     width: 168px;
     height: 48px;
     font-size: 14px;
+  }
+
+  /*
+    Text style like the landing page on phones (Customer reviews, Free delivery offer): section headings in
+    Ubuntu medium at 26px, paragraphs in Poppins 14px grey. Comes last so it wins over the sizes above.
+  */
+  .about-us-hero-heading {
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 38px;
+  }
+
+  .about-us-story-heading,
+  .about-us-promise-heading,
+  .about-us-traditional-heading,
+  .about-us-team-heading {
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 34px;
+  }
+
+  .about-us-timeline-heading {
+    font-size: 24px;
+    font-weight: 500;
+    line-height: 30px;
+  }
+
+  .about-us-call-to-action-heading {
+    font-weight: 500;
+  }
+
+  .about-us-farm-number-value,
+  .about-us-big-number-value {
+    font-weight: 500;
+  }
+
+  .about-us-hero-text,
+  .about-us-story-paragraph,
+  .about-us-traditional-subheading,
+  .about-us-team-subheading {
+    font-size: 14px;
+    line-height: 23px;
+    color: #555555;
+  }
+
+  .about-us-founder-note-quote {
+    font-size: 15px;
+    line-height: 25px;
   }
 }

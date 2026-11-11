@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RouteMap } from "@/components/admin/admin-routes-page";
 import { toDateKey } from "@/store/admin-deliveries-store";
-import { useDeliveryRoutes, useDeliveryService } from "@/store/admin-routes-store";
+import { hubOfAgent, useDeliveryRoutes, useDeliveryService } from "@/store/admin-routes-store";
 import {
   STOP_OUTCOME_LABELS,
   useAgentStopsForDay,
@@ -50,7 +50,8 @@ export default function DeliveryUpNextPage() {
   const { login, stops } = useDeliveryPanel();
   const { ongoing, upNext } = stops;
   const routes = useDeliveryRoutes();
-  const hub = useDeliveryService()?.hub ?? null;
+  // The pick-up point: this agent's route's hub (the one nearest the route; 0060_hubs.sql)
+  const hub = hubOfAgent(login.agent?.name ?? null, routes, useDeliveryService()?.hubs ?? []);
   const myRouteIds = routes.filter((route) => route.agent === login.agent?.name).map((route) => route.id);
   const [highlightedRoute, setHighlightedRoute] = useState<string | null>(null);
   // The ongoing stops and everything after them, in order

@@ -113,7 +113,12 @@ async function lookUpAddress(latitude: number, longitude: number): Promise<Addre
     const listedArea = isBengaluru
       ? (BENGALURU_AREAS.find((listed) => placeAreas.some((placeArea) => placeArea.includes(listed.toLowerCase()))) ?? null)
       : null;
-    return { houseAndStreet, area: area !== city ? area : "", city, pincode: /^\d{6}$/.test(pincode) ? pincode : "", listedArea };
+    // In Bengaluru Urban district or with a Bengaluru pincode (560…): the city is Bengaluru, even where OpenStreetMap
+    // names the locality as a town of its own ("Electronic City"); that name then goes in the area if it is empty
+    const isInBengaluruCity = /^(bengaluru|bangalore)\s+urban$/i.test(parts.state_district ?? "") || /^560\d{3}$/.test(pincode);
+    const shownCity = isInBengaluruCity ? "Bengaluru" : city;
+    const shownArea = area && area !== city ? area : isInBengaluruCity && city && !/bengaluru|bangalore/i.test(city) ? city : "";
+    return { houseAndStreet, area: shownArea, city: shownCity, pincode: /^\d{6}$/.test(pincode) ? pincode : "", listedArea };
   } catch {
     return null;
   } finally {

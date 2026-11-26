@@ -104,12 +104,56 @@ type CouponForm = {
   value: string;
   appliesTo: string;
   minOrder: string;
-  usageLimit: string;
+  usageLimit: string; // total uses; ignored when usageLimitUnlimited is on
+  usageLimitUnlimited: boolean;
+  perCustomerLimit: string; // uses per customer; ignored when perCustomerUnlimited is on
+  perCustomerUnlimited: boolean;
   validFrom: Date;
   validTill: Date;
   hasNoExpiry: boolean;
   isPaused: boolean;
 };
+
+// A "− N +" limit stepper. Disabled shows ∞ (the Unlimited checkbox beside it is on).
+// The middle number stays typeable too, so big totals (200, 300…) don't need many clicks.
+function LimitStepper({ value, onChange, disabled, label }: { value: string; onChange: (next: string) => void; disabled: boolean; label: string }) {
+  const current = Math.max(1, Number(value) || 1);
+  return (
+    <div className={styles["admin-coupon-stepper"]} aria-disabled={disabled || undefined}>
+      <button
+        type="button"
+        className={styles["admin-coupon-stepper-button"]}
+        aria-label={`Lower ${label}`}
+        disabled={disabled || current <= 1}
+        onClick={() => onChange(String(current - 1))}
+      >
+        −
+      </button>
+      {disabled ? (
+        <span className={styles["admin-coupon-stepper-value"]} aria-hidden="true">
+          ∞
+        </span>
+      ) : (
+        <input
+          className={styles["admin-coupon-stepper-value"]}
+          inputMode="numeric"
+          aria-label={label}
+          value={value}
+          onChange={(changeEvent) => onChange(changeEvent.target.value.replace(/\D/g, "").slice(0, 6))}
+        />
+      )}
+      <button
+        type="button"
+        className={styles["admin-coupon-stepper-button"]}
+        aria-label={`Raise ${label}`}
+        disabled={disabled}
+        onClick={() => onChange(String(current + 1))}
+      >
+        +
+      </button>
+    </div>
+  );
+}
 
 export default function AdminCouponsPage() {
   return (
@@ -197,7 +241,10 @@ function CouponsPage() {
             value: "",
             appliesTo: COUPON_APPLIES_TO[0],
             minOrder: "",
-            usageLimit: "",
+            usageLimit: "50",
+            usageLimitUnlimited: true,
+            perCustomerLimit: "1",
+            perCustomerUnlimited: true,
             validFrom: today,
             validTill: monthEnd,
             hasNoExpiry: false,
@@ -210,7 +257,10 @@ function CouponsPage() {
             value: String(coupon.value),
             appliesTo: coupon.appliesTo,
             minOrder: coupon.minOrder ? String(coupon.minOrder) : "",
-            usageLimit: coupon.usageLimit === null ? "" : String(coupon.usageLimit),
+            usageLimit: coupon.usageLimit === null ? "50" : String(coupon.usageLimit),
+            usageLimitUnlimited: coupon.usageLimit === null,
+            perCustomerLimit: coupon.perCustomerLimit === null ? "1" : String(coupon.perCustomerLimit),
+            perCustomerUnlimited: coupon.perCustomerLimit === null,
             validFrom: new Date(`${coupon.validFrom}T12:00:00`),
             validTill: coupon.validTill ? new Date(`${coupon.validTill}T12:00:00`) : monthEnd,
             hasNoExpiry: coupon.validTill === null,
@@ -235,15 +285,20 @@ function CouponsPage() {
       showToast(form.kind === "percent" ? "Enter a discount between 1 and 90%" : "Enter the value");
       return;
     }
+    // Unlimited total uses can't also have "no expiry" (it would live forever): an end date is kept.
+    // Referral coupons are exempt - they are meant to run forever (e.g. REFER100).
+    const forcesEndDate = form.usageLimitUnlimited && form.kind !== "referral";
+    const noExpiry = form.hasNoExpiry && !forcesEndDate;
     const details = {
       description: form.description.trim() || describe(form.kind, value, form.appliesTo),
       kind: form.kind,
       value,
       appliesTo: form.appliesTo,
       minOrder: Number(form.minOrder) || undefined,
-      usageLimit: Number(form.usageLimit) || null,
+      usageLimit: form.usageLimitUnlimited ? null : Math.max(1, Number(form.usageLimit) || 1),
+      perCustomerLimit: form.perCustomerUnlimited ? null : Math.max(1, Number(form.perCustomerLimit) || 1),
       validFrom: toDayKey(form.validFrom),
-      validTill: form.hasNoExpiry ? null : toDayKey(form.validTill),
+      validTill: noExpiry ? null : toDayKey(form.validTill),
     };
     if (editing === "new") {
       addCoupon({ code, ...details, cartTypes: newCouponCartType ? [newCouponCartType] : undefined });
@@ -564,7 +619,15 @@ function CouponsPage() {
             </AdminDialogField>
           )}
           <AdminDialogField label="Type">
-            <select className={adminInputClassName} value={form.kind} onChange={(changeEvent) => setForm({ ...form, kind: changeEvent.target.value as CouponKind })}>
+            <select
+              className={adminInputClassName}
+              value={form.kind}
+              onChange={(changeEvent) => {
+                const kind = changeEvent.target.value as CouponKind;
+                // Switching to a kind that forces an end date (unlimited + not referral) clears "No expiry"
+                setForm({ ...form, kind, hasNoExpiry: form.usageLimitUnlimited && kind !== "referral" ? false : form.hasNoExpiry });
+              }}
+            >
               {COUPON_KINDS.map((kind) => (
                 <option key={kind.key} value={kind.key}>
                   {kind.label}
@@ -595,7 +658,7 @@ function CouponsPage() {
               onChange={(changeEvent) => setForm({ ...form, description: changeEvent.target.value })}
             />
           </AdminDialogField>
-          <AdminDialogField label="Minimum order (₹, optional)">
+          <AdminDialogField label="Minimum order (₹, optional)" isWide>
             <input
               className={adminInputClassName}
               inputMode="numeric"
@@ -603,14 +666,52 @@ function CouponsPage() {
               onChange={(changeEvent) => setForm({ ...form, minOrder: changeEvent.target.value.replace(/\D/g, "") })}
             />
           </AdminDialogField>
-          <AdminDialogField label="Use limit (empty: no limit)">
-            <input
-              className={adminInputClassName}
-              inputMode="numeric"
-              value={form.usageLimit}
-              onChange={(changeEvent) => setForm({ ...form, usageLimit: changeEvent.target.value.replace(/\D/g, "") })}
-            />
-          </AdminDialogField>
+          {/* The two limits sit side by side in one row: total (everyone) and per customer */}
+          <div className={styles["admin-coupon-limits-row"]}>
+            <AdminDialogField label="Use limit (total)">
+              <div className={styles["admin-coupon-limit-control"]}>
+                <LimitStepper
+                  label="total use limit"
+                  value={form.usageLimit}
+                  disabled={form.usageLimitUnlimited}
+                  onChange={(next) => setForm({ ...form, usageLimit: next })}
+                />
+                <label className={styles["admin-coupon-check"]}>
+                  <input
+                    type="checkbox"
+                    checked={form.usageLimitUnlimited}
+                    // Turning on Unlimited total uses forces an end date (except referral coupons), so "No expiry" is switched off here.
+                    onChange={(changeEvent) =>
+                      setForm({
+                        ...form,
+                        usageLimitUnlimited: changeEvent.target.checked,
+                        hasNoExpiry: changeEvent.target.checked && form.kind !== "referral" ? false : form.hasNoExpiry,
+                      })
+                    }
+                  />
+                  Unlimited
+                </label>
+              </div>
+            </AdminDialogField>
+            <AdminDialogField label="Uses per customer">
+              <div className={styles["admin-coupon-limit-control"]}>
+                <LimitStepper
+                  label="uses per customer"
+                  value={form.perCustomerLimit}
+                  disabled={form.perCustomerUnlimited}
+                  onChange={(next) => setForm({ ...form, perCustomerLimit: next })}
+                />
+                <label className={styles["admin-coupon-check"]}>
+                  <input
+                    type="checkbox"
+                    checked={form.perCustomerUnlimited}
+                    onChange={(changeEvent) => setForm({ ...form, perCustomerUnlimited: changeEvent.target.checked })}
+                  />
+                  Unlimited
+                </label>
+              </div>
+            </AdminDialogField>
+          </div>
 
           <div className={styles["admin-coupon-dates"]}>
             <span className={sharedStyles["admin-dialog-label"]}>Valid</span>
@@ -629,11 +730,19 @@ function CouponsPage() {
                   ? `From ${form.validFrom.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} · no expiry`
                   : formatDateRange(form.validFrom, form.validTill)}
               </button>
-              <label className={styles["admin-coupon-check"]}>
-                <input type="checkbox" checked={form.hasNoExpiry} onChange={(changeEvent) => setForm({ ...form, hasNoExpiry: changeEvent.target.checked })} />
+              <label className={styles["admin-coupon-check"]} data-disabled={(form.usageLimitUnlimited && form.kind !== "referral") || undefined}>
+                <input
+                  type="checkbox"
+                  checked={form.hasNoExpiry}
+                  disabled={form.usageLimitUnlimited && form.kind !== "referral"}
+                  onChange={(changeEvent) => setForm({ ...form, hasNoExpiry: changeEvent.target.checked })}
+                />
                 No expiry
               </label>
             </div>
+            {form.usageLimitUnlimited && form.kind !== "referral" && (
+              <p className={styles["admin-coupon-dates-hint"]}>Unlimited uses need an end date.</p>
+            )}
             {isCalendarOpen && (
               <div className={styles["admin-coupon-calendar-slot"]}>
                 <AdminDateRangePicker

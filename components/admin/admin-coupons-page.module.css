@@ -281,6 +281,94 @@
   accent-color: #1f4d2e;
 }
 
+/* "No expiry" greyed out when an end date is compulsory (unlimited total uses) */
+.admin-coupon-check[data-disabled] {
+  color: #a7aeaa;
+  cursor: not-allowed;
+}
+
+/* The two limit fields (total + per customer) side by side in one row */
+.admin-coupon-limits-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(14 * var(--admin-pixel));
+  align-items: start;
+}
+
+/* Limit field: the − N + stepper with its "Unlimited" checkbox under it */
+.admin-coupon-limit-control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* the stepper and the "Unlimited" label stay content-width, so only the tick toggles it */
+  gap: calc(8 * var(--admin-pixel));
+}
+
+/* Only the checkbox + its word are clickable (not the empty space beside them) */
+.admin-coupon-limit-control .admin-coupon-check {
+  width: fit-content;
+}
+
+.admin-coupon-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  width: fit-content;
+  border: 1px solid #d7ddd4;
+  border-radius: calc(8 * var(--admin-pixel));
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.admin-coupon-stepper[aria-disabled] {
+  background: #f3f5f1;
+  border-color: #e4e8e1;
+}
+
+.admin-coupon-stepper-button {
+  width: calc(34 * var(--admin-pixel));
+  border: 0;
+  background: #f1f4ef;
+  color: #1f4d2e;
+  font-size: calc(18 * var(--admin-pixel));
+  line-height: 1;
+  cursor: pointer;
+}
+
+.admin-coupon-stepper-button:hover:not(:disabled) {
+  background: #e6f0e1;
+}
+
+.admin-coupon-stepper-button:disabled {
+  color: #b7bdb8;
+  cursor: not-allowed;
+}
+
+.admin-coupon-stepper-value {
+  width: calc(56 * var(--admin-pixel));
+  min-height: calc(34 * var(--admin-pixel));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-left: 1px solid #e4e8e1;
+  border-right: 1px solid #e4e8e1;
+  background: transparent;
+  text-align: center;
+  font-size: calc(14 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1b2a20;
+}
+
+.admin-coupon-stepper-value:focus {
+  outline: none;
+  background: #f6faf4;
+}
+
+.admin-coupon-dates-hint {
+  font-size: calc(12 * var(--admin-pixel));
+  color: #7a837c;
+}
+
 .admin-coupon-edit-extras {
   grid-column: 1 / -1;
   display: flex;
@@ -537,6 +625,13 @@
 
 @media (max-width: 900px) {
   .admin-cart-coupon-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Phones: the two limits stack, like the rest of the dialog fields */
+@media (max-width: 600px) {
+  .admin-coupon-limits-row {
     grid-template-columns: 1fr;
   }
 }

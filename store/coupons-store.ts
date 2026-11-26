@@ -25,7 +25,8 @@ export type Coupon = {
   value: number; // ₹ off, % off, free days, or ₹ reward
   minOrder?: number; // ₹
   appliesTo: string; // "All products", "Milk", "Ghee & butter", ...
-  usageLimit: number | null; // null: no limit
+  usageLimit: number | null; // total uses across everyone; null: no limit
+  perCustomerLimit: number | null; // how many times one customer may use it; null: no per-customer limit
   used: number;
   validFrom: string; // YYYY-MM-DD
   validTill: string | null; // YYYY-MM-DD, null: no expiry
@@ -74,6 +75,7 @@ type CouponRow = {
   min_order: number | string | null;
   applies_to: string;
   usage_limit: number | null;
+  per_customer_limit?: number | null; // added by a later migration (the lead's coupons table)
   used: number;
   valid_from: string;
   valid_till: string | null;
@@ -101,6 +103,7 @@ function toCoupon(row: CouponRow): Coupon {
     minOrder: row.min_order === null ? undefined : Number(row.min_order),
     appliesTo: row.applies_to,
     usageLimit: row.usage_limit,
+    perCustomerLimit: row.per_customer_limit ?? null,
     used: row.used,
     validFrom: row.valid_from,
     validTill: row.valid_till,
@@ -117,6 +120,8 @@ function toRow(coupon: Partial<Coupon>) {
   if ("minOrder" in coupon) row.min_order = coupon.minOrder ?? null;
   if (coupon.appliesTo !== undefined) row.applies_to = coupon.appliesTo;
   if ("usageLimit" in coupon) row.usage_limit = coupon.usageLimit ?? null;
+  // Per-customer limit (coupons.per_customer_limit, added in migration 0063)
+  if ("perCustomerLimit" in coupon) row.per_customer_limit = coupon.perCustomerLimit ?? null;
   if (coupon.validFrom !== undefined) row.valid_from = coupon.validFrom;
   if ("validTill" in coupon) row.valid_till = coupon.validTill ?? null;
   if (coupon.isPaused !== undefined) row.is_paused = coupon.isPaused;

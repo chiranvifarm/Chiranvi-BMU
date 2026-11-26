@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Poppins, Ubuntu } from "next/font/google";
 import BulkOrderPopup from "@/components/bulk-order/bulk-order-popup";
 import NetworkStatus from "@/components/network-status/network-status";
+import PayLaterReminder from "@/components/account/pay-later-reminder";
 import ProfileReminderToast, { OrderUpdateToast } from "@/components/profile-reminder/profile-reminder-toast";
 import SmoothScroll from "@/components/smooth-scroll/smooth-scroll";
 import "./globals.css";
@@ -32,6 +33,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <ProfileReminderToast />
           {/* A logged-in customer's order changed status */}
           <OrderUpdateToast />
+          {/* Pay-later payment reminder (shown on any page when staff sent one) */}
+          <PayLaterReminder />
         </div>
       </body>
     </html>

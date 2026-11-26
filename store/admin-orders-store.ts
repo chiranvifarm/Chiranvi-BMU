@@ -4,6 +4,7 @@ import {
   getSavedOrders,
   setSavedOrderStatus,
   type Order,
+  type OrderPaymentStatus,
   type OrderStatus,
 } from "./orders-store";
 import type { MapPin } from "./address-store";
@@ -49,6 +50,8 @@ export type AdminOrder = {
   items: string; // "Milk 1 L × 2, Paneer 200 g"
   amount: number;
   payment: OrderPaymentMethod | "Cash";
+  paymentStatus?: OrderPaymentStatus; // paid / failed / (pay-later: pending) — for the Payment column
+  paymentDueBy?: string | null; // pay-later orders: the plan's last day (YYYY-MM-DD)
   slot: string; // 6–7 AM
   status: AdminOrderStatus;
   // Orders paid for on the website
@@ -109,6 +112,8 @@ function toAdminOrder(order: Order): AdminOrder {
     items: describeItems(itemList),
     amount: order.total,
     payment: order.paymentMethod ?? "UPI",
+    paymentStatus: order.paymentStatus,
+    paymentDueBy: order.paymentDueBy,
     slot: "By 7 AM",
     status: TO_ADMIN_STATUS[order.status],
     websiteOrderId: order.orderId,

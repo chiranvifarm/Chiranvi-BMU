@@ -1822,6 +1822,35 @@
   color: #6e7a72;
 }
 
+/* "Your order has been placed" tick (Pay later) */
+.pay-later-placed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.pay-later-placed-tick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(56 * var(--checkout-design-pixel));
+  height: calc(56 * var(--checkout-design-pixel));
+  margin-bottom: calc(10 * var(--checkout-design-pixel));
+  border-radius: 50%;
+  background: #2f6b3f;
+}
+
+.pay-later-placed-tick svg {
+  width: calc(30 * var(--checkout-design-pixel));
+  height: calc(30 * var(--checkout-design-pixel));
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .plan-popup-text strong {
   font-weight: 600;
   color: #1e2a22;

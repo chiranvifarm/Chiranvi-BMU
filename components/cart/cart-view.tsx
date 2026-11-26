@@ -47,6 +47,7 @@ import {
   priceCartOnServer,
   reportFailedPayment,
   startPayment,
+  startPayLater,
   useOrders,
   type CheckoutPart,
   type Order,
@@ -407,6 +408,10 @@ export default function CartView() {
   const [placedOrder] = useState<Order | null>(null);
   // Pay now is waiting for the database, and what to say if it didn't take the order
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+  // Subscription only: "Start subscription" opens a choice of Pay now / Pay later (null = closed)
+  const [payChoice, setPayChoice] = useState<null | "choose" | "later">(null);
+  // The "Your order has been placed" tick after a Pay later order, before going to My Orders
+  const [payLaterPlaced, setPayLaterPlaced] = useState(false);
   const [placeOrderError, setPlaceOrderError] = useState("");
   // The cart took today's prices from the database (shown under Pay now)
   const [pricesUpdatedNote, setPricesUpdatedNote] = useState("");
@@ -803,6 +808,35 @@ export default function CartView() {
     setIsAddressPickerOpen(false);
     setHasPickedAddress(false);
     router.push("/account/orders");
+  }
+
+  // "Pay later": place the plan now (payment pending), show the placed tick, then go to My Orders
+  async function placePlanPayLater() {
+    const deliverTo = chosenAddress ? `${chosenAddress.name} · ${formatAddressLine(chosenAddress)}` : null;
+    if (!deliverTo || isPlacingOrder) return;
+    setIsPlacingOrder(true);
+    setPlaceOrderError("");
+    const plan = planPart(deliverTo);
+    const items = itemsPart(deliverTo);
+    if (plan) plan.checkout.addressId = chosenAddress?.id;
+    if (items) items.checkout.addressId = chosenAddress?.id;
+    const placed = await startPayLater(plan, items, amountToPay - platformFee + platformFeeFor(false));
+    setIsPlacingOrder(false);
+    setPayChoice(null);
+    if ("error" in placed) {
+      setPlaceOrderError(placed.error);
+      if (placed.reason === "prices" || placed.reason === "unavailable") void refreshCartPrices(Boolean(plan));
+      return;
+    }
+    // Show the "order placed" tick first (emptying the cart now would switch to the empty-cart view and hide it)
+    setPayLaterPlaced(true);
+    window.setTimeout(() => {
+      emptyTheCart();
+      refreshProducts();
+      setPlanAtPickedAddress(null);
+      setHasPickedAddress(false);
+      router.push("/account/orders");
+    }, 1700);
   }
 
   /*
@@ -1415,9 +1449,16 @@ export default function CartView() {
                       Choose another address
                     </button>
                   ) : isLoggedIn ? (
-                    <button type="button" className={styles["checkout-place-button"]} onClick={() => void placeTheOrder()} disabled={isPlacingOrder}>
-                      {isPlacingOrder ? "Placing your order…" : `Pay now · ${rupees(amountToPay)}`}
-                    </button>
+                    cartSubscription ? (
+                      /* A subscription: choose Pay now or Pay later in a pop-up */
+                      <button type="button" className={styles["checkout-place-button"]} onClick={() => setPayChoice("choose")} disabled={isPlacingOrder}>
+                        {isPlacingOrder ? "Placing your order…" : "Start subscription"}
+                      </button>
+                    ) : (
+                      <button type="button" className={styles["checkout-place-button"]} onClick={() => void placeTheOrder()} disabled={isPlacingOrder}>
+                        {isPlacingOrder ? "Placing your order…" : `Pay now · ${rupees(amountToPay)}`}
+                      </button>
+                    )
                   ) : (
                     <Link href="/login" className={styles["checkout-place-button"]} onClick={() => rememberPageAfterLogin("/cart")}>
                       Log in to pay
@@ -1635,6 +1676,74 @@ export default function CartView() {
           onSave={saveAddress}
           onClose={closeAddressForm}
         />
+      )}
+
+      {/* Subscription: Pay now (Razorpay) or Pay later (pay from Profile → Billing & payment) */}
+      {payChoice && (
+        <CheckoutPopupFrame labelledBy="pay-choice-heading" onClose={() => setPayChoice(null)}>
+          {payChoice === "choose" ? (
+            <>
+              <h2 id="pay-choice-heading" className={styles["plan-popup-heading"]}>
+                How would you like to pay?
+              </h2>
+              <p className={styles["plan-popup-text"]}>Start your subscription now and pay today, or pay later — your choice.</p>
+              <div className={styles["plan-popup-buttons"]}>
+                <button
+                  type="button"
+                  className={styles["plan-popup-primary-button"]}
+                  onClick={() => {
+                    setPayChoice(null);
+                    void placeTheOrder();
+                  }}
+                  disabled={isPlacingOrder}
+                >
+                  Pay now
+                </button>
+                <button type="button" className={styles["plan-popup-secondary-button"]} onClick={() => setPayChoice("later")}>
+                  Pay later
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 id="pay-choice-heading" className={styles["plan-popup-heading"]}>
+                Pay later
+              </h2>
+              <p className={styles["plan-popup-text"]}>
+                No payment now. You can pay anytime from <strong>Profile → Billing &amp; payment</strong>. You have until your
+                plan&rsquo;s last day to pay &mdash; it must be paid by then.
+              </p>
+              <div className={styles["plan-popup-buttons"]}>
+                <button type="button" className={styles["plan-popup-primary-button"]} onClick={() => void placePlanPayLater()} disabled={isPlacingOrder}>
+                  {isPlacingOrder ? "Starting your plan…" : "Start plan"}
+                </button>
+                <button type="button" className={styles["plan-popup-secondary-button"]} onClick={() => setPayChoice("choose")}>
+                  Back
+                </button>
+              </div>
+            </>
+          )}
+        </CheckoutPopupFrame>
+      )}
+
+      {/* "Your order has been placed" after Pay later, then it goes to My Orders */}
+      {payLaterPlaced && (
+        <CheckoutPopupFrame labelledBy="pay-later-placed-heading" onClose={() => router.push("/account/orders")}>
+          <div className={styles["pay-later-placed"]}>
+            <span className={styles["pay-later-placed-tick"]} aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M5 12.5l4.5 4.5L19 7" />
+              </svg>
+            </span>
+            <h2 id="pay-later-placed-heading" className={styles["plan-popup-heading"]}>
+              Your order has been placed
+            </h2>
+            <p className={styles["plan-popup-text"]}>
+              Your subscription has started. Pay anytime before your plan&rsquo;s last day from Profile → Billing &amp; payment. Taking
+              you to your orders&hellip;
+            </p>
+          </div>
+        </CheckoutPopupFrame>
       )}
     </div>
   );

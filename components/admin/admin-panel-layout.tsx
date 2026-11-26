@@ -73,6 +73,12 @@ const panelPageGroups: { title: string; pages: PanelPage[] }[] = [
         iconPaths: ["M4 8.5h14.5", "M15.5 5.5l3 3-3 3", "M20 15.5H5.5", "M8.5 12.5l-3 3 3 3"],
       },
       {
+        href: "/admin/pay-later",
+        label: "Pay later",
+        access: "subscriptions",
+        iconPaths: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z", "M12 7.5V12l3 2"],
+      },
+      {
         href: "/admin/pause-requests",
         label: "Pause requests",
         access: "pause-requests",

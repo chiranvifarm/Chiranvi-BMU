@@ -1,0 +1,52 @@
+/* "Pay later" panel page. Sizes use --admin-pixel, like the rest of the panel.
+   The table reuses the panel's standard spacing (same as Orders) for a consistent panel. */
+
+.pay-later-plan {
+  display: block;
+  font-weight: 600;
+  color: #1b2a20;
+}
+
+.pay-later-amount {
+  font-family: var(--font-ubuntu), sans-serif;
+  font-weight: 700;
+  color: #1e2a22;
+  white-space: nowrap;
+}
+
+/* Overdue rows: a soft red tint (serious, so red is allowed) */
+.pay-later-overdue-row td {
+  background: #fdecec;
+}
+
+/* Right-align the Reminder header over its right-aligned buttons (beats the panel table's default) */
+.pay-later-table th.pay-later-action-head {
+  text-align: right;
+}
+
+.pay-later-action-cell {
+  text-align: right;
+}
+
+.pay-later-remind-button {
+  padding: calc(7 * var(--admin-pixel)) calc(16 * var(--admin-pixel));
+  border: 1px solid #2f6b3f;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-size: calc(12.5 * var(--admin-pixel));
+  font-weight: 600;
+  color: #1f4d2e;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.pay-later-remind-button:hover {
+  background: #e6f0e1;
+}
+
+.pay-later-empty {
+  padding: calc(28 * var(--admin-pixel));
+  text-align: center;
+  color: #7a837c;
+}

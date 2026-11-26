@@ -98,6 +98,15 @@ function isInTab(order: AdminOrder, tab: StatusTab) {
   return OPEN_ORDER_STATUSES.includes(order.status);
 }
 
+// The Payment column: Paid / Payment pending (pay-later) / Failed (red) / Refunded
+function PaymentTag({ order }: { order: AdminOrder }) {
+  const status = order.paymentStatus;
+  if (status === "failed") return <span className={dashboardStyles["admin-payment-failed"]}>Failed</span>;
+  if (status === "refunded") return <span className={dashboardStyles["admin-payment-refunded"]}>Refunded</span>;
+  if ((status as string) === "pay_later") return <span className={dashboardStyles["admin-payment-pending"]}>Payment pending</span>;
+  return <span className={dashboardStyles["admin-payment-paid"]}>Paid</span>;
+}
+
 function formatOrderDate(placedAt: string) {
   const date = new Date(placedAt);
   const day = date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -355,6 +364,7 @@ function OrdersPage() {
                 <th scope="col">Customer ID</th>
                 <th scope="col">Customer name</th>
                 <th scope="col">Location</th>
+                <th scope="col">Payment</th>
                 <th scope="col">Status</th>
                 <th scope="col" className={dashboardStyles["admin-orders-actions"]}>Delivery agent</th>
               </tr>
@@ -381,6 +391,9 @@ function OrdersPage() {
                     <td className={dashboardStyles["admin-orders-muted"]}>{order.customerId ?? "—"}</td>
                     <td>{order.customerName}</td>
                     <td>{order.area}</td>
+                    <td>
+                      <PaymentTag order={order} />
+                    </td>
                     {/* The status and agent cells don't open the details */}
                     <td onClick={(clickEvent) => clickEvent.stopPropagation()} onKeyDown={(keyEvent) => keyEvent.stopPropagation()}>
                       {canEdit && order.status !== "Cancelled" ? (

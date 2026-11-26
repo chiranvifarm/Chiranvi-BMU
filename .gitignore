@@ -47,6 +47,8 @@ next-env.d.ts
 
 # Supabase local data
 .supabase/
+# Supabase CLI cache (machine-local; not part of the project)
+supabase/.temp/
 
 # Data shared between browsers until the database is connected (app/api/shared-data)
 .shared-data/

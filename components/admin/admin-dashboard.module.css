@@ -823,6 +823,31 @@
   white-space: nowrap;
 }
 
+/* Payment column: Paid (green), Payment pending (amber), Failed (red), Refunded (grey) */
+.admin-payment-paid {
+  font-weight: 600;
+  color: #2f6b3a;
+  white-space: nowrap;
+}
+
+.admin-payment-pending {
+  font-weight: 600;
+  color: #c99a1e;
+  white-space: nowrap;
+}
+
+.admin-payment-failed {
+  font-weight: 600;
+  color: #c0392b;
+  white-space: nowrap;
+}
+
+.admin-payment-refunded {
+  font-weight: 600;
+  color: #7a837c;
+  white-space: nowrap;
+}
+
 .admin-orders-customer {
   display: block;
   font-weight: 700;

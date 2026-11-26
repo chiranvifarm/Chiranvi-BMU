@@ -51,6 +51,12 @@ function isActiveOrder(order: Order) {
   return isOnItsWay(order);
 }
 
+// A subscription placed with "Pay later" still owes payment -> a "Payment pending" tag next to "Order placed".
+// The backend will mark these (payment pending); until then this is false and the DEMO flag below previews the tag.
+function isPayLaterOrder(order: Order) {
+  return (order.paymentStatus as string) === "pay_later";
+}
+
 // 1781234567890 -> "12 Oct 2026"
 function formatOrderDate(time: number) {
   return new Date(time).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
@@ -170,6 +176,8 @@ export default function OrdersPage() {
           {shownOrders.map((order) => {
             const isActive = isActiveOrder(order);
             const hasPaymentFailed = isFailedPayment(order);
+            // Only real pay-later orders show "Payment pending" (the backend marks them)
+            const isPayLater = isPayLaterOrder(order);
             return (
               <li key={order.orderId} className={styles["order-card"]}>
                 <div className={styles["order-summary-row"]}>
@@ -206,24 +214,27 @@ export default function OrdersPage() {
                   </div>
 
                   <div className={styles["order-status-area"]}>
-                    <p
-                      className={`${styles["order-status"]} ${
-                        order.status === "cancelled" || hasPaymentFailed ? styles["order-status-cancelled"] : ""
-                      }`}
-                    >
-                      {hasPaymentFailed ? "Payment failed" : statusLabels[order.status]}
-                    </p>
-                    {isActive || hasPaymentFailed ? (
-                      <button type="button" className={styles["order-details-text-button"]} onClick={() => setReceiptOrderId(order.orderId)}>
-                        Order details
-                      </button>
-                    ) : (
-                      <>
-                        <p className={styles["order-total"]}>₹{order.total}</p>
+                    <div className={styles["order-status-top-row"]}>
+                      {isPayLater && <p className={styles["order-payment-pending"]}>Payment pending</p>}
+                      {!hasPaymentFailed && !isActive && (
                         <button type="button" className={styles["order-reorder-button"]} onClick={() => reorder(order)}>
                           Reorder
                         </button>
-                      </>
+                      )}
+                      <p
+                        className={`${styles["order-status"]} ${
+                          order.status === "cancelled" || hasPaymentFailed ? styles["order-status-cancelled"] : ""
+                        }`}
+                      >
+                        {hasPaymentFailed ? "Payment failed" : statusLabels[order.status]}
+                      </p>
+                    </div>
+                    {hasPaymentFailed ? (
+                      <button type="button" className={styles["order-details-text-button"]} onClick={() => setReceiptOrderId(order.orderId)}>
+                        Order details
+                      </button>
+                    ) : isActive ? null : (
+                      <p className={styles["order-total"]}>₹{order.total}</p>
                     )}
                   </div>
                 </div>

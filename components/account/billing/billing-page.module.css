@@ -1,0 +1,139 @@
+/*
+  "Billing & payment" dashboard page. Numbers in calc() are design pixels multiplied by
+  --account-design-pixel (set by the dashboard frame), like the other account pages.
+*/
+
+.billing-pay-error {
+  margin-top: calc(14 * var(--account-design-pixel));
+  padding: calc(12 * var(--account-design-pixel)) calc(16 * var(--account-design-pixel));
+  border-radius: calc(12 * var(--account-design-pixel));
+  background: #fdecec;
+  color: #c0392b;
+  font-size: calc(13.5 * var(--account-design-pixel));
+}
+
+.billing-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(14 * var(--account-design-pixel));
+  margin-top: calc(18 * var(--account-design-pixel));
+  padding: 0;
+  list-style: none;
+}
+
+.billing-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(16 * var(--account-design-pixel));
+  padding: calc(18 * var(--account-design-pixel)) calc(20 * var(--account-design-pixel));
+  border-radius: calc(16 * var(--account-design-pixel));
+  background: #ffffff;
+}
+
+/* A plan placed with "Pay later": payment still due, so it stands out gently (yellow, not red) */
+.billing-row-due {
+  border: 1px solid #f5bf2c;
+  background: #fbf3e1;
+}
+
+.billing-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--account-design-pixel));
+  min-width: 0;
+}
+
+.billing-row-title {
+  margin: 0;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(16 * var(--account-design-pixel));
+  font-weight: 600;
+  color: #1b2a20;
+}
+
+/* Marks the design-preview row so it isn't mistaken for a real pay-later plan */
+.billing-sample-tag {
+  margin-left: calc(8 * var(--account-design-pixel));
+  padding: calc(2 * var(--account-design-pixel)) calc(8 * var(--account-design-pixel));
+  border-radius: 9999px;
+  background: #ede9e0;
+  font-size: calc(11 * var(--account-design-pixel));
+  font-weight: 600;
+  color: #8a7f66;
+  vertical-align: middle;
+}
+
+.billing-row-sub {
+  margin: 0;
+  font-size: calc(13 * var(--account-design-pixel));
+  color: #7a837c;
+}
+
+.billing-amount-paid {
+  margin: calc(2 * var(--account-design-pixel)) 0 0;
+  font-size: calc(13.5 * var(--account-design-pixel));
+  font-weight: 600;
+  color: #2f6b3a;
+}
+
+.billing-amount-due {
+  margin: calc(2 * var(--account-design-pixel)) 0 0;
+  font-size: calc(13.5 * var(--account-design-pixel));
+  font-weight: 600;
+  color: #c99a1e;
+}
+
+.billing-view-bill-button {
+  flex-shrink: 0;
+  padding: calc(9 * var(--account-design-pixel)) calc(18 * var(--account-design-pixel));
+  border: 1px solid #cdd8cf;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-size: calc(13.5 * var(--account-design-pixel));
+  font-weight: 600;
+  color: #1f4d2e;
+  cursor: pointer;
+}
+
+.billing-view-bill-button:hover {
+  background: #e6f0e1;
+}
+
+.billing-pay-now-button {
+  flex-shrink: 0;
+  padding: calc(9 * var(--account-design-pixel)) calc(22 * var(--account-design-pixel));
+  border: 0;
+  border-radius: 9999px;
+  background: #1f4d2e;
+  font-size: calc(13.5 * var(--account-design-pixel));
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.billing-pay-now-button:hover {
+  background: #285c3a;
+}
+
+.billing-empty {
+  padding: calc(24 * var(--account-design-pixel));
+  border-radius: calc(16 * var(--account-design-pixel));
+  background: #ffffff;
+  text-align: center;
+  color: #7a837c;
+}
+
+/* Phones: the action button drops below the order info */
+@media (max-width: 640px) {
+  .billing-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: calc(12 * var(--account-design-pixel));
+  }
+
+  .billing-view-bill-button,
+  .billing-pay-now-button {
+    width: 100%;
+  }
+}

@@ -52,6 +52,8 @@ export type Order = {
   area?: string; // the delivery address's area (the panel's Location)
   // Razorpay (orders paid online; older ones are "not_charged")
   paymentStatus?: OrderPaymentStatus;
+  paymentDueBy?: string | null; // pay-later orders: the plan's last day (YYYY-MM-DD)
+  paymentRemindedAt?: number | null; // pay-later orders: when staff last sent a payment reminder (ms)
   paidAt?: number; // time in milliseconds
   razorpayPaymentId?: string; // pay_…
   paymentFailureReason?: string; // Razorpay's reason, on a failed payment's receipt
@@ -59,7 +61,7 @@ export type Order = {
   deliveryPin?: MapPin; // the delivery address's map pin (from the customer's saved address, or the agent at the door)
 };
 
-export type OrderPaymentStatus = "not_charged" | "paid" | "failed" | "refunded";
+export type OrderPaymentStatus = "not_charged" | "pay_later" | "paid" | "failed" | "refunded";
 
 // The plan bought with a subscription order (shown on My Subscription)
 export type OrderSubscription = {
@@ -134,6 +136,8 @@ type OrderRow = {
   promised_at: string;
   order_items: OrderItemRow[] | null;
   payment_status: OrderPaymentStatus;
+  payment_due_by: string | null;
+  payment_reminded_at: string | null;
   paid_at: string | null;
   razorpay_payment_id: string | null;
   payment_failure_reason: string | null;
@@ -182,6 +186,8 @@ function toOrder(row: OrderRow): Order {
     customerName: row.customer_name,
     area: row.area,
     paymentStatus: row.payment_status,
+    paymentDueBy: row.payment_due_by,
+    paymentRemindedAt: row.payment_reminded_at ? new Date(row.payment_reminded_at).getTime() : null,
     paidAt: row.paid_at ? new Date(row.paid_at).getTime() : undefined,
     razorpayPaymentId: row.razorpay_payment_id ?? undefined,
     paymentFailureReason: row.payment_failure_reason ?? undefined,
@@ -362,6 +368,18 @@ export function countActiveOrders(orderList: Order[]) {
   return orderList.filter((order) => order.status !== "delivered" && order.status !== "cancelled").length;
 }
 
+// Active orders placed since My Orders was last opened: the badge clears when they open it and comes back for a new order
+export function useNewActiveOrderCount() {
+  const orders = useOrders();
+  const lastSeen = usePanelSeenAt("my-orders");
+  const isAccountStateLoaded = useIsAccountStateLoaded();
+  return useMemo(() => {
+    if (!isAccountStateLoaded) return 0;
+    const since = lastSeen ? new Date(lastSeen).getTime() : 0;
+    return orders.filter((order) => isOnItsWay(order) && order.placedAt > since).length;
+  }, [orders, lastSeen, isAccountStateLoaded]);
+}
+
 // Today's price of a cart line, as the database works it out (the same as an order will be charged)
 export type CartLinePrice = { productId: string; isFound: boolean; isAvailable: boolean; price: number; originalPrice: number };
 
@@ -434,6 +452,65 @@ export async function startPayment(plan: CheckoutPart | null, items: CheckoutPar
   if (reply.reason === "login") return { error: "Please log in again to pay." };
   const reason = reply.reason === "prices" || reply.reason === "unavailable" || reply.reason === "coupon" ? reply.reason : undefined;
   return { error: reply.error ?? "Couldn't start the payment. Please try again.", reason };
+}
+
+/*
+  "Pay later": places the milk plan now with payment pending (start_pay_later in the database, 0066). No
+  Razorpay — the plan runs and the amount is due by its last day, paid later from Billing & payment. The new
+  order(s) are added to My Orders straight away (same as a paid order).
+*/
+export async function startPayLater(
+  plan: CheckoutPart | null,
+  items: CheckoutPart | null,
+  shownTotal: number,
+): Promise<{ planOrder: Order | null; itemsOrder: Order | null } | PlaceOrderProblem> {
+  const { data, error } = await createClient().rpc("start_pay_later", {
+    details: { planOrder: detailsOf(plan), itemsOrder: detailsOf(items), shownTotal },
+  });
+  if (error || !data) {
+    const hint = (error as { hint?: string } | null)?.hint;
+    const reason = hint === "prices" || hint === "unavailable" || hint === "coupon" ? hint : undefined;
+    return { error: (error?.message ?? "").trim() || "Couldn't place your order. Please try again.", reason };
+  }
+  const answers = (Array.isArray(data) ? data : []) as PlacedOrderAnswer[];
+  const planAnswer = answers.find((answer) => answer.kind === "plan") ?? null;
+  const itemsAnswer = answers.find((answer) => answer.kind === "items") ?? null;
+  return {
+    planOrder: plan && planAnswer ? rememberPlacedOrder(planAnswer, plan.cartItems, plan.checkout) : null,
+    itemsOrder: items && itemsAnswer ? rememberPlacedOrder(itemsAnswer, items.cartItems, items.checkout) : null,
+  };
+}
+
+// Billing & payment: start paying the pending amount of a pay-later order (app/api/payments/pay-pending)
+export async function startPayLaterPayment(orderNumber: string): Promise<StartedPayment | PlaceOrderProblem> {
+  const reply = (await fetch("/api/payments/pay-pending", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orderNumber }),
+  })
+    .then((response) => response.json())
+    .catch(() => null)) as (Partial<StartedPayment> & { error?: string }) | null;
+  if (!reply) return { error: "Couldn't start the payment. Check your internet and try again." };
+  if (reply.razorpayOrderId && reply.amount && reply.currency && reply.keyId) {
+    return { razorpayOrderId: reply.razorpayOrderId, amount: reply.amount, currency: reply.currency, keyId: reply.keyId };
+  }
+  return { error: reply.error ?? "Couldn't start the payment. Please try again." };
+}
+
+// After the pay-later pop-up: our server checks the signature and marks the order(s) paid, then the list refreshes
+export async function confirmPayLaterPayment(success: RazorpaySuccess): Promise<{ paid: true } | PlaceOrderProblem> {
+  const reply = (await fetch("/api/payments/pay-pending", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(success),
+  })
+    .then((response) => response.json())
+    .catch(() => null)) as { verified?: boolean; error?: string } | null;
+  if (reply?.verified) {
+    void loadSavedOrders();
+    return { paid: true };
+  }
+  return { error: reply?.error ?? "The payment could not be confirmed." };
 }
 
 export async function confirmPayment(

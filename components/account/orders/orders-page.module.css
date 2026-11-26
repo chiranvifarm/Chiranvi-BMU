@@ -112,7 +112,7 @@
 
 .order-summary-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: calc(20 * var(--account-design-pixel));
 }
 
@@ -187,6 +187,29 @@
   flex-shrink: 0;
   flex-direction: column;
   align-items: flex-end;
+  gap: calc(10 * var(--account-design-pixel));
+}
+
+/* "Payment pending" and the status pill sit side by side (pending to the left) */
+.order-status-top-row {
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--account-design-pixel));
+}
+
+/* "Payment pending": a soft amber tag beside "Order placed" for a plan placed with Pay later */
+.order-payment-pending {
+  display: inline-flex;
+  align-items: center;
+  padding: calc(5 * var(--account-design-pixel)) calc(12 * var(--account-design-pixel));
+  border-radius: 9999px;
+  background: #fbf3e1;
+  border: 1px solid #f5bf2c;
+  font-family: var(--font-ubuntu), sans-serif;
+  font-size: calc(12 * var(--account-design-pixel));
+  font-weight: 700;
+  white-space: nowrap;
+  color: #c99a1e;
 }
 
 /* Status as a pill: green, red when cancelled or the payment failed */
@@ -208,7 +231,6 @@
 }
 
 .order-total {
-  margin-top: calc(14 * var(--account-design-pixel));
   font-family: var(--font-ubuntu), sans-serif;
   font-size: calc(18 * var(--account-design-pixel));
   font-weight: 700;
@@ -220,7 +242,6 @@
   align-items: center;
   justify-content: center;
   height: calc(36 * var(--account-design-pixel));
-  margin-top: calc(8 * var(--account-design-pixel));
   padding: 0 calc(22 * var(--account-design-pixel));
   border-radius: 9999px;
   font-family: var(--font-ubuntu), sans-serif;
@@ -230,19 +251,20 @@
   transition: background-color 150ms ease;
 }
 
+/* Reorder: outline green (distinct from the solid green status pill, sits beside it) */
 .order-reorder-button {
-  background: #2f6b3f;
-  color: #ffffff;
+  background: #ffffff;
+  color: #1f4d2e;
+  border: 1px solid #2f6b3f;
 }
 
 .order-reorder-button:hover,
 .order-reorder-button:focus-visible {
-  background: #245433;
+  background: #e6f0e1;
 }
 
 /* "Order details": plain green text (opens the receipt pop-up) */
 .order-details-text-button {
-  margin-top: calc(14 * var(--account-design-pixel));
   padding: 0;
   background: none;
   font-family: var(--font-ubuntu), sans-serif;

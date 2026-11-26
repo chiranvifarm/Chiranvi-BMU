@@ -10,7 +10,7 @@ import { logOut, rememberPageAfterLogin, useIsLoggedIn, useIsLoginStatusKnown } 
 import { useCurrentStaffAccess } from "@/store/staff-access-store";
 import { useIsDeliveryAgent } from "@/store/delivery-agent-store";
 import { countCartPacks, useCartItems } from "@/store/cart-store";
-import { countActiveOrders, forgetAllOrders, markOrderUpdatesSeen, useOrderUpdates, useOrders } from "@/store/orders-store";
+import { forgetAllOrders, markOrderUpdatesSeen, useNewActiveOrderCount, useOrderUpdates } from "@/store/orders-store";
 import { getNameInitials, useAccountProfile } from "./account-profile";
 import LogoutConfirmationDialog, { type LogoutChoice } from "./logout-confirmation-dialog";
 import styles from "./account-dashboard-layout.module.css";
@@ -32,6 +32,11 @@ const accountPages = [
     href: "/account/subscription",
     label: "Subscription",
     iconPaths: ["M4 6h16v14H4z", "M4 10h16", "M8 3v4M16 3v4", "M9 15l2 2 4-4"],
+  },
+  {
+    href: "/account/billing",
+    label: "Billing & payment",
+    iconPaths: ["M3 7h18v10H3z", "M3 11h18", "M7 15h4"],
   },
   {
     href: "/account/address",
@@ -72,16 +77,17 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
   // Delivery agents: they get the "Delivery Panel" button instead
   const isDeliveryAgent = useIsDeliveryAgent();
   const accountProfile = useAccountProfile();
-  // Orders still on their way: the yellow badge next to "Orders" (design); hidden when there are none.
-  const activeOrderCount = countActiveOrders(useOrders());
+  // New active orders since My Orders was last opened: the yellow badge next to "Orders"; clears when they open it.
+  const activeOrderCount = useNewActiveOrderCount();
   // Status changes since My Orders was last opened: "New" next to "Orders"; opening My Orders clears it
   const orderUpdateCount = useOrderUpdates().length;
   // Phones: the cart bag in the My account bar (the navigation bar is not shown there)
   const cartItemCount = countCartPacks(useCartItems());
   const pathname = usePathname();
+  // Opening My Orders marks it seen, so the "New" and the active-order count both clear
   useEffect(() => {
-    if (pathname === "/account/orders" && orderUpdateCount > 0) markOrderUpdatesSeen();
-  }, [pathname, orderUpdateCount]);
+    if (pathname === "/account/orders") markOrderUpdatesSeen();
+  }, [pathname]);
   const router = useRouter();
   // True after Logout, so the dashboard goes to the home page instead of asking for the login.
   const isLoggingOutRef = useRef(false);
@@ -305,6 +311,7 @@ export default function AccountDashboardLayout({ children }: { children: ReactNo
           <main className={styles["account-page-content"]}>{children}</main>
         </div>
       )}
+
 
       {isLogoutDialogOpen && (
         <LogoutConfirmationDialog onCancel={() => setIsLogoutDialogOpen(false)} onConfirm={logOutAndGoHome} />
